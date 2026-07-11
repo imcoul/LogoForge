@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import { 
   Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, 
   BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, 
-  MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2
+  MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe
 } from 'lucide-react';
 import { generateLogoImage, generateBrandGuide, analyzeRefinementContext, generateSonicPhilosophy } from './services/geminiService';
 import { useAppStore, Project } from './store';
@@ -44,6 +45,8 @@ export default function App() {
   const refineInputRef = useRef<HTMLInputElement>(null);
   const sonicInputRef = useRef<HTMLInputElement>(null);
   const [commentText, setCommentText] = useState('');
+
+  const { t, i18n } = useTranslation();
 
   // Load active project
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
@@ -221,23 +224,69 @@ export default function App() {
     }
   };
 
-  const handleExportNotion = () => {
+  const handleExportNotion = async () => {
     if (!activeProject) return;
-    
-    const exportData = {
-      project_name: activeProject.name,
-      created: new Date(activeProject.createdAt).toISOString(),
-      logo_base64_preview: activeProject.logoUrl?.substring(0, 50) + '...',
-      brand_colors: activeProject.brandGuide?.primaryColors.map(c => c.hex) || [],
-      sonic_assets: activeProject.sonicAssets.length,
-      comments: activeProject.comments.length
-    };
-    
-    // Simulate API call to Notion
-    const md = `# ${activeProject.name}\n\n**Exported**: ${new Date().toLocaleString()}\n\n## Brand Strategy\n${activeProject.description}\n\n## Colors\n${exportData.brand_colors.join(', ')}\n\n> Exported successfully to Notion (Simulated).`;
-    
-    alert(`Notion Export Successful!\n\nPayload:\n${JSON.stringify(exportData, null, 2)}\n\nMarkdown Generated:\n${md}`);
+
+    try {
+      // 1. Fetch the OAuth URL from our server
+      const response = await fetch('/api/oauth/notion/url');
+      if (!response.ok) {
+        throw new Error('Failed to get auth URL. Check NOTION_CLIENT_ID configuration.');
+      }
+      const { url } = await response.json();
+
+      // 2. Open popup
+      const authWindow = window.open(
+        url,
+        'oauth_popup',
+        'width=600,height=700'
+      );
+
+      if (!authWindow) {
+        alert('Please allow popups for this site to connect to Notion.');
+      }
+    } catch (error: any) {
+      console.error('OAuth error:', error);
+      alert(error.message);
+    }
   };
+
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      const origin = event.origin;
+      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
+        return;
+      }
+      
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS' && activeProject) {
+        alert(`Successfully connected to Notion workspace: ${event.data.workspace}`);
+        
+        // Trigger export
+        try {
+          const exportRes = await fetch('/api/notion/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectName: activeProject.name,
+              description: activeProject.description,
+              colors: activeProject.brandGuide?.primaryColors.map(c => c.hex) || [],
+            })
+          });
+          
+          const exportData = await exportRes.json();
+          if (exportRes.ok) {
+            alert(`Export successful! Notion Page: ${exportData.url}`);
+          } else {
+            throw new Error(exportData.error);
+          }
+        } catch (exportErr: any) {
+           alert(`Failed to export: ${exportErr.message}`);
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [activeProject]);
 
   const currentAnim = ANIMATIONS[activeAnimation];
 
@@ -246,7 +295,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-100 text-neutral-900 font-sans flex shadow-inner overflow-hidden">
+    <div dir={i18n.language === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen bg-neutral-100 text-neutral-900 font-sans flex shadow-inner overflow-hidden">
       
       {/* Global Navigation Rail */}
       <div className="w-20 bg-black flex flex-col items-center py-8 gap-8 shrink-0 z-20">
@@ -276,21 +325,34 @@ export default function App() {
           <div className="max-w-6xl mx-auto">
             <div className="flex items-center justify-between mb-12">
               <div>
-                <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-black">Asset Library</h1>
-                <p className="text-neutral-500">Manage your generated logos, brand guides, mockups, and sonic identities.</p>
+                <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-black">{t('app_title')}</h1>
+                <p className="text-neutral-500">{t('app_description')}</p>
               </div>
-              <button onClick={handleCreateNewProject} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-colors">
-                <Plus size={18} /> New Project
-              </button>
+              <div className="flex items-center gap-4">
+                <div className="flex bg-neutral-200 p-1 rounded-lg">
+                  {['en', 'fr', 'ar'].map(lang => (
+                    <button
+                      key={lang}
+                      onClick={() => i18n.changeLanguage(lang)}
+                      className={`px-3 py-1 text-xs font-bold uppercase rounded-md transition-colors ${i18n.language === lang ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}
+                    >
+                      {lang}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={handleCreateNewProject} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-colors">
+                  <Plus size={18} /> {t('new_project')}
+                </button>
+              </div>
             </div>
             
             {projects.length === 0 ? (
               <div className="text-center py-24 bg-white rounded-3xl border border-neutral-200 border-dashed">
                 <FolderArchive className="w-16 h-16 mx-auto text-neutral-300 mb-4" />
-                <h3 className="text-xl font-bold mb-2">No projects yet</h3>
-                <p className="text-neutral-500 mb-6">Create your first brand identity project to get started.</p>
+                <h3 className="text-xl font-bold mb-2">{t('no_projects')}</h3>
+                <p className="text-neutral-500 mb-6">{t('create_first_project')}</p>
                 <button onClick={handleCreateNewProject} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm inline-flex items-center gap-2">
-                  <Plus size={18} /> Create Project
+                  <Plus size={18} /> {t('create_project')}
                 </button>
               </div>
             ) : (
@@ -325,14 +387,14 @@ export default function App() {
           {/* Studio Control Panel */}
           <div className="w-full md:w-5/12 lg:w-[400px] bg-white border-r border-neutral-300 p-8 flex flex-col shrink-0 z-10 overflow-y-auto">
             <div className="mb-8">
-              <h1 className="text-2xl font-extrabold tracking-tight mb-1 text-black">Refinement Studio</h1>
+              <h1 className="text-2xl font-extrabold tracking-tight mb-1 text-black">{t('refinement_studio')}</h1>
               <p className="text-xs font-medium text-neutral-500 uppercase tracking-widest">{activeProject?.name || 'No Project Selected'}</p>
             </div>
 
             {!activeProject ? (
               <div className="flex-1 flex items-center justify-center flex-col text-center opacity-50">
                 <LayoutDashboard className="w-12 h-12 mb-4" />
-                <p>Select or create a project from the dashboard.</p>
+                <p>{t('no_project_selected')}</p>
               </div>
             ) : (
               <>
@@ -341,24 +403,24 @@ export default function App() {
                     onClick={() => setMode('create')}
                     className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${mode === 'create' ? 'bg-white shadow-sm text-black' : 'text-neutral-500 hover:text-black'}`}
                   >
-                    Create New
+                    {t('create_new')}
                   </button>
                   <button
                     onClick={() => setMode('upload')}
                     className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${mode === 'upload' ? 'bg-white shadow-sm text-black' : 'text-neutral-500 hover:text-black'}`}
                   >
-                    Upload Logo
+                    {t('upload_logo')}
                   </button>
                 </div>
 
                 <div className="flex-1 space-y-8">
               {mode === 'create' ? (
                 <div className="space-y-3">
-                  <label className="block text-xs font-bold uppercase tracking-widest text-neutral-800">1. Company Description</label>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-neutral-800">{t('company_description')}</label>
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="e.g. A modern coffee shop..."
+                    placeholder={t('company_desc_placeholder')}
                     className="w-full h-32 p-4 text-sm bg-neutral-50 border border-neutral-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 transition-all resize-none font-medium placeholder:text-neutral-400"
                   />
                   <button
@@ -366,7 +428,7 @@ export default function App() {
                     disabled={isGenerating}
                     className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all disabled:opacity-50 shadow-[0_4px_12px_rgba(79,70,229,0.3)]"
                   >
-                    {isGenerating ? <><RefreshCw className="animate-spin w-5 h-5" /> Forging...</> : <><Palette className="w-5 h-5" /> Generate Logo</>}
+                    {isGenerating ? <><RefreshCw className="animate-spin w-5 h-5" /> Forging...</> : <><Palette className="w-5 h-5" /> {t('generate_logo')}</>}
                   </button>
                 </div>
               ) : (
@@ -421,15 +483,15 @@ export default function App() {
             {activeProject?.logoUrl && (
               <div className="relative z-20 flex justify-center pt-6 pb-2 border-b border-neutral-200 bg-white/50 backdrop-blur-md px-4 overflow-x-auto">
                 <div className="flex gap-2 p-1 bg-neutral-200 rounded-full shrink-0">
-                  <button onClick={() => setActiveTab('preview')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'preview' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}><ImageIcon size={14} /> PREVIEW</button>
-                  <button onClick={() => setActiveTab('guide')} disabled={!activeProject.brandGuide} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'guide' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black disabled:opacity-40'}`}><BookOpen size={14} /> GUIDELINES</button>
-                  <button onClick={() => setActiveTab('refine')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'refine' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}><FileText size={14} /> REFINE</button>
-                  <button onClick={() => setActiveTab('sonic')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'sonic' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}><Music size={14} /> SONIC</button>
-                  <button onClick={() => setActiveTab('comments')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'comments' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}><MessageSquare size={14} /> COLLAB</button>
+                  <button onClick={() => setActiveTab('preview')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'preview' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}><ImageIcon size={14} /> {t('studio_tabs_preview')}</button>
+                  <button onClick={() => setActiveTab('guide')} disabled={!activeProject.brandGuide} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'guide' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black disabled:opacity-40'}`}><BookOpen size={14} /> {t('studio_tabs_guide')}</button>
+                  <button onClick={() => setActiveTab('refine')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'refine' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}><FileText size={14} /> {t('studio_tabs_refine')}</button>
+                  <button onClick={() => setActiveTab('sonic')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'sonic' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}><Music size={14} /> {t('studio_tabs_sonic')}</button>
+                  <button onClick={() => setActiveTab('comments')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'comments' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}><MessageSquare size={14} /> {t('studio_tabs_collab')}</button>
                 </div>
                 
-                <button onClick={handleExportNotion} className="ml-auto flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-full text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors">
-                  <Share2 size={14} /> Export Notion
+                <button onClick={handleExportNotion} className="ml-auto flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-full text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shrink-0">
+                  <Share2 size={14} /> {t('export_notion')}
                 </button>
               </div>
             )}

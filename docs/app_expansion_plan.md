@@ -1,7 +1,7 @@
-# Lumière Logo Forge: Application Expansion Plan & PRD
+# Forgel: Application Expansion Plan & PRD
 
 ## 1. Executive Summary
-This document serves as the master Product Requirements Document (PRD) and implementation checklist for the expansion of **Lumière Logo Forge**. The expansion transforms the app from a simple logo generator into a comprehensive, AI-powered brand identity operating system. It encompasses asset management, AI-driven refinement using external context, third-party collaboration, and 7 "wild" generative features (including Organic Sonic Branding).
+This document serves as the master Product Requirements Document (PRD) and implementation checklist for the expansion of **Forgel** (formerly Lumière Logo Forge). The expansion transforms the app from a simple logo generator into a comprehensive, AI-powered brand identity operating system. It encompasses asset management, AI-driven refinement using external context, third-party collaboration, advanced SVG manual editing, comprehensive brand guide generation, and 7 "wild" generative features.
 
 ---
 
@@ -111,15 +111,15 @@ This document serves as the master Product Requirements Document (PRD) and imple
 
 ### Phase 4: Collaboration & Notion Export
 - [x] Build UI for the Comments sidebar.
-- [ ] Implement Notion OAuth Integration (OAuth popup flow, `postMessage` callback).
-- [ ] Implement Notion Export API call (formatting data to JSON/Markdown and pushing to user's workspace).
-- [x] **Findings:** Built a chat-like comments interface stored in the `Project` model. Notion export currently uses a mock implementation but will be upgraded to use real OAuth.
+- [x] Implement Notion OAuth Integration (OAuth popup flow, `postMessage` callback).
+- [x] Implement Notion Export API call (formatting data to JSON/Markdown and pushing to user's workspace).
+- [x] **Findings:** Implemented actual Notion OAuth flow using the `@notionhq/client` in the server proxy. The client triggers the popup and receives the `postMessage` callback successfully, executing the page creation payload against the API.
 
 ### Phase 5: Localization Strategy (Trilingual & Beyond)
-- [ ] Implement Internationalization (i18n) framework (e.g., `i18next` or similar).
-- [ ] Add initial Trilingual Support: English (EN), French (FR), and Arabic (AR - with RTL support).
-- [ ] Build scalable language-switching UI and translation JSON architecture to easily support additional languages in the future.
-- [ ] **Findings:** *[Add notes here...]*
+- [x] Implement Internationalization (i18n) framework (e.g., `i18next` or similar).
+- [x] Add initial Trilingual Support: English (EN), French (FR), and Arabic (AR - with RTL support).
+- [x] Build scalable language-switching UI and translation JSON architecture to easily support additional languages in the future.
+- [x] **Findings:** Set up `i18next` with a centralized translation mapping file (`src/i18n.ts`). Integrated language switcher in the Dashboard. Added structural RTL support on the root app container for Arabic (`dir="rtl"`). Future languages simply require appending to the JSON object and array.
 
 ### Phase 6: Additional "Wild" Features
 - [ ] Implement Generative Spatial Mockups tab.
@@ -129,3 +129,21 @@ This document serves as the master Product Requirements Document (PRD) and imple
 - [ ] Implement AI Typography Sculpting.
 - [ ] Implement Physical Print Readiness (CMYK/Pantone generation).
 - [x] **Findings:** Implemented Dynamic Motion Identity using Framer Motion with preset choreographies (float, pulse, spin, bounce, flip) that the user can apply directly to the generated logo vector.
+
+### Phase 7: Precision Canvas (Manual SVG & Vector Editing)
+- [ ] Implement a **Raw Code Editor** (e.g., Monaco/CodeMirror) for direct `<svg>` markup manipulation with live hot-reloading.
+- [ ] Implement a **Visual Node Editor** allowing graphical manipulation of SVG paths, bezier curves, and anchor points.
+- [ ] Build seamless syncing between the AI generator, the visual canvas, and the raw code editor (so edits in one reflect in all).
+- [ ] **Findings:** *[Add notes here...]*
+
+### Phase 8: Brand Architect (Comprehensive Guide Generation & Export)
+- [ ] Build a "Brand Ingestion" UI accepting massive text inputs, PDFs, or URLs (scraping context) to capture a company's full mission, vision, values, and competitor landscape.
+- [ ] Implement tiered generation pipelines:
+  - **Compact Mode**: Generates a 1-page "Stylescape" (Cheat Sheet) containing core logos, primary colors, and basic typography.
+  - **Complete Mode**: Generates a massive, fully detailed brand book (Voice & Tone, Do's and Don'ts, photography guidelines, etc.).
+- [ ] Implement comprehensive export pipelines:
+  - **PDF**: Client-side rendering of the guide (via `html2canvas` + `jsPDF` or browser print).
+  - **PPTX**: Presentation export using a library like `pptxgenjs`.
+  - **JSON/CSV**: Structured data export for tokens, colors, and components.
+  - **MD**: Developer-friendly markdown documentation.
+- [ ] **Findings:** *[Add notes here...]*

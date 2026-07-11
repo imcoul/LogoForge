@@ -1,6 +1,6 @@
 {
-  "name": "Lumière Logo Forge",
-  "description": "An AI-powered logo generator that creates minimalist logo designs from descriptions and animates them.",
+  "name": "Forgel",
+  "description": "An AI-powered brand identity operating system.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
