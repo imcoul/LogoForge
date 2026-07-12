@@ -6,6 +6,15 @@ import {
   Sparkles, Check, RotateCcw, Move, LayoutGrid,
   ZoomIn, ZoomOut, Maximize2, Undo2, Redo2, HelpCircle
 } from 'lucide-react';
+import DOMPurify from 'dompurify';
+
+const sanitizeSVG = (svg: string | null): string => {
+  if (!svg) return '';
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    ADD_TAGS: ['style'],
+  });
+};
 
 interface SVGPathEditorProps {
   svgSource?: string | null;
@@ -427,9 +436,9 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Handle touch starts on drawing board (panning, swiping, zooming, drawing)
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!canvasRef.current || !actualSvgSource) return;
+    if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current) || !actualSvgSource) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
+    const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
 
     if (e.touches.length === 3) {
       // 3-Finger horizontal swipe tracking
@@ -475,8 +484,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       const coords = getEventCoords(e, rect);
       if (!coords) return;
 
-      // Single finger panning is active only if we are in Brush and holding down without drawing active,
-      // or we are simply navigating. To make it seamless: if drawTool is active we draw, if not we pan.
+      if (editorMode === 'coordinate') {
+        setIsPanning(true);
+        setPanStart({ x: coords.clientX - panOffset.x, y: coords.clientY - panOffset.y });
+        return;
+      }
+
       if (drawTool === 'brush') {
         setIsDrawing(true);
         setBrushPoints([{ x: coords.x, y: coords.y }]);
@@ -500,8 +513,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Handle Touch moves
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
+    if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)) return;
+    const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
 
     if (e.touches.length === 3 && swipeStartX !== null) {
       e.preventDefault();
@@ -563,14 +576,25 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       return;
     }
 
-    if (e.touches.length === 1 && isDrawing && drawTool === 'brush') {
-      e.preventDefault();
-      const coords = getEventCoords(e, rect);
-      if (!coords) return;
+    if (e.touches.length === 1) {
+      if (isPanning) {
+        e.preventDefault();
+        setPanOffset({
+          x: e.touches[0].clientX - panStart.x,
+          y: e.touches[0].clientY - panStart.y
+        });
+        return;
+      }
+      
+      if (isDrawing && drawTool === 'brush') {
+        e.preventDefault();
+        const coords = getEventCoords(e, rect);
+        if (!coords) return;
 
-      const lastPoint = brushPoints[brushPoints.length - 1];
-      if (!lastPoint || Math.abs(lastPoint.x - coords.x) > 1.5 || Math.abs(lastPoint.y - coords.y) > 1.5) {
-        setBrushPoints((prev) => [...prev, { x: coords.x, y: coords.y }]);
+        const lastPoint = brushPoints[brushPoints.length - 1];
+        if (!lastPoint || Math.abs(lastPoint.x - coords.x) > 1.5 || Math.abs(lastPoint.y - coords.y) > 1.5) {
+          setBrushPoints((prev) => [...prev, { x: coords.x, y: coords.y }]);
+        }
       }
     }
   };
@@ -580,6 +604,11 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     if (e.touches.length < 2) {
       setInitialDistance(null);
       setSwipeStartX(null);
+    }
+    
+    if (isPanning) {
+      setIsPanning(false);
+      return;
     }
 
     if (drawTool === 'brush' && isDrawing && brushPoints.length > 1) {
@@ -592,13 +621,13 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Handle Desktop Mouse Event Start
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!canvasRef.current || !actualSvgSource) return;
-    const rect = canvasRef.current.getBoundingClientRect();
+    if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current) || !actualSvgSource) return;
+    const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
     const coords = getEventCoords(e, rect);
     if (!coords) return;
 
-    if (e.button === 1 || e.shiftKey) {
-      // Middle click or Shift + Drag pans
+    if (e.button === 1 || e.shiftKey || editorMode === 'coordinate') {
+      // Middle click or Shift + Drag pans (or any click in coordinate mode background)
       setIsPanning(true);
       setPanStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
       return;
@@ -626,8 +655,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Handle Desktop Mouse Move
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
+    if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)) return;
+    const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
 
     if (isPanning) {
       setPanOffset({
@@ -1296,7 +1325,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* LIVE PREVIEW OF CURRENT LOGO BASE */}
                 <div 
-                  dangerouslySetInnerHTML={{ __html: actualSvgSource }} 
+                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(actualSvgSource) }} 
                   className="w-full h-full max-w-[280px] max-h-[280px] flex items-center justify-center pointer-events-none select-none z-10"
                 />
 
@@ -1611,7 +1640,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                   <line x1={loupeCoords.x - 20} y1={loupeCoords.y} x2={loupeCoords.x + 20} y2={loupeCoords.y} stroke="#444" strokeWidth="0.5" strokeDasharray="1 1" />
 
                   {/* Original SVG path structures in loupe */}
-                  <g dangerouslySetInnerHTML={{ __html: actualSvgSource.replace(/<rect[^>]*\/>/g, '') }} />
+                  <g dangerouslySetInnerHTML={{ __html: sanitizeSVG(actualSvgSource).replace(/<rect[^>]*\/>/g, '') }} />
 
                   {/* Centered crosshair handle indicator */}
                   <circle cx={loupeCoords.x} cy={loupeCoords.y} r="1.5" fill="none" stroke="#6366F1" strokeWidth="0.8" />
@@ -1730,6 +1759,13 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             
             <div 
               ref={coordCanvasRef}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
               className="relative aspect-square w-full rounded-2xl border-2 border-neutral-200 dark:border-zinc-800 bg-neutral-50 dark:bg-zinc-950 overflow-hidden shadow-inner flex items-center justify-center cursor-crosshair touch-none select-none"
             >
               {/* Dynamic Zoom & Pan Transform Layer */}
@@ -1754,7 +1790,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* Main Logo Base Preview */}
                 <div 
-                  dangerouslySetInnerHTML={{ __html: actualSvgSource }} 
+                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(actualSvgSource) }} 
                   className="w-full h-full max-w-[280px] max-h-[280px] flex items-center justify-center pointer-events-none select-none z-10 opacity-40 dark:opacity-20"
                 />
 

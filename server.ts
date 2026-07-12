@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import cookieParser from "cookie-parser";
 import { Client } from "@notionhq/client";
 import dotenv from "dotenv";
+import geminiRouter from "./src/server/geminiRouter.ts";
 
 dotenv.config();
 
@@ -13,6 +14,8 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
   app.use(cookieParser());
+  
+  app.use("/api/gemini", geminiRouter);
 
   // OAuth endpoint for URL
   app.get("/api/oauth/notion/url", (req, res) => {

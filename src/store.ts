@@ -55,6 +55,7 @@ export interface Project {
   logoHistory?: string[]; // Stack of logo history
   snapshots?: Snapshot[]; // List of version snapshots
   stickyNotes?: StickyNote[]; // Interactive sticky notes anchored to canvas
+  driveFileId?: string; // Linked Google Drive file identifier
 }
 
 export interface KeyboardMap {

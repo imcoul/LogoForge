@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter } from 'lucide-react';
+import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud } from 'lucide-react';
 import { generateLogoImage, generateBrandGuide, analyzeRefinementContext, generateSonicPhilosophy, generateDesignRationale, generateAICriticComment } from './services/geminiService';
 import { useAppStore, Project, Mockup } from './store';
 import { KeyboardManager } from './components/KeyboardManager';
@@ -9,6 +9,17 @@ import { TemplateLibrary } from './components/TemplateLibrary';
 import { SVGPathEditor } from './components/SVGPathEditor';
 import { AccessibilityScore } from './components/AccessibilityScore';
 import { Whacanudo } from './components/Whacanudo';
+import { GoogleDriveIntegration } from './components/GoogleDriveIntegration';
+import { useToast } from './components/Toast';
+import DOMPurify from 'dompurify';
+
+const sanitizeSVG = (svg: string | null): string => {
+  if (!svg) return '';
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    ADD_TAGS: ['style'],
+  });
+};
 
 const ANIMATIONS = {
   float: { animate: { y: [0, -15, 0] }, transition: { duration: 3, repeat: Infinity, ease: "easeInOut" } },
@@ -850,15 +861,6 @@ const exportFullPDF = (features: PrdFeature[], includeServer = false) => {
   printWindow.document.close();
 };
 
-const sanitizeSVG = (svg: string | null): string => {
-  if (!svg) return '';
-  // Remove script elements and inline event handlers to guarantee robust XSS security
-  return svg
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/on\w+="[^"]*"/gi, '')
-    .replace(/on\w+='[^']*'/gi, '');
-};
-
 const safeFormatDate = (dateVal: any, lang: string): string => {
   try {
     const d = new Date(dateVal);
@@ -874,6 +876,7 @@ const safeFormatDate = (dateVal: any, lang: string): string => {
 };
 
 export default function App() {
+  const { toast } = useToast();
   const { 
     projects, activeProjectId, isHydrated, settings,
     loadProjects, createProject, updateProject, deleteProject, setActiveProject, updateSettings
@@ -881,6 +884,7 @@ export default function App() {
 
   const [view, setView] = useState<ViewMode>('dashboard');
   const [isWhacanudoOpen, setIsWhacanudoOpen] = useState(false);
+  const [isGoogleDriveOpen, setIsGoogleDriveOpen] = useState(false);
   const [whacanudoTab, setWhacanudoTab] = useState<'overview' | 'features' | 'terminal'>('overview');
   const [devLogs, setDevLogs] = useState<string[]>([]);
   const [activeDevTask, setActiveDevTask] = useState<string | null>(null);
@@ -1113,7 +1117,7 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
       await updateProject(activeProjectId, { comments: updatedComments });
     } catch (err: any) {
       console.error(err);
-      alert("Failed to gather AI Critic feedback. Make sure your Gemini API Key is configured in Settings.");
+      toast("Failed to gather AI Critic feedback. Make sure your Gemini API Key is configured in Settings.", 'error');
     } finally {
       setIsCriticLoading(false);
     }
@@ -1137,6 +1141,7 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
       if (activeProject?.svgSource) {
         nextUpdates.logoHistory = [...history, activeProject.svgSource];
       }
+      nextUpdates.logoUrl = `data:image/svg+xml;utf8,${encodeURIComponent(updates.svgSource)}`;
     }
 
     updateProject(activeProjectId, nextUpdates);
@@ -1456,7 +1461,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       a.click();
     } catch (err: any) {
       console.error(err);
-      alert('Failed to generate brand deck PPTX: ' + err.message);
+      toast('Failed to generate brand deck PPTX: ' + err.message, 'error');
     }
   };
 
@@ -1732,11 +1737,11 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       );
 
       if (!authWindow) {
-        alert('Please allow popups for this site to connect to Notion.');
+        toast('Please allow popups for this site to connect to Notion.', 'error');
       }
     } catch (error: any) {
       console.error('OAuth error:', error);
-      alert(error.message);
+      toast(error.message, 'error');
     }
   };
 
@@ -1748,7 +1753,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       }
       
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS' && activeProject) {
-        alert(`Successfully connected to Notion workspace: ${event.data.workspace}`);
+        toast(`Successfully connected to Notion workspace: ${event.data.workspace}`, 'success');
         
         // Trigger export
         try {
@@ -1764,12 +1769,12 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
           
           const exportData = await exportRes.json();
           if (exportRes.ok) {
-            alert(`Export successful! Notion Page: ${exportData.url}`);
+            toast(`Export successful! Notion Page: ${exportData.url}`, 'success');
           } else {
             throw new Error(exportData.error);
           }
         } catch (exportErr: any) {
-           alert(`Failed to export: ${exportErr.message}`);
+           toast(`Failed to export: ${exportErr.message}`, 'error');
         }
       }
     };
@@ -1805,14 +1810,14 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       />
       
       {/* Global Navigation Rail */}
-      <div className="w-full md:w-20 h-20 md:h-full bg-black flex flex-row md:flex-col items-center justify-around md:justify-start py-4 md:py-8 gap-4 md:gap-8 shrink-0 z-20">
+      <div className="w-full md:w-20 h-20 md:h-full bg-white dark:bg-zinc-950 border-t md:border-t-0 md:border-r border-neutral-200 dark:border-zinc-800 flex flex-row md:flex-col items-center justify-around md:justify-start py-4 md:py-8 gap-4 md:gap-8 shrink-0 z-20">
         <div className="hidden md:flex w-10 h-10 bg-brand-lead rounded-xl items-center justify-center text-white font-bold mb-4 shadow-lg shadow-indigo-600/20">
           <Sparkles size={20} />
         </div>
         
         <button 
           onClick={() => setView('dashboard')}
-          className={`p-3 rounded-xl transition-all ${view === 'dashboard' ? 'bg-white dark:bg-zinc-900/20 text-white' : 'text-neutral-500 dark:text-zinc-400 hover:text-white hover:bg-white dark:bg-zinc-900/10'}`}
+          className={`p-3 rounded-xl transition-all ${view === 'dashboard' ? 'bg-indigo-50 dark:bg-zinc-800 text-brand-lead dark:text-indigo-400' : 'text-neutral-500 dark:text-zinc-400 hover:bg-neutral-50 dark:hover:bg-zinc-900'}`}
           title="Asset Library / Workspace"
         >
           <FolderArchive size={24} />
@@ -1820,7 +1825,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
         
         <button 
           onClick={() => setView('studio')}
-          className={`p-3 rounded-xl transition-all ${view === 'studio' ? 'bg-white dark:bg-zinc-900/20 text-white' : 'text-neutral-500 dark:text-zinc-400 hover:text-white hover:bg-white dark:bg-zinc-900/10'}`}
+          className={`p-3 rounded-xl transition-all ${view === 'studio' ? 'bg-indigo-50 dark:bg-zinc-800 text-brand-lead dark:text-indigo-400' : 'text-neutral-500 dark:text-zinc-400 hover:bg-neutral-50 dark:hover:bg-zinc-900'}`}
           title="Refinement Studio"
         >
           <Palette size={24} />
@@ -1868,9 +1873,18 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
           </span>
         </button>
 
+        {/* Global Dark Mode Toggle */}
+        <button 
+          onClick={() => setIsDarkMode(!isDarkMode)}
+          className="p-3 rounded-xl transition-all text-neutral-500 hover:text-black dark:hover:text-amber-400 hover:bg-neutral-50 dark:hover:bg-zinc-900 cursor-pointer"
+          title="Toggle Theme"
+        >
+          {isDarkMode ? <Sun size={24} className="text-amber-500 animate-pulse" /> : <Moon size={24} />}
+        </button>
+
         <button 
           onClick={() => setView('settings')}
-          className={`p-3 rounded-xl transition-all ${view === 'settings' ? 'bg-white dark:bg-zinc-900/20 text-white' : 'text-neutral-500 dark:text-zinc-400 hover:text-white hover:bg-white dark:bg-zinc-900/10'}`}
+          className={`p-3 rounded-xl transition-all ${view === 'settings' ? 'bg-indigo-50 dark:bg-zinc-800 text-brand-lead dark:text-indigo-400' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:hover:text-white hover:bg-neutral-50 dark:hover:bg-zinc-900'}`}
           title="Settings"
         >
           <Settings size={24} />
@@ -1887,6 +1901,15 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                 <p className="text-neutral-500 dark:text-zinc-400">{t('app_description')}</p>
               </div>
               <div className="flex flex-wrap items-center gap-4">
+                {/* Google Drive Button */}
+                <button
+                  onClick={() => setIsGoogleDriveOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-neutral-600 dark:text-zinc-300 hover:text-black dark:hover:text-white bg-neutral-100 dark:bg-zinc-800 rounded-xl hover:bg-neutral-200 dark:hover:bg-zinc-750 transition-all cursor-pointer shadow-xs"
+                  title="Google Drive Storage Integration"
+                >
+                  <Cloud size={14} className="text-indigo-500" /> Google Drive
+                </button>
+
                 {/* Onboarding Tour Button */}
                 <button
                   onClick={() => setTourStep(0)}
@@ -2098,7 +2121,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                       const thirtyOneDaysAgo = Date.now() - 31 * 24 * 60 * 60 * 1000;
                                       await updateProject(proj.id, { updatedAt: thirtyOneDaysAgo, archived: true });
                                     }} 
-                                    className="p-2 bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 hover:bg-amber-100 rounded-lg opacity-0 group-hover:opacity-100 transition-all cursor-pointer" 
+                                    className="p-2 bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 hover:bg-amber-100 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
                                     title="Simulate 30-Day Inactivity (Trigger Auto-Archive)"
                                   >
                                     <RefreshCw size={14} className="animate-pulse" />
@@ -2112,7 +2135,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                       e.stopPropagation(); 
                                       await updateProject(proj.id, { archived: false, updatedAt: Date.now() });
                                     }} 
-                                    className="p-2 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 rounded-lg opacity-0 group-hover:opacity-100 transition-all cursor-pointer" 
+                                    className="p-2 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
                                     title="Retrieve & Restore Active Brand"
                                   >
                                     <CheckCircle size={14} />
@@ -2123,7 +2146,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                       e.stopPropagation(); 
                                       await updateProject(proj.id, { archived: true, updatedAt: Date.now() });
                                     }} 
-                                    className="p-2 bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 rounded-lg opacity-0 group-hover:opacity-100 transition-all cursor-pointer" 
+                                    className="p-2 bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
                                     title="Archive Brand Space"
                                   >
                                     <FolderArchive size={14} />
@@ -2135,7 +2158,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                     e.stopPropagation(); 
                                     setProjectToDelete(proj.id);
                                   }} 
-                                  className="p-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg opacity-0 group-hover:opacity-100 transition-all cursor-pointer" 
+                                  className="p-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
                                   title="Delete Project Permanent"
                                 >
                                   <Trash2 size={14} />
@@ -2558,42 +2581,85 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
 
           {/* Main Canvas Area */}
           <div className="flex-1 bg-neutral-100 dark:bg-zinc-950 relative overflow-hidden flex flex-col border-l border-white/50">
-            {activeProject?.logoUrl && (
-              <div className="relative z-20 flex justify-center pt-6 pb-2 border-b border-neutral-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 backdrop-blur-md px-4 overflow-x-auto">
-                <div className="flex gap-2 p-1 bg-neutral-200 dark:bg-zinc-800 rounded-full shrink-0">
-                  <button onClick={() => setActiveTab('preview')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'preview' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><ImageIcon size={14} /> {t('studio_tabs_preview')}</button>
-                  <button onClick={() => setActiveTab('precision')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'precision' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><FileText size={14} /> PRECISION</button>
-                  <button onClick={() => setActiveTab('mockups')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'mockups' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Layers size={14} /> MOCKUPS</button>
-                  <button onClick={() => setActiveTab('guide')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'guide' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><BookOpen size={14} /> {t('studio_tabs_guide')}</button>
-                  <button onClick={() => setActiveTab('refine')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'refine' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Sparkles size={14} /> {t('studio_tabs_refine')}</button>
-                  <button onClick={() => setActiveTab('sonic')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'sonic' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Music size={14} /> {t('studio_tabs_sonic')}</button>
-                  <button onClick={() => setActiveTab('comments')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'comments' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><MessageSquare size={14} /> {t('studio_tabs_collab')}</button>
+            {activeProject && (
+              <>
+                {/* Desktop Tabs */}
+                <div className="relative z-20 hidden md:flex justify-start md:justify-center pt-6 pb-2 border-b border-neutral-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 backdrop-blur-md px-4 overflow-x-auto no-scrollbar scroll-smooth">
+                  <div className="flex gap-2 p-1 bg-neutral-200 dark:bg-zinc-800 rounded-full shrink-0">
+                    <button onClick={() => setActiveTab('preview')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'preview' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><ImageIcon size={14} /> {t('studio_tabs_preview')}</button>
+                    <button onClick={() => setActiveTab('precision')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'precision' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><FileText size={14} /> PRECISION</button>
+                    <button onClick={() => setActiveTab('mockups')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'mockups' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Layers size={14} /> MOCKUPS</button>
+                    <button onClick={() => setActiveTab('guide')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'guide' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><BookOpen size={14} /> {t('studio_tabs_guide')}</button>
+                    <button onClick={() => setActiveTab('refine')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'refine' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Sparkles size={14} /> {t('studio_tabs_refine')}</button>
+                    <button onClick={() => setActiveTab('sonic')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'sonic' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Music size={14} /> {t('studio_tabs_sonic')}</button>
+                    <button onClick={() => setActiveTab('comments')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'comments' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><MessageSquare size={14} /> {t('studio_tabs_collab')}</button>
+                  </div>
+                  
+                  <button onClick={handleExportNotion} className="ml-auto flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-full text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shrink-0">
+                    <Share2 size={14} /> {t('export_notion')}
+                  </button>
                 </div>
-                
-                <button onClick={handleExportNotion} className="ml-auto flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-full text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shrink-0">
-                  <Share2 size={14} /> {t('export_notion')}
-                </button>
-              </div>
+
+                {/* Mobile Bottom Navigation */}
+                <div className="md:hidden absolute bottom-0 left-0 right-0 z-50 bg-white dark:bg-zinc-900 border-t border-neutral-200 dark:border-zinc-800 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
+                  <div className="flex justify-around items-center p-2 overflow-x-auto no-scrollbar">
+                    <button onClick={() => setActiveTab('preview')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'preview' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <ImageIcon size={20} />
+                      <span className="text-[10px] font-bold">Preview</span>
+                    </button>
+                    <button onClick={() => setActiveTab('precision')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'precision' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <FileText size={20} />
+                      <span className="text-[10px] font-bold">Precision</span>
+                    </button>
+                    <button onClick={() => setActiveTab('mockups')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'mockups' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <Layers size={20} />
+                      <span className="text-[10px] font-bold">Mockups</span>
+                    </button>
+                    <button onClick={() => setActiveTab('guide')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'guide' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <BookOpen size={20} />
+                      <span className="text-[10px] font-bold">Guide</span>
+                    </button>
+                    <button onClick={() => setActiveTab('refine')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'refine' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <Sparkles size={20} />
+                      <span className="text-[10px] font-bold">Refine</span>
+                    </button>
+                    <button onClick={() => setActiveTab('sonic')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'sonic' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <Music size={20} />
+                      <span className="text-[10px] font-bold">Sonic</span>
+                    </button>
+                    <button onClick={() => setActiveTab('comments')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'comments' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <MessageSquare size={20} />
+                      <span className="text-[10px] font-bold">Collab</span>
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
 
-            <div className="flex-1 relative overflow-y-auto flex">
+            <div className="flex-1 relative overflow-y-auto flex pb-24 md:pb-0">
               <div className="absolute inset-0 border-[rgba(0,0,0,0.03)] filter grid pointer-events-none" style={{ backgroundImage: 'radial-gradient(#d4d4d4 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
               
               <AnimatePresence mode="wait">
-                {!activeProject?.logoUrl ? (
+                {!activeProject ? (
+                  <motion.div key="no-project-placeholder" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative z-10 flex flex-col items-center justify-center text-center max-w-sm px-6 m-auto h-full">
+                    <div className="w-32 h-32 mb-6 rounded-full border-2 border-dashed border-neutral-400 flex items-center justify-center text-neutral-400 bg-white dark:bg-zinc-900/50"><Wand2 size={40} className="opacity-50" /></div>
+                    <h2 className="text-2xl font-bold tracking-tight text-neutral-800 dark:text-zinc-300 mb-2">Blank Workspace</h2>
+                    <p className="text-neutral-500 dark:text-zinc-400 font-medium">Create or select a brand project workspace on the left sidebar to begin!</p>
+                  </motion.div>
+                ) : activeTab === 'preview' && !activeProject?.logoUrl ? (
                   <motion.div key="placeholder" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative z-10 flex flex-col items-center justify-center text-center max-w-sm px-6 m-auto h-full">
                     <div className="w-32 h-32 mb-6 rounded-full border-2 border-dashed border-neutral-400 flex items-center justify-center text-neutral-400 bg-white dark:bg-zinc-900/50"><Wand2 size={40} className="opacity-50" /></div>
                     <h2 className="text-2xl font-bold tracking-tight text-neutral-800 dark:text-zinc-300 mb-2">Blank Canvas</h2>
-                    <p className="text-neutral-500 dark:text-zinc-400 font-medium">Create or upload a logo on the left to begin.</p>
+                    <p className="text-neutral-500 dark:text-zinc-400 font-medium">Create/upload a logo on the left sidebar, or switch to the <span className="font-bold text-indigo-600 dark:text-indigo-400">Precision</span> tab above to use vector templates and edit coordinates!</p>
                   </motion.div>
                 ) : activeTab === 'preview' ? (
-                  <motion.div key="preview" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative z-10 flex flex-col items-center justify-center gap-8 m-auto w-full py-12">
+                  <motion.div key="preview" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative z-10 flex flex-col items-center justify-center gap-8 m-auto w-full py-4 md:py-12">
                     <motion.div {...currentAnim} className="w-64 h-64 md:w-96 md:h-96 rounded-full bg-white dark:bg-zinc-900 shadow-[0_20px_60px_rgba(0,0,0,0.1)] border break-words p-4 flex items-center justify-center overflow-hidden border-neutral-200 dark:border-zinc-800">
                       <img src={activeProject.logoUrl} alt="Logo" className="w-full h-full object-contain filter drop-shadow-sm" referrerPolicy="no-referrer" />
                     </motion.div>
                   </motion.div>
                 ) : activeTab === 'guide' ? (
-                  <motion.div key="guide" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-12 max-w-4xl mx-auto w-full">
+                  <motion.div key="guide" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                       <div>
                         <h2 className="text-3xl font-display font-bold">Brand Architect</h2>
@@ -2720,7 +2786,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     <DesignChecklist />
                   </motion.div>
                 ) : activeTab === 'precision' ? (
-                  <motion.div key="precision" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-6 md:p-12 max-w-6xl mx-auto w-full h-full flex flex-col gap-6">
+                  <motion.div key="precision" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-6xl mx-auto w-full h-full flex flex-col gap-6">
                     <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                       <div>
                         <h2 className="text-3xl font-display font-bold tracking-tight text-neutral-900 dark:text-white">Precision Studio</h2>
@@ -2789,11 +2855,17 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                           {/* Live Render SVG */}
                           {activeProject.svgSource ? (
                             <div 
-                              dangerouslySetInnerHTML={{ __html: activeProject.svgSource }} 
+                              dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.svgSource) }} 
                               className="w-full h-full max-w-[400px] max-h-[400px] flex items-center justify-center" 
                             />
-                          ) : (
+                          ) : activeProject.logoUrl ? (
                             <img src={activeProject.logoUrl} className="max-w-[320px] max-h-[320px] object-contain" />
+                          ) : (
+                            <div className="text-center p-6 bg-neutral-50 dark:bg-zinc-900 rounded-2xl border border-dashed border-neutral-200 dark:border-zinc-800">
+                              <Wand2 className="w-12 h-12 mx-auto text-neutral-300 dark:text-zinc-700 mb-2 animate-bounce" />
+                              <p className="text-xs font-bold text-neutral-500 dark:text-zinc-400">Blank Workspace</p>
+                              <p className="text-[10px] text-neutral-400 mt-1">Select a vector shape template below or write custom XML tags.</p>
+                            </div>
                           )}
 
                           {/* Render Live Cursors Overlays */}
@@ -2984,7 +3056,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     </div>
                   </motion.div>
                 ) : activeTab === 'mockups' ? (
-                  <motion.div key="mockups" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-12 max-w-4xl mx-auto w-full">
+                  <motion.div key="mockups" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                       <div>
                         <h2 className="text-3xl font-display font-bold">Real-World Context</h2>
@@ -3178,7 +3250,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                             <img src={mockup.base64Data} className="w-full h-full object-cover" />
                             <div className="absolute inset-0 flex items-center justify-center p-8 opacity-90 hover:opacity-100 transition-opacity pointer-events-none">
                               {activeProject.svgSource ? (
-                                <div dangerouslySetInnerHTML={{ __html: activeProject.svgSource }} className="w-1/2 h-1/2 object-contain filter drop-shadow-lg" />
+                                <div dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.svgSource) }} className="w-1/2 h-1/2 object-contain filter drop-shadow-lg" />
                               ) : (
                                  <img src={activeProject.logoUrl!} className="w-1/2 h-1/2 object-contain filter drop-shadow-lg" />
                               )}
@@ -3200,11 +3272,11 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     )}
                   </motion.div>
                 ) : activeTab === 'refine' ? (
-                  <motion.div key="refine" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-12 max-w-4xl mx-auto w-full">
-                    <div className="flex items-center justify-between mb-8">
+                  <motion.div key="refine" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                       <h2 className="text-3xl font-bold">AI Refinement Studio</h2>
                       {activeProject.refinementSuggestions && (
-                         <button onClick={applyRefinedPrompt} className="bg-brand-lead hover:bg-brand-lead/80 text-white px-6 py-2 rounded-full text-sm font-bold shadow-sm transition-colors flex items-center gap-2">
+                         <button onClick={applyRefinedPrompt} className="bg-brand-lead hover:bg-brand-lead/80 text-white px-6 py-2 rounded-full text-sm font-bold shadow-sm transition-colors flex items-center justify-center gap-2 w-full sm:w-auto">
                            <Wand2 size={16} /> Apply Suggestions & Regenerate Logo
                          </button>
                       )}
@@ -3286,7 +3358,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     </div>
                   </motion.div>
                 ) : activeTab === 'sonic' ? (
-                  <motion.div key="sonic" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-12 max-w-4xl mx-auto w-full">
+                  <motion.div key="sonic" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
                     <h2 className="text-3xl font-bold mb-6">Organic Sonic Branding</h2>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -3338,7 +3410,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     </div>
                   </motion.div>
                 ) : activeTab === 'comments' ? (
-                  <motion.div key="comments" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-12 max-w-3xl mx-auto w-full flex flex-col h-full">
+                  <motion.div key="comments" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-3xl mx-auto w-full flex flex-col h-full">
                     <h2 className="text-3xl font-bold mb-2 shrink-0">Collaboration & Comments</h2>
                     <p className="text-sm text-neutral-500 mb-6 shrink-0">Engage in dialogue or request specialized critique from the Forgel AI Creative Panel.</p>
                     
@@ -3700,7 +3772,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                             onClick={() => {
                               const promptText = `A masterfully forged logo for a ${promptSector} startup. Style is ${promptTone}. Incorporating a clean, isolated vector mark of a ${promptSubject}. Rendered on an absolute pure white background, flat vector paths, perfect visual balance, vector aesthetic, high contrast.`;
                               navigator.clipboard.writeText(promptText);
-                              alert("Constructed prompt brief copied to clipboard!");
+                              toast("Constructed prompt brief copied to clipboard!", 'success');
                             }}
                             className="absolute top-4 right-4 bg-brand-lead hover:bg-brand-lead/90 text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded cursor-pointer"
                           >
@@ -3844,30 +3916,55 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     <input type="url" placeholder="http://localhost:11434/api/generate" value={settings.customEndpoint || ''} onChange={(e) => updateSettings({ customEndpoint: e.target.value })} className="w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-lead" />
                     <p className="text-xs text-neutral-400 mt-2">Useful for connecting to local models like Ollama or LM Studio.</p>
                   </div>
-                  <button onClick={() => alert('Settings saved locally.')} className="bg-black dark:bg-white text-white dark:text-black px-6 py-3 rounded-xl font-bold text-sm mt-4 w-full hover:opacity-80 transition-opacity">Save API Keys</button>
+                  <button onClick={() => toast('Settings saved locally.', 'success')} className="bg-black dark:bg-white text-white dark:text-black px-6 py-3 rounded-xl font-bold text-sm mt-4 w-full hover:opacity-80 transition-opacity">Save API Keys</button>
                 </div>
               </div>
 
               <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800">
                 <h2 className="text-xl font-bold font-display mb-4">Integrations</h2>
                 
-                <div className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-800">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-white rounded-lg shadow-sm flex items-center justify-center font-serif text-xl font-bold text-black border border-neutral-200">N</div>
-                    <div>
-                      <h3 className="font-bold">Notion</h3>
-                      <p className="text-xs text-neutral-500">Export Brand Guides to your workspace.</p>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-800">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-white rounded-lg shadow-sm flex items-center justify-center font-serif text-xl font-bold text-black border border-neutral-200">N</div>
+                      <div>
+                        <h3 className="font-bold">Notion</h3>
+                        <p className="text-xs text-neutral-500">Export Brand Guides to your workspace.</p>
+                      </div>
                     </div>
+                    <button onClick={handleExportNotion} className="bg-white dark:bg-zinc-800 border border-neutral-200 dark:border-zinc-700 px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:border-brand-lead transition-colors">
+                      Connect
+                    </button>
                   </div>
-                  <button onClick={handleExportNotion} className="bg-white dark:bg-zinc-800 border border-neutral-200 dark:border-zinc-700 px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:border-brand-lead transition-colors">
-                    Connect
-                  </button>
+
+                  <div className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-800">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-indigo-50 rounded-lg shadow-sm flex items-center justify-center border border-indigo-150">
+                        <Cloud size={20} className="text-indigo-600" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold">Google Drive</h3>
+                        <p className="text-xs text-neutral-500">Import/Export SVGs and Brand Manuals instantly.</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setIsGoogleDriveOpen(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-500 transition-colors">
+                      Manage Storage
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       ) : null}
+
+      {/* Google Drive Storage Modal */}
+      <GoogleDriveIntegration 
+        isOpen={isGoogleDriveOpen} 
+        onClose={() => setIsGoogleDriveOpen(false)} 
+        activeProject={activeProject}
+        onImportSuccess={() => setView('dashboard')}
+      />
 
       {/* Whacanudo Help and Role Information Overlay Modal */}
       {isWhacanudoOpen && (
