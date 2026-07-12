@@ -85,6 +85,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Local drawing session tracking
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
+  const [isPrecisionMode, setIsPrecisionMode] = useState<boolean>(false);
   const [brushPoints, setBrushPoints] = useState<{ x: number; y: number }[]>([]);
   const [penPoints, setPenPoints] = useState<{ x: number; y: number }[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -93,6 +94,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Magnifier Loupe state for Precision node dragging
   const [draggedNode, setDraggedNode] = useState<{ nodeId: number; valIdx: number } | null>(null);
   const [loupeCoords, setLoupeCoords] = useState<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
+  
+  // Precision Mode UI controls
   const [snappingLines, setSnappingLines] = useState<{ x?: number; y?: number } | null>(null);
   const [showGestureMap, setShowGestureMap] = useState<boolean>(false);
 
@@ -1793,6 +1796,32 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               onTouchEnd={handleTouchEnd}
               className="relative aspect-square w-full rounded-2xl border-2 border-neutral-200 dark:border-zinc-800 bg-neutral-50 dark:bg-zinc-950 overflow-hidden shadow-inner flex items-center justify-center cursor-crosshair touch-none select-none"
             >
+              {/* Precision Mode FAB */}
+              <button
+                onClick={() => { setIsPrecisionMode(!isPrecisionMode); triggerHaptic(15); }}
+                className={`absolute bottom-4 right-4 p-3 rounded-full shadow-2xl z-50 transition-all cursor-pointer flex items-center justify-center border ${isPrecisionMode ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-white dark:bg-zinc-800 text-indigo-600 border-indigo-200 dark:border-zinc-700'}`}
+              >
+                <Maximize2 size={20} />
+              </button>
+              
+              {/* Precision Mode UI Controls Overlay */}
+              {isPrecisionMode && (
+                <div className="absolute inset-4 z-40 bg-white/50 dark:bg-zinc-900/50 backdrop-blur-sm rounded-2xl p-4 flex flex-col justify-end">
+                   <div className="flex gap-2">
+                     {['X', 'Y'].map(coord => (
+                       <div key={coord} className="flex-1 bg-white dark:bg-zinc-800 p-3 rounded-xl border border-neutral-200 dark:border-zinc-700 shadow-sm text-center">
+                          <span className="text-[10px] font-bold text-neutral-400">{coord}</span>
+                          <div className="flex justify-center items-center gap-2 mt-2">
+                             <button onClick={() => { /* nudge */ triggerHaptic(10); }} className="p-2 bg-neutral-100 rounded-lg">-</button>
+                             <span className="font-mono text-xs">0.0</span>
+                             <button onClick={() => { /* nudge */ triggerHaptic(10); }} className="p-2 bg-neutral-100 rounded-lg">+</button>
+                          </div>
+                       </div>
+                     ))}
+                   </div>
+                </div>
+              )}
+
               {/* Dynamic Zoom & Pan Transform Layer */}
               <div 
                 className="w-full h-full flex items-center justify-center transition-transform duration-75 ease-out"

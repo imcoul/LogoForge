@@ -6,9 +6,12 @@ import { generateLogoImage, generateBrandGuide, analyzeRefinementContext, genera
 import { useAppStore, Project, Mockup } from './store';
 import { KeyboardManager } from './components/KeyboardManager';
 import { TouchGesturesHelp } from './components/TouchGesturesHelp';
+import { Sheet } from './components/Sheet';
+import { StudioControls } from './components/StudioControls';
 import { TemplateLibrary } from './components/TemplateLibrary';
 import { SVGPathEditor } from './components/SVGPathEditor';
 import { AccessibilityScore } from './components/AccessibilityScore';
+import { ProjectAnalytics } from './components/ProjectAnalytics';
 import { Whacanudo } from './components/Whacanudo';
 import { GoogleDriveIntegration } from './components/GoogleDriveIntegration';
 import { useToast } from './components/Toast';
@@ -2014,6 +2017,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
             </div>
 
             {/* High-Fidelity Filters & Search Bar */}
+            <ProjectAnalytics />
             {projects.length > 0 && (
               <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-5 mb-8 flex flex-col md:flex-row gap-4 items-center justify-between shadow-xs">
                 {/* Search query input */}
@@ -2537,8 +2541,21 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
             <Sparkles size={20} className={`transition-transform duration-300 ${isMobileDrawerOpen ? 'rotate-180' : ''}`} />
           </button>
 
-          {/* Studio Control Panel */}
-          <div className={`fixed md:relative inset-y-0 left-0 md:inset-auto w-4/5 sm:w-80 md:w-5/12 lg:w-[400px] h-full bg-white dark:bg-zinc-900 border-r border-neutral-300 dark:border-zinc-800 p-8 flex flex-col shrink-0 z-40 md:z-10 overflow-y-auto transition-transform duration-300 ${isMobileDrawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+          {/* Mobile Bottom Sheet for Studio Controls */}
+          <Sheet isOpen={isMobileDrawerOpen} onClose={() => setIsMobileDrawerOpen(false)} title="Studio Controls">
+             <StudioControls 
+                activeProject={activeProject}
+                updateProject={updateProject}
+                activeProjectId={activeProjectId}
+                handleGenerateRationale={handleGenerateRationale}
+                isGeneratingRationale={isGeneratingRationale}
+                rationale={rationale}
+                t={t}
+             />
+          </Sheet>
+
+          {/* Studio Control Panel (Desktop Sidebar) */}
+          <div className={`hidden md:flex w-80 lg:w-[400px] h-full bg-white dark:bg-zinc-900 border-r border-neutral-300 dark:border-zinc-800 p-8 flex-col shrink-0 z-10 overflow-y-auto`}>
             <div className="mb-8">
               <h1 className="text-2xl font-display font-bold tracking-tight mb-1 text-black dark:text-white">{t('refinement_studio')}</h1>
               <p className="text-xs font-medium text-neutral-500 dark:text-zinc-400 uppercase tracking-widest">{activeProject?.name || 'No Project Selected'}</p>
