@@ -114,35 +114,74 @@ export const Whacanudo: React.FC<WhacanudoProps> = ({ onClose }) => {
   const c = dict[currentLang] || dict.en;
 
   // Comprehensive PRD Data
-  const detailedPRD = `=====================================================
+  interface Feature {
+    id: string;
+    name: string;
+    desc: string;
+    filesUsed: string[];
+    details: string;
+    subFeatures?: Feature[];
+  }
+
+  const getPRDContent = () => {
+    const features: Feature[] = [
+      {
+        id: "1.0",
+        name: "STATE MANAGEMENT",
+        desc: "Canonical document schema and local synchronization.",
+        filesUsed: ["src/App.tsx", "src/types.ts", "src/components/SVGPathEditor.tsx"],
+        details: "Uses React useState and useEffect for local state. SVG editor updates state via updatePathAtIndex."
+      },
+      {
+        id: "2.0",
+        name: "SVG PRECISION EDITOR",
+        desc: "Interactive node coordinate manipulation and auto-simplification algorithms.",
+        filesUsed: ["src/components/SVGPathEditor.tsx"],
+        details: "Implements touch gesture handlers, debounced node updates, and keyboard accessibility for point navigation."
+      },
+      {
+        id: "3.0",
+        name: "HELP & ROLE INFORMATION",
+        desc: "System documentation and feature overview.",
+        filesUsed: ["src/components/Whacanudo.tsx"],
+        details: "Generates the PRD and documentation dynamically based on feature list."
+      },
+      {
+        id: "4.0",
+        name: "EXPORT PIPELINE",
+        desc: "Multi-format asset and documentation export.",
+        filesUsed: ["src/components/Whacanudo.tsx"],
+        details: "Handles conversion of internal state and documentation to various file formats (md, json, etc.)"
+      }
+    ];
+
+    const formatFeature = (f: Feature, indent: number = 0): string => {
+      const pad = "  ".repeat(indent);
+      let res = `${pad}${f.id} ${f.name}\n`;
+      res += `${pad}   - Description: ${f.desc}\n`;
+      res += `${pad}   - Files Used: ${f.filesUsed.join(', ')}\n`;
+      res += `${pad}   - Details: ${f.details}\n`;
+      if (f.subFeatures) {
+        f.subFeatures.forEach(sf => res += formatFeature(sf, indent + 2));
+      }
+      return res;
+    };
+
+    let content = `=====================================================
 PRODUCT REQUIREMENTS DOCUMENT (PRD) - FORGEL PLATFORM
 =====================================================
 Document Classification: SERVER-CONFIDENTIAL-SUPERUSER
-Version: 1.4.0-STABLE
+Version: 1.5.0-STABLE
 Author: Forgel Core Engineering Group
 
-1. CANONICAL DOCUMENT SCHEMA & STATE MANAGEMENT
------------------------------------------------
-- Structure: Must enforce the Forgel Schema representing name, stage, logo history, and snapshots.
-- Storage: Persistent local synchronization utilizing IndexedDB (under 200ms save latency).
-- Undo Stack: Standard LIFO queue representing delta coordinate adjustments.
-
-2. REAL-TIME COLLABORATIVE WEBSOCKET ENGINE (CRDT)
---------------------------------------------------
-- Server authoritative state machine mounting ws connections on Port 3000.
-- Resolves concurrent write conflicts utilizing Last-Write-Wins and schema-level comment merges.
-- Presence Tracking: Coordinates cursor offsets {x, y} mapped as percentage values to canvas box.
-
-3. MULTI-THREADED BACKGROUND VECTOR WORKER (OFFSCREEN)
-------------------------------------------------------
-- Leverages background Web Workers to execute heavy rasterization and rendering benchmarks.
-- Offloads layout and styling matrices, keeping the main UI thread running at smooth 60fps.
-
-4. EXPORT PIPELINE CONFIGURATION
---------------------------------
-- PPTX Exporter: Server-side slide assembler constructing layouts using pptxgenjs.
-- ZIP Packaging: Client-side packaging of SVG vectors, PNG renders, Markdown documentation, and JSON state structures.
+FEATURES DETAILED MATRIX:
+-------------------------
+${features.map(f => formatFeature(f)).join('\n')}
 `;
+    return content;
+  };
+
+  const detailedPRD = getPRDContent();
 
   // Export PRD files in various formats
   const handleExportPRD = (format: 'md' | 'json' | 'csv' | 'yaml' | 'xml') => {

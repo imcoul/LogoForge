@@ -348,6 +348,25 @@ async function startServer() {
     }
   });
 
+  // POST /api/export/png - Server-side SVG-to-PNG generation
+  app.post("/api/export/png", async (req, res) => {
+    try {
+      const { svgContent, projectName } = req.body;
+      const sharp = (await import("sharp")).default;
+      
+      const pngBuffer = await sharp(Buffer.from(svgContent))
+        .png()
+        .toBuffer();
+        
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Content-Disposition", `attachment; filename=${projectName.toLowerCase().replace(/\s+/g, "-")}.png`);
+      res.send(pngBuffer);
+    } catch (err: any) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to generate PNG image: " + err.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

@@ -279,15 +279,20 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     reconstructSvgFromNodes(updatedNodes);
   };
 
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // Reconstruct SVG source from nodes
   const reconstructSvgFromNodes = (currentNodes: PathNode[]) => {
-    if (!actualSvgSource || parsedPaths.length === 0) return;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      if (!actualSvgSource || parsedPaths.length === 0) return;
 
-    const newPathString = currentNodes
-      .map((n) => `${n.type}${n.values.join(',')}`)
-      .join(' ');
+      const newPathString = currentNodes
+        .map((n) => `${n.type}${n.values.join(',')}`)
+        .join(' ');
 
-    updatePathAtIndex(selectedPathIndex, { d: newPathString });
+      updatePathAtIndex(selectedPathIndex, { d: newPathString });
+    }, 150);
   };
 
   // Re-write path attributes for a selected index and broadcast changes
@@ -528,12 +533,15 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       const deltaX = midX - swipeStartX;
       const deltaY = midY - (swipeStartY || midY);
 
-      if (Math.abs(deltaX) > 60 && Math.abs(deltaY) < 40) {
-        if (deltaX > 60) {
+      if (Math.abs(deltaX) > 50 && Math.abs(deltaY) < 40) {
+        if (deltaX > 50) {
           handleUndo();
+          setGestureToast("↩️ Undo");
         } else {
           handleRedo();
+          setGestureToast("↪️ Redo");
         }
+        setTimeout(() => setGestureToast(null), 1000);
         setSwipeStartX(null);
       }
       return;
@@ -563,12 +571,15 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
         const deltaX = midX - swipeStartX;
         const deltaY = midY - (swipeStartY || midY);
         // Ensure swipe is mostly horizontal
-        if (Math.abs(deltaX) > 80 && Math.abs(deltaY) < 40) {
-          if (deltaX > 80) {
+        if (Math.abs(deltaX) > 70 && Math.abs(deltaY) < 40) {
+          if (deltaX > 70) {
             handleUndo();
+            setGestureToast("↩️ Undo");
           } else {
             handleRedo();
+            setGestureToast("↪️ Redo");
           }
+          setTimeout(() => setGestureToast(null), 1000);
           // Reset swipeStartX so it doesn't double trigger in the same swipe gesture
           setSwipeStartX(null);
         }
@@ -785,6 +796,16 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Interactive coordinate handle drag start (Precision Tab)
+  const handleNodeKeyDown = (e: React.KeyboardEvent, nodeId: number, valIdx: number, val: number) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      let newVal = val;
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') newVal -= 1;
+      else newVal += 1;
+      handleValueChange(nodeId, valIdx, newVal);
+    }
+  };
+
   const handleNodeDragStart = (
     e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, 
     nodeId: number, 
@@ -1078,6 +1099,10 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 cx={x}
                 cy={y}
                 r="6"
+                tabIndex={0}
+                role="button"
+                aria-label={`Node ${id} point at ${x},${y}`}
+                onKeyDown={(e) => handleNodeKeyDown(e, id, 0, x)}
                 className={`cursor-pointer transition-all ${draggedNode?.nodeId === id && draggedNode?.valIdx === 0 ? 'fill-indigo-600 stroke-white stroke-2 scale-125' : 'fill-white stroke-indigo-600 stroke-2 hover:fill-indigo-50'}`}
                 onMouseDown={(e) => handleNodeDragStart(e, id, 0, x)}
                 onTouchStart={(e) => handleNodeDragStart(e, id, 0, x)}

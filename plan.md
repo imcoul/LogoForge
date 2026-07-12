@@ -20,9 +20,20 @@
 - The app lacks an Error Boundary. If any sub-component crashes (e.g., due to malformed data from the server), the entire React tree will unmount, showing a blank white screen.
 
 **Action Item**:
-- Implement a React `ErrorBoundary` at the root level to catch runtime exceptions and display a friendly recovery UI. (Note: Large component extraction was evaluated but deferred to avoid destabilizing the active CRDT sync states).
+- Implement a React `ErrorBoundary` at the root level to catch runtime exceptions and display a friendly recovery UI.
 
-## 4. Usefulness
+## 4. Feature Enhancements (Requested)
+**Findings**:
+- SVG Canvas Touch Gestures: Panning and pinch-to-zoom are partially implemented in `SVGPathEditor.tsx`. Two-finger undo/redo exists but might require fine-tuning for reliability.
+- Performance: SVG rendering may become slow with large paths.
+- Accessibility: Keyboard navigation and screen reader support need improvement for the drawing canvas.
+
+**Action Item**:
+- Touch Gestures: Refine touch gesture thresholds in `SVGPathEditor.tsx` for better UX. Implement a clear visual feedback when gestures (undo/redo/zoom) are triggered.
+- Performance: Add debouncing to canvas drawing inputs to reduce re-renders. Optimize `reconstructSvgFromNodes` to only update when necessary.
+- Accessibility: Improve keyboard navigation for path nodes in the Precision Studio tab.
+
+## 5. Usefulness
 **Findings**:
 - The application offers a comprehensive suite of tools (Precision Canvas, Sonic Branding, Brand Guide).
 - Missing error fallbacks for some export features could leave users confused if a network error occurs.

@@ -89,6 +89,8 @@ interface AppState {
   createProject: (name?: string) => Promise<Project>;
   updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
+  deleteProjects: (ids: string[]) => Promise<void>;
+  cloneProject: (id: string) => Promise<void>;
   setActiveProject: (id: string | null) => void;
   updateSettings: (settings: Partial<AppSettings>) => Promise<void>;
 }
@@ -145,6 +147,25 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     return newProject;
   },
 
+  cloneProject: async (id) => {
+    const { projects } = getStore();
+    const projectToClone = projects.find(p => p.id === id);
+    if (!projectToClone) return;
+
+    const newProject: Project = {
+      ...projectToClone,
+      id: crypto.randomUUID(),
+      name: `Copy of ${projectToClone.name}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      archived: false
+    };
+
+    const updatedProjects = [newProject, ...projects];
+    setStore({ projects: updatedProjects });
+    await set('projects', updatedProjects);
+  },
+
   updateProject: async (id, updates) => {
     const { projects } = getStore();
     const updatedProjects = projects.map(p => 
@@ -162,6 +183,16 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     setStore({ 
       projects: updatedProjects, 
       activeProjectId: activeProjectId === id ? null : activeProjectId 
+    });
+    await set('projects', updatedProjects);
+  },
+
+  deleteProjects: async (ids) => {
+    const { projects, activeProjectId } = getStore();
+    const updatedProjects = projects.filter(p => !ids.includes(p.id));
+    setStore({ 
+      projects: updatedProjects, 
+      activeProjectId: ids.includes(activeProjectId || '') ? null : activeProjectId 
     });
     await set('projects', updatedProjects);
   },

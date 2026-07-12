@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud } from 'lucide-react';
+import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud, Copy } from 'lucide-react';
 import { generateLogoImage, generateBrandGuide, analyzeRefinementContext, generateSonicPhilosophy, generateDesignRationale, generateAICriticComment } from './services/geminiService';
 import { useAppStore, Project, Mockup } from './store';
 import { KeyboardManager } from './components/KeyboardManager';
+import { TouchGesturesHelp } from './components/TouchGesturesHelp';
 import { TemplateLibrary } from './components/TemplateLibrary';
 import { SVGPathEditor } from './components/SVGPathEditor';
 import { AccessibilityScore } from './components/AccessibilityScore';
@@ -683,9 +684,10 @@ const generateFullDoc = (features: PrdFeature[], includeServer = false): string 
 };
 
 // PDF PRINTERS
-const exportFeaturePDF = (feat: PrdFeature, includeServer = false) => {
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) return;
+const exportFeaturePDF = (feat: PrdFeature, addToast: (t: ToastType, m: string) => void, includeServer = false) => {
+  try {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) throw new Error('Popup blocked');
   printWindow.document.write(`
     <html>
     <head>
@@ -759,11 +761,15 @@ const exportFeaturePDF = (feat: PrdFeature, includeServer = false) => {
     </html>
   `);
   printWindow.document.close();
+  } catch (error) {
+    addToast('error', 'Failed to open export window. Please allow popups.');
+  }
 };
 
-const exportFullPDF = (features: PrdFeature[], includeServer = false) => {
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) return;
+const exportFullPDF = (features: PrdFeature[], addToast: (t: ToastType, m: string) => void, includeServer = false) => {
+  try {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) throw new Error('Popup blocked');
   
   const featuresHtml = features.map((feat, idx) => `
     <div style="page-break-after: always; margin-bottom: 30px;">
@@ -859,6 +865,9 @@ const exportFullPDF = (features: PrdFeature[], includeServer = false) => {
     </html>
   `);
   printWindow.document.close();
+  } catch (error) {
+    addToast('error', 'Failed to open export window. Please allow popups.');
+  }
 };
 
 const safeFormatDate = (dateVal: any, lang: string): string => {
@@ -879,7 +888,7 @@ export default function App() {
   const { toast } = useToast();
   const { 
     projects, activeProjectId, isHydrated, settings,
-    loadProjects, createProject, updateProject, deleteProject, setActiveProject, updateSettings
+    loadProjects, createProject, updateProject, deleteProject, cloneProject, setActiveProject, updateSettings
   } = useAppStore();
 
   const [view, setView] = useState<ViewMode>('dashboard');
@@ -953,6 +962,7 @@ export default function App() {
   // Dashboard search, stage filtering, and custom animated delete modal states
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('all');
+  const [projectsToDelete, setProjectsToDelete] = useState<string[]>([]);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
 
   // Dashboard states for auto-archive, interactive tour, and bulk export
@@ -1470,27 +1480,61 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
     if (!activeProject) return;
     const svgContent = activeProject.svgSource || `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#E0E7FF"/><circle cx="100" cy="100" r="40" fill="#4F46E5"/></svg>`;
     
-    const img = new Image();
-    img.crossOrigin = "anonymous";
     const canvas = document.createElement('canvas');
-    canvas.width = 2000; // Ultra high-resolution output
+    canvas.width = 2000;
     canvas.height = 2000;
-    const ctx = canvas.getContext('2d');
+    const offscreen = canvas.transferControlToOffscreen();
     
-    if (ctx) {
-      img.onload = () => {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, 2000, 2000);
-        ctx.drawImage(img, 200, 200, 1600, 1600);
+    const worker = new Worker(new URL('./canvasWorker.ts', import.meta.url));
+    worker.postMessage({
+      type: 'EXPORT_IMAGE',
+      payload: {
+        canvas: offscreen,
+        svgContent,
+        fileName: `${activeProject.name.toLowerCase().replace(/\s+/g, '-')}-highres.png`
+      }
+    }, [offscreen]);
+    
+    worker.onmessage = (e) => {
+      if (e.data.type === 'EXPORT_RESULT') {
+        const { blob, fileName } = e.data.payload;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        worker.terminate();
+      }
+    };
+
+    worker.onerror = async (err) => {
+      console.error("Client-side export failed, falling back to server.", err);
+      try {
+        const response = await fetch('/api/export/png', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            svgContent,
+            projectName: activeProject.name
+          })
+        });
         
-        const url = canvas.toDataURL('image/png');
+        if (!response.ok) throw new Error("Server export failed");
+        
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = `${activeProject.name.toLowerCase().replace(/\s+/g, '-')}-highres.png`;
         a.click();
-      };
-      img.src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgContent)))}`;
-    }
+        URL.revokeObjectURL(url);
+      } catch (fallbackErr) {
+        console.error("Server fallback failed", fallbackErr);
+        toast('Failed to generate PNG image.', 'error');
+      }
+      worker.terminate();
+    };
   };
 
   // Standard raw SVG download helper
@@ -1986,6 +2030,28 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
 
                 {/* Filters, multi-select action triggers */}
                 <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                  <button
+                    onClick={() => {
+                      setIsBulkSelectMode(!isBulkSelectMode);
+                      setSelectedProjectIds([]);
+                    }}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                      isBulkSelectMode
+                        ? 'bg-neutral-800 text-white'
+                        : 'bg-neutral-100 dark:bg-zinc-800 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-200 dark:hover:bg-zinc-700'
+                    }`}
+                  >
+                    {isBulkSelectMode ? 'Cancel Selection' : 'Bulk Select'}
+                  </button>
+
+                  {isBulkSelectMode && selectedProjectIds.length > 0 && (
+                    <button
+                      onClick={() => setProjectsToDelete(selectedProjectIds)}
+                      className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider bg-red-600 text-white hover:bg-red-500 cursor-pointer transition-all"
+                    >
+                      Delete {selectedProjectIds.length} Selected
+                    </button>
+                  )}
                   {/* Stage selector filter */}
                   <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 no-scrollbar">
                     <span className="text-[10px] uppercase tracking-wider font-bold text-neutral-400 shrink-0 flex items-center gap-1">
@@ -2154,6 +2220,17 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                 )}
 
                                 <button 
+                                  onClick={async (e) => { 
+                                    e.stopPropagation(); 
+                                    await cloneProject(proj.id);
+                                    toast('success', 'Project cloned successfully!');
+                                  }} 
+                                  className="p-2 bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 hover:bg-amber-100 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
+                                  title="Clone Project"
+                                >
+                                  <Copy size={14} />
+                                </button>
+                                <button 
                                   onClick={(e) => { 
                                     e.stopPropagation(); 
                                     setProjectToDelete(proj.id);
@@ -2182,7 +2259,22 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                             {/* Logo display container */}
                             <div className="aspect-square rounded-2xl bg-neutral-100 dark:bg-zinc-950 flex items-center justify-center mb-6 overflow-hidden border border-neutral-200 dark:border-zinc-850 p-4">
                               {proj.logoUrl ? (
-                                <img src={proj.logoUrl} alt={proj.name} className="w-full h-full object-contain filter drop-shadow-sm" />
+                                <div className="relative w-full h-full flex items-center justify-center">
+                                  <img 
+                                    src={proj.logoUrl} 
+                                    alt={proj.name} 
+                                    className="w-full h-full object-contain filter drop-shadow-sm" 
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                      const parent = e.currentTarget.parentElement;
+                                      const fallback = parent?.querySelector('.fallback');
+                                      fallback?.classList.remove('hidden');
+                                    }}
+                                  />
+                                  <div className="hidden fallback absolute inset-0 flex items-center justify-center">
+                                     <Wand2 size={32} className="text-neutral-300" />
+                                  </div>
+                                </div>
                               ) : sanitizedSource ? (
                                 <div 
                                   dangerouslySetInnerHTML={{ __html: sanitizedSource }} 
@@ -2380,7 +2472,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
 
           {/* High Fidelity animated modal confirmation overlay instead of blocking windows */}
           <AnimatePresence>
-            {projectToDelete && (
+            {(projectToDelete || projectsToDelete.length > 0) && (
               <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.95 }} 
@@ -2388,21 +2480,32 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                   exit={{ opacity: 0, scale: 0.95 }}
                   className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4"
                 >
-                  <h3 className="text-xl font-bold text-neutral-900 dark:text-white">Delete Brand Space</h3>
+                  <h3 className="text-xl font-bold text-neutral-900 dark:text-white">Delete {projectToDelete ? 'Brand Space' : 'Brand Spaces'}</h3>
                   <p className="text-sm text-neutral-500 dark:text-zinc-400">
-                    Are you sure you want to permanently delete <span className="font-bold text-neutral-900 dark:text-white">"{projects.find(p => p.id === projectToDelete)?.name}"</span>? This action is irreversible and all logo history, annotations, and brand assets will be lost.
+                    Are you sure you want to permanently delete {projectToDelete ? (
+                      <span className="font-bold text-neutral-900 dark:text-white">"{projects.find(p => p.id === projectToDelete)?.name}"</span>
+                    ) : (
+                      <span className="font-bold text-neutral-900 dark:text-white">{projectsToDelete.length} selected brand spaces</span>
+                    )}? This action is irreversible and all logo history, annotations, and brand assets will be lost.
                   </p>
                   <div className="flex justify-end gap-3 pt-2">
                     <button 
-                      onClick={() => setProjectToDelete(null)}
+                      onClick={() => { setProjectToDelete(null); setProjectsToDelete([]); }}
                       className="px-4 py-2 border border-neutral-200 dark:border-zinc-800 hover:bg-neutral-50 dark:hover:bg-zinc-800 rounded-xl text-xs font-bold transition-colors cursor-pointer text-neutral-700 dark:text-zinc-300"
                     >
                       Cancel
                     </button>
                     <button 
                       onClick={() => {
-                        deleteProject(projectToDelete);
-                        setProjectToDelete(null);
+                        if (projectToDelete) {
+                          deleteProject(projectToDelete);
+                          setProjectToDelete(null);
+                        } else {
+                          deleteProjects(projectsToDelete);
+                          setProjectsToDelete([]);
+                          setSelectedProjectIds([]);
+                          setIsBulkSelectMode(false);
+                        }
                       }}
                       className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
                     >
@@ -2416,6 +2519,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
         </div>
       ) : view === 'studio' ? (
         <div className="flex-1 flex flex-col md:flex-row relative overflow-hidden">
+          <TouchGesturesHelp />
           {/* Mobile drawer backdrop */}
           {isMobileDrawerOpen && (
             <div 
@@ -4219,7 +4323,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
 
                             <button
                               onClick={() => {
-                                exportFullPDF(PRD_FEATURES, settings.role === 'Server');
+                                exportFullPDF(PRD_FEATURES, toast, settings.role === 'Server');
                               }}
                               className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-mono font-bold border border-indigo-500 transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 shadow-md shadow-indigo-600/20"
                               title="Generate Master PDF Document"
@@ -4298,7 +4402,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                   </button>
                                   <button
                                     onClick={() => {
-                                      exportFeaturePDF(feat, settings.role === 'Server');
+                                      exportFeaturePDF(feat, toast, settings.role === 'Server');
                                     }}
                                     className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg text-[10px] font-mono font-black transition-all cursor-pointer border border-zinc-700"
                                     title="Print / Save as PDF (.pdf)"

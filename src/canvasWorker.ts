@@ -1,9 +1,34 @@
 // canvasWorker.ts - High-performance Background Vector Grading & Rendering Worker
 // Calculates Offscreen Canvas operations, color space filtering, and performance benchmarks
 
-self.onmessage = (event) => {
+self.onmessage = async (event) => {
   const { type, payload } = event.data;
 
+  if (type === 'EXPORT_IMAGE') {
+    const { canvas, svgContent, fileName } = payload;
+    const ctx = canvas.getContext('2d');
+    
+    if (ctx) {
+      const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const response = await fetch(url);
+      const svgText = await response.text();
+      
+      const img = new Image();
+      img.src = `data:image/svg+xml;base64,${btoa(svgText)}`;
+      await img.decode();
+      
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, 2000, 2000);
+      ctx.drawImage(img, 200, 200, 1600, 1600);
+      
+      const imageBlob = await canvas.convertToBlob({ type: 'image/png' });
+      self.postMessage({ type: 'EXPORT_RESULT', payload: { blob: imageBlob, fileName } });
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // ... keep benchmarking and color grading ...
   if (type === 'BENCHMARK_RENDER') {
     const start = performance.now();
     let sum = 0;
