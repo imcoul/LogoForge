@@ -185,6 +185,165 @@ async function startServer() {
     }
   });
 
+  // POST /api/export/pptx - Server-side PPTX generation
+  app.post("/api/export/pptx", async (req, res) => {
+    try {
+      const { projectName, description, brandGuide, colors } = req.body;
+      const PptxGenJS = (await import("pptxgenjs")).default;
+      const pptx = new PptxGenJS();
+      
+      pptx.layout = "LAYOUT_16x9";
+      
+      // Slide 1: Cover
+      const slide1 = pptx.addSlide();
+      slide1.background = { color: "0F172A" }; // Slate Dark background
+      
+      slide1.addText(projectName || "Forgel Brand Deck", {
+        x: 1.0,
+        y: 2.2,
+        w: 11.3,
+        h: 1.5,
+        fontSize: 48,
+        bold: true,
+        color: "FFFFFF",
+        fontFace: "Arial"
+      });
+      
+      slide1.addText("AUTHORITATIVE BRAND IDENTITY SPECIFICATIONS", {
+        x: 1.0,
+        y: 3.8,
+        w: 11.3,
+        h: 0.5,
+        fontSize: 14,
+        color: "818CF8", // Indigo accent
+        fontFace: "Courier New",
+        bold: true
+      });
+
+      slide1.addText(description || "Generated via Forgel Branding Forge Studio", {
+        x: 1.0,
+        y: 4.8,
+        w: 11.3,
+        h: 1.0,
+        fontSize: 16,
+        color: "94A3B8",
+        fontFace: "Arial"
+      });
+
+      // Slide 2: Brand Strategy
+      const slide2 = pptx.addSlide();
+      slide2.background = { color: "F8FAFC" };
+      slide2.addText("1. Strategic Vision & Brand Voice", {
+        x: 0.8,
+        y: 0.8,
+        w: 11.7,
+        h: 0.6,
+        fontSize: 28,
+        bold: true,
+        color: "1E293B"
+      });
+
+      const voiceTone = brandGuide?.brandVoice?.tone || "Professional, Clean";
+      const voiceDesc = brandGuide?.brandVoice?.description || description || "No brand philosophy configured.";
+      const keywords = brandGuide?.brandVoice?.keywords || [];
+
+      slide2.addText(`Brand Voice & Tone: ${voiceTone}\n\nPhilosophy:\n${voiceDesc}\n\nKey Attributes: ${keywords.join(", ")}`, {
+        x: 0.8,
+        y: 1.8,
+        w: 11.7,
+        h: 4.5,
+        fontSize: 16,
+        color: "334155",
+        fontFace: "Arial"
+      });
+
+      // Slide 3: Colors
+      const slide3 = pptx.addSlide();
+      slide3.background = { color: "F8FAFC" };
+      slide3.addText("2. Color Palette Specification", {
+        x: 0.8,
+        y: 0.8,
+        w: 11.7,
+        h: 0.6,
+        fontSize: 28,
+        bold: true,
+        color: "1E293B"
+      });
+
+      const colorsList = Array.isArray(colors) ? colors : (brandGuide?.primaryColors?.map((c: any) => c.hex) || ["#4F46E5", "#0F172A", "#64748B"]);
+      
+      slide3.addText("Active Core Color Swatches:", {
+        x: 0.8,
+        y: 1.6,
+        w: 11.7,
+        h: 0.4,
+        fontSize: 18,
+        bold: true,
+        color: "475569"
+      });
+
+      colorsList.forEach((hex: string, idx: number) => {
+        if (idx < 5) {
+          const xPos = 0.8 + idx * 2.4;
+          // Color block shape
+          slide3.addShape("rect", {
+            x: xPos,
+            y: 2.2,
+            w: 2.0,
+            h: 2.0,
+            fill: { color: hex.replace("#", "") }
+          });
+          // Description
+          slide3.addText(hex.toUpperCase(), {
+            x: xPos,
+            y: 4.4,
+            w: 2.0,
+            h: 0.8,
+            fontSize: 14,
+            bold: true,
+            color: "1E293B",
+            align: "center",
+            fontFace: "Courier New"
+          });
+        }
+      });
+
+      // Slide 4: Typography
+      const slide4 = pptx.addSlide();
+      slide4.background = { color: "F8FAFC" };
+      slide4.addText("3. Typography Guidelines", {
+        x: 0.8,
+        y: 0.8,
+        w: 11.7,
+        h: 0.6,
+        fontSize: 28,
+        bold: true,
+        color: "1E293B"
+      });
+
+      const primaryFont = brandGuide?.typography?.primaryFont || "Inter";
+      const secondaryFont = brandGuide?.typography?.secondaryFont || "Courier Prime";
+      const typoRules = brandGuide?.typography?.guidelines || "Apply ample margins and focus visual attention on standard hierarchies.";
+
+      slide4.addText(`Primary Font: ${primaryFont}\nSecondary Font: ${secondaryFont}\n\nTypographic Guidelines:\n${typoRules}`, {
+        x: 0.8,
+        y: 1.8,
+        w: 11.7,
+        h: 4.5,
+        fontSize: 16,
+        color: "334155",
+        fontFace: "Arial"
+      });
+
+      const buffer = await pptx.write("nodebuffer" as any);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+      res.setHeader("Content-Disposition", `attachment; filename=${projectName.toLowerCase().replace(/\s+/g, "-")}-guidelines.pptx`);
+      res.send(buffer);
+    } catch (err: any) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to generate PPTX document: " + err.message });
+    }
+  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -201,9 +360,172 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
+
+  // Track rooms and active connections for real-time CRDT/Collaboration sync
+  interface SessionUser {
+    id: string;
+    username: string;
+    color: string;
+    ws: any;
+    cursor?: { x: number; y: number };
+  }
+
+  const rooms: Record<string, {
+    projectState: any;
+    users: SessionUser[];
+    conflictsLog: string[];
+  }> = {};
+
+  const { WebSocketServer } = await import("ws");
+  const wss = new WebSocketServer({ server });
+
+  wss.on("connection", (ws: any) => {
+    let currentRoomId: string | null = null;
+    let userId: string | null = null;
+
+    ws.on("message", (messageStr: string) => {
+      try {
+        const msg = JSON.parse(messageStr);
+        
+        if (msg.type === "join") {
+          const { roomId, username, projectState } = msg;
+          currentRoomId = roomId;
+          userId = msg.userId || Math.random().toString(36).substring(2, 9);
+          
+          if (!rooms[roomId]) {
+            rooms[roomId] = {
+              projectState: projectState || null,
+              users: [],
+              conflictsLog: []
+            };
+          }
+          
+          const colors = ["#EF4444", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899"];
+          const userColor = colors[rooms[roomId].users.length % colors.length];
+
+          const newUser: SessionUser = {
+            id: userId!,
+            username: username || "Anonymous Co-Editor",
+            color: userColor,
+            ws
+          };
+
+          rooms[roomId].users.push(newUser);
+
+          ws.send(JSON.stringify({
+            type: "welcome",
+            userId,
+            color: userColor,
+            projectState: rooms[roomId].projectState,
+            activeUsers: rooms[roomId].users.map(u => ({ id: u.id, username: u.username, color: u.color }))
+          }));
+
+          broadcastToRoom(roomId, ws, {
+            type: "user_joined",
+            user: { id: userId, username: newUser.username, color: userColor },
+            activeUsers: rooms[roomId].users.map(u => ({ id: u.id, username: u.username, color: u.color }))
+          });
+
+          console.log(`[Collab] User ${newUser.username} joined room ${roomId}.`);
+        }
+
+        else if (msg.type === "sync" && currentRoomId) {
+          const { projectState } = msg;
+          const room = rooms[currentRoomId];
+          
+          if (room) {
+            const incomingComments = projectState?.comments || [];
+            const existingComments = room.projectState?.comments || [];
+            
+            const mergedComments = [...existingComments];
+            incomingComments.forEach((c: any) => {
+              if (!mergedComments.some(mc => mc.id === c.id)) {
+                mergedComments.push(c);
+              }
+            });
+
+            room.projectState = {
+              ...projectState,
+              comments: mergedComments
+            };
+
+            broadcastToRoom(currentRoomId, ws, {
+              type: "sync",
+              projectState: room.projectState,
+              senderId: userId
+            });
+          }
+        }
+
+        else if (msg.type === "cursor" && currentRoomId) {
+          const { x, y } = msg;
+          const room = rooms[currentRoomId];
+          if (room) {
+            const user = room.users.find(u => u.id === userId);
+            if (user) {
+              user.cursor = { x, y };
+              broadcastToRoom(currentRoomId, ws, {
+                type: "cursor",
+                userId,
+                username: user.username,
+                color: user.color,
+                x,
+                y
+              });
+            }
+          }
+        }
+
+        else if (msg.type === "comment" && currentRoomId) {
+          const { comment } = msg;
+          const room = rooms[currentRoomId];
+          if (room && room.projectState) {
+            if (!room.projectState.comments) room.projectState.comments = [];
+            room.projectState.comments.push(comment);
+
+            broadcastToRoom(currentRoomId, null, {
+              type: "sync",
+              projectState: room.projectState,
+              senderId: "system"
+            });
+          }
+        }
+      } catch (e) {
+        console.error("WS Message Error:", e);
+      }
+    });
+
+    ws.on("close", () => {
+      if (currentRoomId && userId) {
+        const room = rooms[currentRoomId];
+        if (room) {
+          room.users = room.users.filter(u => u.id !== userId);
+          console.log(`[Collab] User left room ${currentRoomId}. Remaining: ${room.users.length}`);
+
+          broadcastToRoom(currentRoomId, null, {
+            type: "user_left",
+            userId,
+            activeUsers: room.users.map(u => ({ id: u.id, username: u.username, color: u.color }))
+          });
+        }
+      }
+    });
+  });
+
+  function broadcastToRoom(roomId: string, senderWs: any, payload: any) {
+    const room = rooms[roomId];
+    if (room) {
+      const dataStr = JSON.stringify(payload);
+      room.users.forEach(user => {
+        if (user.ws !== senderWs && user.ws.readyState === 1) { // 1 is OPEN in ws
+          user.ws.send(dataStr);
+        }
+      });
+    }
+  }
 }
 
 startServer();

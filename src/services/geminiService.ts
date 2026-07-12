@@ -1,16 +1,24 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { useAppStore } from "../store";
 
-let aiClient: GoogleGenAI | null = null;
+let defaultClient: GoogleGenAI | null = null;
 
 const getGenAIClient = () => {
-  if (!aiClient) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is not defined. Please configure your API key.");
-    }
-    aiClient = new GoogleGenAI({ apiKey });
+  const customSettings = useAppStore.getState().settings;
+  const customKey = customSettings?.geminiKey;
+  
+  if (customKey) {
+    return new GoogleGenAI({ apiKey: customKey });
   }
-  return aiClient;
+
+  if (!defaultClient) {
+    const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("API Key is missing. Please configure your GEMINI_API_KEY in the settings tab.");
+    }
+    defaultClient = new GoogleGenAI({ apiKey });
+  }
+  return defaultClient;
 };
 
 export const generateLogoImage = async (companyDescription: string): Promise<string> => {
@@ -67,6 +75,9 @@ export interface BrandGuide {
     keywords: string[];
     description: string;
   };
+  photography: string;
+  iconography: string;
+  dosAndDonts: string[];
 }
 
 export interface RefinementSuggestion {
@@ -211,9 +222,12 @@ export const generateBrandGuide = async (
               description: { type: Type.STRING }
             },
             required: ["tone", "keywords", "description"]
-          }
+          },
+          photography: { type: Type.STRING },
+          iconography: { type: Type.STRING },
+          dosAndDonts: { type: Type.ARRAY, items: { type: Type.STRING } }
         },
-        required: ["brandName", "primaryColors", "secondaryColors", "typography", "logoUsage", "brandVoice"]
+        required: ["brandName", "primaryColors", "secondaryColors", "typography", "logoUsage", "brandVoice", "photography", "iconography", "dosAndDonts"]
       }
     }
   });
@@ -256,3 +270,45 @@ Write a 2-3 paragraph "Sonic Identity Philosophy" for this brand. Explain how th
 
   throw new Error("No sonic philosophy generated.");
 };
+
+export const generateDesignRationale = async (description: string, stage: string): Promise<string> => {
+  const client = getGenAIClient();
+  const prompt = `As a master brand architect and logo designer from the "Srvel" ecosystem, provide an expert educational rationale for a logo design based on this brief: "${description}".
+The current stage of the project is: ${stage}.
+Explain the psychological choices, shape theory, typography pairings, and color meaning. Address this to a beginner designer using the "Beginex" educational framework to help them understand *why* this works and how to pitch it to clients. Keep it structured, encouraging, and highly professional.`;
+
+  const response = await client.models.generateContent({
+    model: 'gemini-3.1-pro-preview',
+    contents: { parts: [{ text: prompt }] }
+  });
+
+  return response.text?.trim() || "Rationale could not be generated.";
+};
+
+export const generateAICriticComment = async (
+  companyDescription: string,
+  logoUrl?: string | null,
+  role?: string
+): Promise<string> => {
+  const client = getGenAIClient();
+  const actualRole = role || "Senior Art Director";
+  const prompt = `You are playing the role of an elite, highly precise and constructive design critic: a "${actualRole}".
+We are designing a logo for this company/brief: "${companyDescription}".
+Please write a short, professional, and actionable design critique (2-3 sentences) of the current logo direction. Focus on visual weight, color contrast, metaphorical depth, or industry fit based on your specialty. Be critical but highly constructive and encouraging. Do not mention that you cannot see the image if the image is missing, just critique the concept/potential execution based on the description and any visible design style.`;
+
+  const parts: any[] = [{ text: prompt }];
+  if (logoUrl && logoUrl.startsWith('data:')) {
+    const base64Data = logoUrl.split(',')[1];
+    const mimeTypeMatch = logoUrl.match(/data:(.*?);/);
+    const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/png';
+    parts.push({ inlineData: { data: base64Data, mimeType } });
+  }
+
+  const response = await client.models.generateContent({
+    model: 'gemini-3.1-pro-preview',
+    contents: { parts }
+  });
+
+  return response.text?.trim() || "Terrific start. Consider checking color values for balanced contrast.";
+};
+

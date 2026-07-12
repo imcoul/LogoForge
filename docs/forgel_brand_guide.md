@@ -1,57 +1,76 @@
-# Forgel: Official Brand Guide
+# Forgel — Brand Identity Guide
 
-## Core Identity
-**Name:** Forgel
-**Parent Ecosystem:** Srvel
-**Tagline:** "Architecting Identity, Intelligently."
-**Mission:** To empower creators and founders with a comprehensive, AI-powered operating system for brand identity that scales from raw concepts to production-ready assets seamlessly.
-**Vibe/Personality:** Tech-forward, premium, architectural, intelligent, yet accessible and organic.
+> *"Architecting Identity, Intelligently. A stay for your brand's true essence."*
 
-## Voice & Tone
-- **Professional but not Clinical:** We speak with the precision of a master architect, but the warmth of a creative partner.
-- **Concise:** No fluff. Every word serves a purpose.
-- **Empowering:** We focus on the user's creative potential, treating AI as a high-end tool rather than a replacement for human taste.
+> **Parent Ecosystem:** Srvel
+> **Values:** Serve, Grow, Lead
 
-## Visual Language
+---
 
-### 1. Color Palette
-Our colors reflect a balance of deep technical capability (dark mode focus) and vibrant creative energy.
+## 1. Brand Soul
 
-**Primary Colors:**
-- **Slate Black (#0F1115):** The foundation. Used for primary backgrounds and deep space, evoking infinite potential.
-- **Pure White (#FFFFFF):** For high-contrast text and primary structural elements.
-- **Indigo Forge (#4F46E5):** Our primary action color. Represents intelligence, digital craftsmanship, and focus.
+Forgel is built on the profound principles of its mother brand, **Srvel**. We do not just generate logos; we forge lasting identities. Every brand decision flows from this core truth: **Forgel is a place for deep creation and refinement, treating AI as a high-end tool rather than a replacement for human taste.**
 
-**Secondary / Semantic Colors:**
-- **Neon Cyan (#06B6D4):** Used sparingly for hover states and AI-generation highlights (evokes "magic" and "tech").
-- **Success Green (#10B981):** For positive feedback (e.g., "Export Successful").
-- **Alert Rose (#F43F5E):** For destructive actions (e.g., "Delete Project").
+### The Three Pillars (Srvel Values)
+- **Serve (Turquoise):** We serve the creator's vision. The tool is out of the way, quiet, and deeply supportive.
+- **Grow (Yellow):** We build for scalability. A brand is a living ecosystem that expands over time.
+- **Lead (Purple):** We provide authoritative, production-ready assets. The output leads the market in quality.
 
-### 2. Typography
-Typography is the most critical part of our clean, technical aesthetic.
+---
 
-**Primary Interface (Sans-Serif):** 
-- **Inter** (Weights: 400, 500, 700, 800)
-- *Usage:* General UI, body text, buttons, and navigation. Highly legible and neutral.
+## 2. Naming & Story
 
-**Technical / Data (Monospace):**
-- **JetBrains Mono** (Weights: 400, 700)
-- *Usage:* Status indicators, hex codes, raw SVG code displays, and technical metrics.
+**Forgel**
+A portmanteau of "Forge" (to create with heat, pressure, and skill) and "El" (a suffix of elevation). It is the crucible where raw ideas become polished brands.
 
-**Display / Headings (Optional Expansion):**
-- **Space Grotesk** (Weights: 700)
-- *Usage:* Top-level dashboard headers and hero sections for a slightly more architectural, tech-forward feel.
+---
 
-### 3. Layout & Spacing Principles
-- **Bento-Box Grids:** We rely on structured, card-based layouts with generous padding (`p-6` to `p-12`) to separate distinct features.
-- **Negative Space:** "Breathe." Do not clutter interfaces. If a tool isn't being used, hide it behind a contextual menu or tab.
-- **Border Radii:** We use smooth, rounded corners (`rounded-2xl` and `rounded-3xl`) on cards to soften the rigid grid and make the tech feel approachable.
-- **Elevation:** Flat design with very subtle, diffuse shadows (`shadow-sm` or `shadow-md`) on interactive cards.
+## 3. Color System
 
-### 4. Iconography
-- **Library:** Lucide React.
-- **Style:** Stroke-based, clean, 2px weight. 
-- **Usage:** Never use icons arbitrarily. Every icon must represent a clear structural action (e.g., `Wand2` for generation, `Palette` for styling).
+The palette is rooted in Srvel's core values, balanced by deep neutrals for the canvas.
 
-## Future Expansion
-As Forgel grows to support trilingual capabilities (English, French, Arabic), the UI must strictly adhere to structural flexibility, ensuring Right-to-Left (RTL) reading patterns do not break the architectural grid.
+### The Srvel Core Triad
+| Value | Color Name | Hex | Usage |
+|-------|------------|-----|-------|
+| **Serve** | Service Turquoise | `#40e0d0` | Secondary accents, highlights, success states |
+| **Grow** | Growth Yellow | `#ffff80` | Warning, subtle glowing accents, organic elements |
+| **Lead** | Leadership Purple | `#800080` | **Primary Brand Color**, CTAs, active states, progress |
+
+### Neutral Canvas (Dark/Light)
+- **Light Mode:** Crisp whites (`#ffffff`), soft zincs (`#f4f4f5`), and deep blacks for text.
+- **Dark Mode:** Deep zinc blacks (`#09090b`), muted borders (`#27272a`), and high-contrast white text.
+
+---
+
+## 4. Typography & Measure
+
+Typography is clean, rounded, and approachable, perfectly contrasting the rigid architectural grid of our UI.
+
+### Typeface Stack
+
+| Role | Font | Weights | Rationale |
+|------|------|---------|-----------|
+| **Primary Interface** | **Quicksand** | 300, 400, 500, 600, 700 | Highly legible, geometric, rounded sans-serif. Used for body text, UI labels, and data. |
+| **Display / Headings** | **Comfortaa** | 400, 600, 700 | Distinctive, circular, and incredibly modern. Used exclusively for page titles, hero headers, and brand moments. |
+
+---
+
+## 5. Voice & Tone
+
+### Personality: Warm. Authoritative. Still.
+- **No Corporate Hollow Words:** Avoid "leverage", "synergy", "optimize". Use "build", "grow", "forge".
+- **Gentleness:** The creative process is hard. Our empty states and error messages should be encouraging, never blaming.
+- **Precision:** When dealing with SVG exports, color profiles, and typography scales, we speak with technical absolute correctness.
+
+---
+
+## 6. What We Never Do
+- We never use purely decorative AI slop. Every generated asset has a purpose.
+- We never restrict the user's manual control. AI is the starting point; the Precision Canvas is the finish line.
+- We never use aggressive gamification. Creation takes time.
+
+---
+
+## 7. Dual-Tier Attribution
+- **Surface Layer:** "Forged for Creators."
+- **Deep Layer:** "Built by Srvel — Serve. Grow. Lead."

@@ -2,5 +2,7 @@
   "name": "Forgel",
   "description": "An AI-powered brand identity operating system.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

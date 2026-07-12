@@ -132,18 +132,30 @@ This document serves as the master Product Requirements Document (PRD) and imple
 
 ### Phase 7: Precision Canvas (Manual SVG & Vector Editing)
 - [ ] Implement a **Raw Code Editor** (e.g., Monaco/CodeMirror) for direct `<svg>` markup manipulation with live hot-reloading.
-- [ ] Implement a **Visual Node Editor** allowing graphical manipulation of SVG paths, bezier curves, and anchor points.
-- [ ] Build seamless syncing between the AI generator, the visual canvas, and the raw code editor (so edits in one reflect in all).
+- [ ] Implement a **Visual Node Editor** allowing graphical manipulation of SVG paths, bezier curves, and anchor points directly on the canvas.
+- [ ] Build seamless two-way syncing between the AI generator, the visual canvas, and the raw code editor.
 - [ ] **Findings:** *[Add notes here...]*
 
 ### Phase 8: Brand Architect (Comprehensive Guide Generation & Export)
 - [ ] Build a "Brand Ingestion" UI accepting massive text inputs, PDFs, or URLs (scraping context) to capture a company's full mission, vision, values, and competitor landscape.
 - [ ] Implement tiered generation pipelines:
   - **Compact Mode**: Generates a 1-page "Stylescape" (Cheat Sheet) containing core logos, primary colors, and basic typography.
-  - **Complete Mode**: Generates a massive, fully detailed brand book (Voice & Tone, Do's and Don'ts, photography guidelines, etc.).
+  - **Complete Mode**: Generates a massive, fully detailed brand book (Voice & Tone, Do's and Don'ts, photography guidelines, iconography, etc.).
 - [ ] Implement comprehensive export pipelines:
   - **PDF**: Client-side rendering of the guide (via `html2canvas` + `jsPDF` or browser print).
   - **PPTX**: Presentation export using a library like `pptxgenjs`.
   - **JSON/CSV**: Structured data export for tokens, colors, and components.
   - **MD**: Developer-friendly markdown documentation.
+  - **Image**: Export standard image snapshots of brand boards.
+- [ ] **Findings:** *[Add notes here...]*
+
+### Phase 9: Real-World Context (Mockup Previews)
+- [ ] Implement asset upload support for `.psd`, `.svg`, `.ai`, `.fig`, and standard images (JPEG/PNG).
+- [ ] Build a smart masking / compositing layer allowing users to instantly preview their generated logo inside the uploaded mockups (e.g., business cards, storefronts, apparel).
+- [ ] **Findings:** *[Add notes here...]*
+
+### Phase 10: The "Beginex" Track & Professional Workflow
+- [ ] **Professional Project Stages:** Restructure the project dashboard to follow real-world agency workflows (Discovery & Briefing ➔ Ideation ➔ Sketching/Drafting ➔ Refinement ➔ Delivery & Handoff).
+- [ ] **Beginex Educational Curriculum:** Embed contextual learning resources (guides, tutorials, tooltips) directly into each stage of the workflow to take a complete beginner to an expert logo designer.
+- [ ] **AI Rationale Engine:** Build a specialized AI module that generates deep, professional explanations for every design choice (color psychology, typography selection, shape theory) to teach the user *why* a design works and help them pitch it to clients.
 - [ ] **Findings:** *[Add notes here...]*
