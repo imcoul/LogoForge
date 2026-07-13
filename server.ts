@@ -4,7 +4,9 @@ import { createServer as createViteServer } from "vite";
 import cookieParser from "cookie-parser";
 import { Client } from "@notionhq/client";
 import dotenv from "dotenv";
+import rateLimit from "express-rate-limit";
 import geminiRouter from "./src/server/geminiRouter.ts";
+import backupRouter from "./src/server/backupRouter.ts";
 
 dotenv.config();
 
@@ -15,7 +17,30 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(cookieParser());
   
-  app.use("/api/gemini", geminiRouter);
+  // Basic CSRF protection: require exact origin for state-changing API requests
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'OPTIONS' && req.path.startsWith('/api/')) {
+      const origin = req.headers.origin;
+      const appUrl = process.env.APP_URL;
+      
+      // If we have an APP_URL and an origin, they must match
+      if (appUrl && origin && origin !== appUrl && !origin.includes('localhost')) {
+        return res.status(403).json({ error: "Forbidden: Invalid origin (CSRF protection)" });
+      }
+    }
+    next();
+  });
+  
+  const geminiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+    standardHeaders: true, 
+    legacyHeaders: false, 
+    message: { error: "Too many requests to the AI proxy, please try again later." }
+  });
+
+  app.use("/api/gemini", geminiLimiter, geminiRouter);
+  app.use("/api/backup", backupRouter);
 
   // OAuth endpoint for URL
   app.get("/api/oauth/notion/url", (req, res) => {
@@ -413,7 +438,16 @@ async function startServer() {
         const msg = JSON.parse(messageStr);
         
         if (msg.type === "join") {
-          const { roomId, username, projectState } = msg;
+          const { roomId, username, projectState, authToken } = msg;
+          
+          // Verify authentication token if required by environment
+          const requiredToken = process.env.WS_AUTH_TOKEN;
+          if (requiredToken && authToken !== requiredToken) {
+            ws.send(JSON.stringify({ type: "error", message: "Unauthorized: Invalid or missing auth token." }));
+            ws.close();
+            return;
+          }
+
           currentRoomId = roomId;
           userId = msg.userId || Math.random().toString(36).substring(2, 9);
           

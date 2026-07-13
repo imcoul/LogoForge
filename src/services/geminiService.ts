@@ -43,8 +43,27 @@ const getHeaders = () => {
   return headers;
 };
 
+const fetchWithRetry = async (url: string, options: RequestInit, retries = 2, backoff = 1000): Promise<Response> => {
+  try {
+    const res = await fetchWithRetry(url, options);
+    if (!res.ok && res.status >= 500 && retries > 0) {
+      console.warn(`[API] Retrying ${url} in ${backoff}ms... (${retries} attempts left)`);
+      await new Promise(r => setTimeout(r, backoff));
+      return fetchWithRetry(url, options, retries - 1, backoff * 2);
+    }
+    return res;
+  } catch (err) {
+    if (retries > 0) {
+      console.warn(`[API] Network error, retrying ${url} in ${backoff}ms... (${retries} attempts left)`);
+      await new Promise(r => setTimeout(r, backoff));
+      return fetchWithRetry(url, options, retries - 1, backoff * 2);
+    }
+    throw err;
+  }
+};
+
 export const generateLogoImage = async (companyDescription: string): Promise<string> => {
-  const res = await fetch('/api/gemini/generate-logo', {
+  const res = await fetchWithRetry('/api/gemini/generate-logo', {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ companyDescription })
@@ -62,7 +81,7 @@ export const analyzeRefinementContext = async (
   originalLogoMimeType: string,
   contextFiles: { base64Data: string; mimeType: string; name: string }[]
 ): Promise<RefinementSuggestion> => {
-  const res = await fetch('/api/gemini/analyze-refinement', {
+  const res = await fetchWithRetry('/api/gemini/analyze-refinement', {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ originalLogoBase64, originalLogoMimeType, contextFiles })
@@ -79,7 +98,7 @@ export const generateBrandGuide = async (
   mimeType: string,
   context?: string
 ): Promise<BrandGuide> => {
-  const res = await fetch('/api/gemini/generate-brand-guide', {
+  const res = await fetchWithRetry('/api/gemini/generate-brand-guide', {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ base64Data, mimeType, context })
@@ -95,7 +114,7 @@ export const generateSonicPhilosophy = async (
   companyDescription: string,
   soundNames: string[]
 ): Promise<string> => {
-  const res = await fetch('/api/gemini/generate-sonic', {
+  const res = await fetchWithRetry('/api/gemini/generate-sonic', {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ companyDescription, soundNames })
@@ -109,7 +128,7 @@ export const generateSonicPhilosophy = async (
 };
 
 export const generateDesignRationale = async (description: string, stage: string): Promise<string> => {
-  const res = await fetch('/api/gemini/generate-rationale', {
+  const res = await fetchWithRetry('/api/gemini/generate-rationale', {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ description, stage })
@@ -127,7 +146,7 @@ export const generateAICriticComment = async (
   logoUrl?: string | null,
   role?: string
 ): Promise<string> => {
-  const res = await fetch('/api/gemini/generate-critic', {
+  const res = await fetchWithRetry('/api/gemini/generate-critic', {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ companyDescription, logoUrl, role })
@@ -135,6 +154,41 @@ export const generateAICriticComment = async (
   if (!res.ok) {
     const error = await res.json();
     throw new Error(error.error || "Failed to generate design critique.");
+  }
+  const data = await res.json();
+  return data.text;
+};
+
+export const analyzeCompetitor = async (
+  companyDescription: string,
+  competitorName: string,
+  competitorLogoUrl?: string
+): Promise<string> => {
+  const res = await fetchWithRetry('/api/gemini/analyze-competitor', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ companyDescription, competitorName, competitorLogoUrl })
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || "Failed to analyze competitor.");
+  }
+  const data = await res.json();
+  return data.text;
+};
+
+export const generateEcosystemAsset = async (
+  brandGuide: any,
+  assetType: string
+): Promise<string> => {
+  const res = await fetchWithRetry('/api/gemini/generate-ecosystem', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ brandGuide, assetType })
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || "Failed to generate ecosystem asset.");
   }
   const data = await res.json();
   return data.text;

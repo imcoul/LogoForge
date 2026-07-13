@@ -1,15 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Quicksand", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Comfortaa", ui-sans-serif, system-ui, sans-serif;
   
   --color-brand-service: #40e0d0;
   --color-brand-growth: #ffff80;
   --color-brand-lead: #800080;
+
+  --color-indigo-100: #f2e6f2;
+  --color-indigo-200: #e6cce6;
+  --color-indigo-300: #d9b3d9;
+  --color-indigo-400: #bf80bf;
+  --color-indigo-500: #a64da6;
+  --color-indigo-600: #800080;
+  --color-indigo-700: #660066;
+  --color-indigo-800: #4d004d;
+  --color-indigo-900: #330033;
+  --color-indigo-950: #1a001a;
 }
 
 body {

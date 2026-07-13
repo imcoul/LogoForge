@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud, Copy } from 'lucide-react';
-import { generateLogoImage, generateBrandGuide, analyzeRefinementContext, generateSonicPhilosophy, generateDesignRationale, generateAICriticComment } from './services/geminiService';
+import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud, Copy, Target, Users, ShieldAlert } from 'lucide-react';
+import { generateLogoImage, generateBrandGuide, analyzeRefinementContext, generateSonicPhilosophy, generateDesignRationale, generateAICriticComment, analyzeCompetitor, generateEcosystemAsset } from './services/geminiService';
 import { useAppStore, Project, Mockup } from './store';
+import { auth, signInWithGoogle, logout, db } from './services/firebase';
+import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
+import { syncProjectToPostgres, syncProjectToSupabase } from './utils/dbBackupClient';
 import { KeyboardManager } from './components/KeyboardManager';
 import { TouchGesturesHelp } from './components/TouchGesturesHelp';
 import { Sheet } from './components/Sheet';
@@ -35,7 +38,7 @@ const ANIMATIONS = {
 
 type AnimationType = keyof typeof ANIMATIONS;
 type ViewMode = 'dashboard' | 'studio' | 'course' | 'settings';
-type StudioTab = 'preview' | 'guide' | 'refine' | 'sonic' | 'comments' | 'precision' | 'mockups';
+type StudioTab = 'preview' | 'guide' | 'refine' | 'sonic' | 'comments' | 'precision' | 'mockups' | 'competitor' | 'ecosystem';
 
 interface TooltipProps {
   content: React.ReactNode;
@@ -377,7 +380,7 @@ const PRD_FEATURES: PrdFeature[] = [
     prd: {
       db: "Mockup asset directory bindings.",
       routes: "N/A (Client-side graphic canvas composition).",
-      specs: "Leverages absolute layout coordinates and overlay blending properties to composite user-forged SVGs cleanly on templates."
+      specs: "Uses absolute layout coordinates and overlay blending properties to composite user-forged SVGs cleanly on templates."
     }
   },
   {
@@ -633,7 +636,7 @@ const generateFullDoc = (features: PrdFeature[], includeServer = false): string 
     </head>
     <body>
       <h1>Forgel Branding Forge Suite</h1>
-      <p style="font-size: 16px; color: #475569;"><strong>Authority:</strong> Platform Specifications & Product Requirement Document (PRD)</p>
+      <p style="font-size: 16px; color: #475569;"><strong>Overview:</strong> Platform Specifications & Product Requirement Document (PRD)</p>
       <p>This master specification outlines all core modules, business intents, operator runbooks, and microservices for the Forgel application context.</p>
       <div class="page-break"></div>
   `;
@@ -687,7 +690,7 @@ const generateFullDoc = (features: PrdFeature[], includeServer = false): string 
 };
 
 // PDF PRINTERS
-const exportFeaturePDF = (feat: PrdFeature, addToast: (t: ToastType, m: string) => void, includeServer = false) => {
+const exportFeaturePDF = (feat: PrdFeature, addToast: (t: any, m: string) => void, includeServer = false) => {
   try {
     const printWindow = window.open('', '_blank');
     if (!printWindow) throw new Error('Popup blocked');
@@ -769,7 +772,7 @@ const exportFeaturePDF = (feat: PrdFeature, addToast: (t: ToastType, m: string) 
   }
 };
 
-const exportFullPDF = (features: PrdFeature[], addToast: (t: ToastType, m: string) => void, includeServer = false) => {
+const exportFullPDF = (features: PrdFeature[], addToast: (t: any, m: string) => void, includeServer = false) => {
   try {
     const printWindow = window.open('', '_blank');
     if (!printWindow) throw new Error('Popup blocked');
@@ -849,7 +852,6 @@ const exportFullPDF = (features: PrdFeature[], addToast: (t: ToastType, m: strin
           <div style="font-size: 22px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">Master Product Requirement Document Suite</div>
           <div class="cover-subtitle">Integrated client design system, sound architect, dynamic coordinate manual alignment, mockups compositing, and visual grading platform.</div>
           <div style="margin-top: auto; font-size: 13px; color: #64748b; font-family: monospace;">
-            AUTH_LEVEL: ADMIN_ROLE_SECURE<br>
             PLATFORM_VERSION: 1.2.0<br>
             TIMESTAMP: ${new Date().toLocaleDateString()}<br>
             INGRESS_ROUTE: SSL://3000
@@ -890,8 +892,8 @@ const safeFormatDate = (dateVal: any, lang: string): string => {
 export default function App() {
   const { toast } = useToast();
   const { 
-    projects, activeProjectId, isHydrated, settings,
-    loadProjects, createProject, updateProject, deleteProject, cloneProject, setActiveProject, updateSettings
+    projects, activeProjectId, isHydrated, settings, user, setUser,
+    loadProjects, createProject, updateProject, bulkUpdateProjects, deleteProject, deleteProjects, cloneProject, setActiveProject, updateSettings
   } = useAppStore();
 
   const [view, setView] = useState<ViewMode>('dashboard');
@@ -900,6 +902,83 @@ export default function App() {
   const [whacanudoTab, setWhacanudoTab] = useState<'overview' | 'features' | 'terminal'>('overview');
   const [devLogs, setDevLogs] = useState<string[]>([]);
   const [activeDevTask, setActiveDevTask] = useState<string | null>(null);
+
+  // User profiles and role management
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
+
+  const fetchUsers = async () => {
+    if (!user) return;
+    setIsUsersLoading(true);
+    try {
+      const qSnapshot = await getDocs(collection(db, 'users'));
+      const list: any[] = [];
+      qSnapshot.forEach((docSnap) => {
+        list.push(docSnap.data());
+      });
+      setAllUsers(list);
+    } catch (err) {
+      console.error('Failed to fetch users:', err);
+    } finally {
+      setIsUsersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (view === 'settings' && user) {
+      fetchUsers();
+    }
+  }, [view, user]);
+
+  const handleChangeUserRole = async (targetUserId: string, newRole: 'Designer' | 'Server') => {
+    const targetUser = allUsers.find(u => u.uid === targetUserId);
+    if (!targetUser) return;
+
+    if (newRole === 'Designer' && targetUser.role === 'Server') {
+      const serverCount = allUsers.filter(u => u.role === 'Server').length;
+      if (serverCount <= 1) {
+        toast("Cannot demote the last Server of the app!", "error");
+        return;
+      }
+    }
+
+    try {
+      await setDoc(doc(db, 'users', targetUserId), {
+        role: newRole,
+        "settings.role": newRole
+      }, { merge: true });
+      
+      toast(`Successfully updated ${targetUser.email}'s role to ${newRole}!`, "success");
+      fetchUsers();
+    } catch (err) {
+      toast("Error updating role: " + (err instanceof Error ? err.message : String(err)), "error");
+    }
+  };
+
+  const handleDeleteUserProfile = async (targetUserId: string) => {
+    const targetUser = allUsers.find(u => u.uid === targetUserId);
+    if (!targetUser) return;
+
+    if (targetUser.role === 'Server') {
+      const serverCount = allUsers.filter(u => u.role === 'Server').length;
+      if (serverCount <= 1) {
+        toast("Cannot delete the last Server of the app!", "error");
+        return;
+      }
+    }
+
+    if (!window.confirm(`Are you sure you want to delete user ${targetUser.email || targetUser.uid}?`)) {
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'users', targetUserId));
+      toast(`Successfully deleted ${targetUser.email}!`, "success");
+      fetchUsers();
+    } catch (err) {
+      toast("Error deleting user: " + (err instanceof Error ? err.message : String(err)), "error");
+    }
+  };
   
   // Current Studio State
   const [mode, setMode] = useState<'create' | 'upload'>('create');
@@ -962,6 +1041,13 @@ export default function App() {
   const [criticRole, setCriticRole] = useState<string>('Senior Art Director 🎨');
   const [isCriticLoading, setIsCriticLoading] = useState(false);
 
+  // Phase D States
+  const [competitorNameInput, setCompetitorNameInput] = useState('');
+  const [competitorLogoUrlInput, setCompetitorLogoUrlInput] = useState<string | null>(null);
+  const [isAnalyzingCompetitor, setIsAnalyzingCompetitor] = useState(false);
+  const [ecosystemAssetType, setEcosystemAssetType] = useState('Instagram Post Caption');
+  const [isGeneratingEcosystem, setIsGeneratingEcosystem] = useState(false);
+
   // Dashboard search, stage filtering, and custom animated delete modal states
   const [searchQuery, setSearchQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('all');
@@ -974,18 +1060,30 @@ export default function App() {
   const [isBulkSelectMode, setIsBulkSelectMode] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [isExportingBulk, setIsExportingBulk] = useState(false);
+  const [showBulkRename, setShowBulkRename] = useState(false);
+  const [isBackingUpDb, setIsBackingUpDb] = useState(false);
+  const [bulkRenameValue, setBulkRenameValue] = useState('');
+  const [showBulkTag, setShowBulkTag] = useState(false);
+  const [bulkTagValue, setBulkTagValue] = useState('');
 
   // Auto-archive inactive projects (modified > 30 days ago) on load
   useEffect(() => {
     if (isHydrated && projects.length > 0) {
       const now = Date.now();
       const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-      projects.forEach(async (proj) => {
-        const lastModified = proj.updatedAt || proj.createdAt;
-        if (now - lastModified > THIRTY_DAYS_MS && !proj.archived) {
-          await updateProject(proj.id, { archived: true });
-        }
-      });
+      
+      const archiveInactive = async () => {
+        const promises = projects.map(proj => {
+          const lastModified = proj.updatedAt || proj.createdAt;
+          if (now - lastModified > THIRTY_DAYS_MS && !proj.archived) {
+            return updateProject(proj.id, { archived: true });
+          }
+          return Promise.resolve();
+        });
+        await Promise.all(promises);
+      };
+      
+      archiveInactive().catch(console.error);
     }
   }, [isHydrated]);
 
@@ -1019,9 +1117,9 @@ export default function App() {
         `[CLUSTER] Connecting to Google Vertex AI clusters... OK`,
         `[COMPILER] Initializing weight injection sequence for model gemini-2.5-pro...`,
         `[FORGE] Parsing shape grammar token-boundary coordinates...`,
-        `[OPTIMIZER] Calibrating Bezier flat path control handle thresholds...`,
+        `[PROCESSOR] Calibrating Bezier flat path control handle thresholds...`,
         `[METRICS] Vector precision score elevated from 81.2% to 98.4%.`,
-        `[SUCCESS] Model weight map compiled! Vector paths optimized.`,
+        `[SUCCESS] Model weight map compiled! Vector paths refined.`,
         `[DEPLOY] Hot-reloaded container model proxy definitions successfully.`
       ],
       css: [
@@ -1142,7 +1240,7 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
   // --- Parallel Spikes Hooks & Handlers ---
   
   // Custom update and broadcast coordination
-  const handleUpdateAndSync = (updates: Partial<Project>) => {
+  const handleUpdateAndSync = async (updates: Partial<Project>) => {
     if (!activeProjectId) return;
     const start = performance.now();
     setIsSaving(true);
@@ -1157,21 +1255,102 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
       nextUpdates.logoUrl = `data:image/svg+xml;utf8,${encodeURIComponent(updates.svgSource)}`;
     }
 
-    updateProject(activeProjectId, nextUpdates);
+    await updateProject(activeProjectId, nextUpdates);
     
     const duration = performance.now() - start;
     setSaveLatencyMs(parseFloat(duration.toFixed(2)));
     setTimeout(() => setIsSaving(false), 800);
 
+    const mergedProject = {
+      ...activeProject,
+      ...nextUpdates,
+      updatedAt: Date.now()
+    } as Project;
+
+    // Trigger Cloud Backups/Mirrors if configured
+    if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
+      syncProjectToPostgres(mergedProject, settings.postgresConnectionString).then((res) => {
+        if (!res.success) {
+          console.warn('Postgres Backup Failed:', res.message);
+        }
+      });
+    }
+    if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
+      syncProjectToSupabase(mergedProject, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+        if (!res.success) {
+          console.warn('Supabase Backup Failed:', res.message);
+        }
+      });
+    }
+
     // Broadcast update via WebSocket
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({
         type: 'sync',
-        projectState: {
-          ...activeProject,
-          ...nextUpdates
-        }
+        projectState: mergedProject
       }));
+    }
+  };
+
+  const handleManualBackup = async (target: 'postgres' | 'supabase') => {
+    if (!activeProject) {
+      toast('Please select or create a project to back up.', 'error');
+      return;
+    }
+    setIsBackingUpDb(true);
+    
+    let res;
+    if (target === 'postgres') {
+      res = await syncProjectToPostgres(activeProject, settings.postgresConnectionString);
+    } else {
+      res = await syncProjectToSupabase(activeProject, settings.supabaseUrl, settings.supabaseAnonKey);
+    }
+
+    setIsBackingUpDb(false);
+    if (res.success) {
+      toast(res.message, 'success');
+    } else {
+      toast(res.message, 'error');
+    }
+  };
+
+  // Phase D Handlers
+  const handleAnalyzeCompetitor = async () => {
+    if (!activeProject || !competitorNameInput) return;
+    setIsAnalyzingCompetitor(true);
+    try {
+      const analysis = await analyzeCompetitor(
+        activeProject.description || activeProject.name,
+        competitorNameInput,
+        competitorLogoUrlInput || undefined
+      );
+      handleUpdateAndSync({ competitorAnalysis: analysis });
+      toast('Competitor analysis complete.', 'success');
+    } catch (err: any) {
+      console.error(err);
+      toast(err.message || 'Failed to analyze competitor', 'error');
+    } finally {
+      setIsAnalyzingCompetitor(false);
+    }
+  };
+
+  const handleGenerateEcosystem = async () => {
+    if (!activeProject || !activeProject.brandGuide) {
+      toast('You need a generated Brand Guide first.', 'error');
+      return;
+    }
+    setIsGeneratingEcosystem(true);
+    try {
+      const content = await generateEcosystemAsset(activeProject.brandGuide, ecosystemAssetType);
+      const newAsset = { type: ecosystemAssetType, content };
+      const currentAssets = activeProject.ecosystemAssets || [];
+      handleUpdateAndSync({ ecosystemAssets: [newAsset, ...currentAssets] });
+      toast('Ecosystem asset generated.', 'success');
+    } catch (err: any) {
+      console.error(err);
+      toast(err.message || 'Failed to generate ecosystem asset', 'error');
+    } finally {
+      setIsGeneratingEcosystem(false);
     }
   };
 
@@ -1201,6 +1380,14 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
       }
     }
   };
+
+  const activeProjectRef = useRef(activeProject);
+  const activeProjectIdRef = useRef(activeProjectId);
+  
+  useEffect(() => {
+    activeProjectRef.current = activeProject;
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProject, activeProjectId]);
 
   // Web Worker setup
   useEffect(() => {
@@ -1263,9 +1450,11 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
       if (type === 'BENCHMARK_RESULT') {
         setBenchmarkResult(payload);
       } else if (type === 'GRADED_RESULT') {
-        if (activeProjectId && activeProject) {
-          const updatedGuide = activeProject.brandGuide ? {
-            ...activeProject.brandGuide,
+        const currentActiveProjectId = activeProjectIdRef.current;
+        const currentActiveProject = activeProjectRef.current;
+        if (currentActiveProjectId && currentActiveProject) {
+          const updatedGuide = currentActiveProject.brandGuide ? {
+            ...currentActiveProject.brandGuide,
             primaryColors: payload.gradedColors.filter((c: any) => c.category === 'primary'),
             secondaryColors: payload.gradedColors.filter((c: any) => c.category === 'secondary')
           } : null;
@@ -1278,7 +1467,7 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
     return () => {
       workerInstance.terminate();
     };
-  }, [activeProjectId, activeProject?.id]);
+  }, []);
 
   // WebSocket Connection Sync Effect
   useEffect(() => {
@@ -1290,62 +1479,95 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
       return;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
-    console.log('[Collab] Opening WebSocket connection:', wsUrl);
-    
-    const ws = new WebSocket(wsUrl);
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: any;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_DELAY = 10000;
 
-    ws.onopen = () => {
-      console.log('[Collab] Connected to server sync.');
-      ws.send(JSON.stringify({
-        type: 'join',
-        roomId: activeProjectId,
-        username,
-        projectState: activeProject
-      }));
-    };
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}`;
+      console.log('[Collab] Opening WebSocket connection:', wsUrl);
+      
+      ws = new WebSocket(wsUrl);
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'welcome') {
-          setActiveUsers(msg.activeUsers || []);
-          if (msg.projectState) {
-            updateProject(activeProjectId, msg.projectState);
+      ws.onopen = () => {
+        console.log('[Collab] Connected to server sync.');
+        reconnectAttempts = 0;
+        ws!.send(JSON.stringify({
+          type: 'join',
+          roomId: activeProjectId,
+          username,
+          projectState: activeProjectRef.current,
+          authToken: 'dev_token_if_needed' // Optional auth token
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'error') {
+            console.error('[Collab] Server Error:', msg.message);
+            return;
           }
-        } else if (msg.type === 'user_joined') {
-          setActiveUsers(msg.activeUsers || []);
-        } else if (msg.type === 'user_left') {
-          setActiveUsers(msg.activeUsers || []);
-          setRemoteCursors(prev => {
-            const next = { ...prev };
-            delete next[msg.userId];
-            return next;
-          });
-        } else if (msg.type === 'sync') {
-          if (msg.projectState) {
-            updateProject(activeProjectId, msg.projectState);
-          }
-        } else if (msg.type === 'cursor') {
-          setRemoteCursors(prev => ({
-            ...prev,
-            [msg.userId]: {
-              username: msg.username,
-              color: msg.color,
-              x: msg.x,
-              y: msg.y
+          if (msg.type === 'welcome') {
+            setActiveUsers(msg.activeUsers || []);
+            if (msg.projectState) {
+              updateProject(activeProjectId, msg.projectState);
             }
-          }));
+          } else if (msg.type === 'user_joined') {
+            setActiveUsers(msg.activeUsers || []);
+          } else if (msg.type === 'user_left') {
+            setActiveUsers(msg.activeUsers || []);
+            setRemoteCursors(prev => {
+              const next = { ...prev };
+              delete next[msg.userId];
+              return next;
+            });
+          } else if (msg.type === 'sync') {
+            if (msg.projectState) {
+              updateProject(activeProjectId, msg.projectState);
+            }
+          } else if (msg.type === 'cursor') {
+            setRemoteCursors(prev => ({
+              ...prev,
+              [msg.userId]: {
+                username: msg.username,
+                color: msg.color,
+                x: msg.x,
+                y: msg.y
+              }
+            }));
+          }
+        } catch (e) {
+          console.error('[Collab] Error parsing ws frame:', e);
         }
-      } catch (e) {
-        console.error('[Collab] Error parsing ws frame:', e);
-      }
+      };
+
+      ws.onclose = () => {
+        console.log('[Collab] WebSocket closed.');
+        // Reconnection logic
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+        reconnectAttempts++;
+        console.log(`[Collab] Reconnecting in ${delay}ms (Attempt ${reconnectAttempts})...`);
+        reconnectTimeout = setTimeout(connect, delay);
+      };
+
+      ws.onerror = (err) => {
+        console.error('[Collab] WebSocket error:', err);
+      };
+
+      setSocket(ws);
     };
 
-    setSocket(ws);
+    connect();
+
     return () => {
-      ws.close();
+      clearTimeout(reconnectTimeout);
+      if (ws) {
+        ws.onclose = null; // Prevent reconnect loop on intentional unmount
+        ws.close();
+      }
     };
   }, [activeProjectId]);
 
@@ -1383,6 +1605,46 @@ stage: "${activeProject.stage}"
     a.href = url;
     a.download = `${activeProject.name.toLowerCase().replace(/\s+/g, '-')}-assets.zip`;
     a.click();
+  };
+
+  const handleBulkRenameSubmit = async () => {
+    if (!bulkRenameValue.trim() || selectedProjectIds.length === 0) return;
+    try {
+      await bulkUpdateProjects(selectedProjectIds, { name: bulkRenameValue.trim() });
+      toast('Bulk rename successful', 'success');
+      setShowBulkRename(false);
+      setBulkRenameValue('');
+      setIsBulkSelectMode(false);
+      setSelectedProjectIds([]);
+    } catch (e) {
+      toast('Failed to bulk rename', 'error');
+    }
+  };
+
+  const handleBulkTagSubmit = async () => {
+    if (!bulkTagValue.trim() || selectedProjectIds.length === 0) return;
+    try {
+      const newTags = bulkTagValue.split(',').map(t => t.trim()).filter(Boolean);
+      const { projects } = useAppStore.getState();
+      
+      const promises = selectedProjectIds.map(id => {
+        const p = projects.find(proj => proj.id === id);
+        if (p) {
+          const currentTags = p.tags || [];
+          const mergedTags = Array.from(new Set([...currentTags, ...newTags]));
+          return updateProject(id, { tags: mergedTags });
+        }
+        return Promise.resolve();
+      });
+      await Promise.all(promises);
+      toast('Bulk tag successful', 'success');
+      setShowBulkTag(false);
+      setBulkTagValue('');
+      setIsBulkSelectMode(false);
+      setSelectedProjectIds([]);
+    } catch (e) {
+      toast('Failed to bulk tag', 'error');
+    }
   };
 
   // Bulk ZIP packaging function
@@ -1555,6 +1817,13 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((firebaseUser) => {
+      setUser(firebaseUser);
+    });
+    return () => unsubscribe();
+  }, [setUser]);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -1794,8 +2063,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
 
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      const origin = event.origin;
-      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
+      if (event.origin !== window.location.origin) {
         return;
       }
       
@@ -1929,6 +2197,39 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
           {isDarkMode ? <Sun size={24} className="text-amber-500 animate-pulse" /> : <Moon size={24} />}
         </button>
 
+        {/* User Auth Profile in Rail */}
+        <div className="flex flex-col items-center justify-center shrink-0">
+          {user ? (
+            <button
+              onClick={() => logout()}
+              className="relative p-0.5 rounded-full border-2 border-emerald-500 hover:border-red-500 transition-colors group cursor-pointer"
+              title={`Logged in as ${user.displayName || user.email}. Click to Sign Out.`}
+            >
+              {user.photoURL ? (
+                <img src={user.photoURL} alt={user.displayName || 'User'} className="w-8 h-8 rounded-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-bold font-sans">
+                  {user.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
+                </div>
+              )}
+              <span className="absolute left-full ml-3 px-2.5 py-1 bg-zinc-950 text-white text-[10px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50 shadow-md">
+                Sign Out ({user.displayName || 'User'})
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={() => signInWithGoogle()}
+              className="p-3 rounded-xl text-neutral-500 hover:text-indigo-500 hover:bg-neutral-50 dark:hover:bg-zinc-900 transition-all cursor-pointer group relative"
+              title="Sign in with Google"
+            >
+              <Lock size={24} />
+              <span className="absolute left-full ml-3 px-2.5 py-1 bg-zinc-950 text-white text-[10px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50 shadow-md">
+                Sign In with Google
+              </span>
+            </button>
+          )}
+        </div>
+
         <button 
           onClick={() => setView('settings')}
           className={`p-3 rounded-xl transition-all ${view === 'settings' ? 'bg-indigo-50 dark:bg-zinc-800 text-brand-lead dark:text-indigo-400' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:hover:text-white hover:bg-neutral-50 dark:hover:bg-zinc-900'}`}
@@ -1936,6 +2237,12 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
         >
           <Settings size={24} />
         </button>
+
+        {/* Brand Attribution */}
+        <div className="hidden md:flex flex-col items-center justify-center text-center px-1 pb-4 pt-4 group cursor-default" title="Built by Srvel — Serve. Grow. Lead.">
+          <span className="text-[9px] font-display font-bold text-neutral-400 dark:text-zinc-500 group-hover:text-brand-lead transition-colors uppercase tracking-wider">Forged for</span>
+          <span className="text-[9px] font-sans font-bold text-neutral-500 dark:text-zinc-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200 transition-colors uppercase tracking-widest mt-0.5">Creators</span>
+        </div>
       </div>
 
       {view === 'dashboard' ? (
@@ -1948,6 +2255,36 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                 <p className="text-neutral-500 dark:text-zinc-400">{t('app_description')}</p>
               </div>
               <div className="flex flex-wrap items-center gap-4">
+                {/* Google Auth Integration Button */}
+                {user ? (
+                  <div className="flex items-center gap-2 bg-neutral-100 dark:bg-zinc-800 px-3.5 py-1.5 rounded-xl border border-neutral-200 dark:border-zinc-750">
+                    {user.photoURL ? (
+                      <img src={user.photoURL} alt={user.displayName || 'User'} className="w-5 h-5 rounded-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center text-white text-[10px] font-bold">
+                        {user.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
+                      </div>
+                    )}
+                    <span className="text-xs font-bold text-neutral-800 dark:text-zinc-200">
+                      {user.displayName || user.email?.split('@')[0]}
+                    </span>
+                    <button
+                      onClick={() => logout()}
+                      className="ml-2 text-xs text-red-500 hover:text-red-600 font-bold transition-colors cursor-pointer"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => signInWithGoogle()}
+                    className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all cursor-pointer shadow-sm"
+                    title="Sign In with Google to Sync to Cloud"
+                  >
+                    <Lock size={14} className="text-white" /> Sign In
+                  </button>
+                )}
+
                 {/* Google Drive Button */}
                 <button
                   onClick={() => setIsGoogleDriveOpen(true)}
@@ -2110,7 +2447,8 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                 // Filter projects by active/archived tab, search, and stage
                 const filteredProjects = projects.filter((proj) => {
                   const matchTab = dashboardTab === 'archived' ? proj.archived : !proj.archived;
-                  const matchSearch = proj.name.toLowerCase().includes(searchQuery.toLowerCase());
+                  const searchLower = searchQuery.toLowerCase();
+                  const matchSearch = proj.name.toLowerCase().includes(searchLower) || (proj.tags && proj.tags.some(t => t.toLowerCase().includes(searchLower)));
                   const matchStage = stageFilter === 'all' || proj.stage === stageFilter;
                   return matchTab && matchSearch && matchStage;
                 });
@@ -2296,6 +2634,17 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                               </span>
                             </div>
                             <p className="text-xs text-neutral-400 mt-1">{safeFormatDate(proj.createdAt, i18n.language)}</p>
+                            
+                            {/* Project Tags */}
+                            {proj.tags && proj.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-3">
+                                {proj.tags.map((tag, idx) => (
+                                  <span key={idx} className="px-1.5 py-0.5 bg-neutral-100 dark:bg-zinc-800 text-neutral-500 dark:text-zinc-400 text-[9px] font-bold uppercase tracking-wider rounded-md">
+                                    #{tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           {/* Progress Indicator Bar */}
@@ -2359,6 +2708,18 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     Select All
                   </button>
                   <button
+                    onClick={() => setShowBulkRename(true)}
+                    className="px-3 py-1.5 bg-neutral-850 hover:bg-neutral-800 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer text-neutral-300"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    onClick={() => setShowBulkTag(true)}
+                    className="px-3 py-1.5 bg-neutral-850 hover:bg-neutral-800 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer text-neutral-300"
+                  >
+                    Tag
+                  </button>
+                  <button
                     onClick={() => handleBulkExportZip(selectedProjectIds)}
                     disabled={isExportingBulk}
                     className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-800 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
@@ -2375,6 +2736,90 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                   </button>
                 </div>
               </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Bulk Rename Modal */}
+          <AnimatePresence>
+            {showBulkRename && (
+              <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-xs">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="bg-white dark:bg-zinc-900 rounded-3xl p-8 max-w-md w-full shadow-2xl border border-neutral-200 dark:border-zinc-800"
+                >
+                  <h3 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">Bulk Rename Projects</h3>
+                  <p className="text-sm text-neutral-500 mb-6">Enter a new name for the {selectedProjectIds.length} selected projects.</p>
+                  
+                  <input
+                    type="text"
+                    value={bulkRenameValue}
+                    onChange={(e) => setBulkRenameValue(e.target.value)}
+                    placeholder="New Project Name"
+                    className="w-full bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white mb-6"
+                    autoFocus
+                  />
+                  
+                  <div className="flex gap-3 justify-end">
+                    <button
+                      onClick={() => { setShowBulkRename(false); setBulkRenameValue(''); }}
+                      className="px-4 py-2 text-sm font-bold text-neutral-600 dark:text-zinc-400 hover:text-neutral-900 dark:hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleBulkRenameSubmit}
+                      disabled={!bulkRenameValue.trim()}
+                      className="px-6 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      Apply Rename
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          {/* Bulk Tag Modal */}
+          <AnimatePresence>
+            {showBulkTag && (
+              <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-xs">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="bg-white dark:bg-zinc-900 rounded-3xl p-8 max-w-md w-full shadow-2xl border border-neutral-200 dark:border-zinc-800"
+                >
+                  <h3 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">Bulk Add Tags</h3>
+                  <p className="text-sm text-neutral-500 mb-6">Enter tags to apply to the {selectedProjectIds.length} selected projects (comma-separated).</p>
+                  
+                  <input
+                    type="text"
+                    value={bulkTagValue}
+                    onChange={(e) => setBulkTagValue(e.target.value)}
+                    placeholder="e.g. campaign2026, social-media"
+                    className="w-full bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white mb-6"
+                    autoFocus
+                  />
+                  
+                  <div className="flex gap-3 justify-end">
+                    <button
+                      onClick={() => { setShowBulkTag(false); setBulkTagValue(''); }}
+                      className="px-4 py-2 text-sm font-bold text-neutral-600 dark:text-zinc-400 hover:text-neutral-900 dark:hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleBulkTagSubmit}
+                      disabled={!bulkTagValue.trim()}
+                      className="px-6 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      Apply Tags
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
             )}
           </AnimatePresence>
 
@@ -2710,6 +3155,8 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     <button onClick={() => setActiveTab('preview')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'preview' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><ImageIcon size={14} /> {t('studio_tabs_preview')}</button>
                     <button onClick={() => setActiveTab('precision')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'precision' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><FileText size={14} /> PRECISION</button>
                     <button onClick={() => setActiveTab('mockups')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'mockups' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Layers size={14} /> MOCKUPS</button>
+                    <button onClick={() => setActiveTab('competitor')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'competitor' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Target size={14} /> COMPETITOR</button>
+                    <button onClick={() => setActiveTab('ecosystem')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'ecosystem' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Globe size={14} /> ECOSYSTEM</button>
                     <button onClick={() => setActiveTab('guide')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'guide' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><BookOpen size={14} /> {t('studio_tabs_guide')}</button>
                     <button onClick={() => setActiveTab('refine')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'refine' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Sparkles size={14} /> {t('studio_tabs_refine')}</button>
                     <button onClick={() => setActiveTab('sonic')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'sonic' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Music size={14} /> {t('studio_tabs_sonic')}</button>
@@ -2735,6 +3182,14 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     <button onClick={() => setActiveTab('mockups')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'mockups' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
                       <Layers size={20} />
                       <span className="text-[10px] font-bold">Mockups</span>
+                    </button>
+                    <button onClick={() => setActiveTab('competitor')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'competitor' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <Target size={20} />
+                      <span className="text-[10px] font-bold">Rivals</span>
+                    </button>
+                    <button onClick={() => setActiveTab('ecosystem')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'ecosystem' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <Globe size={20} />
+                      <span className="text-[10px] font-bold">Social</span>
                     </button>
                     <button onClick={() => setActiveTab('guide')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'guide' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
                       <BookOpen size={20} />
@@ -2787,18 +3242,61 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                         <p className="text-sm text-neutral-500">Comprehensive custom brand identity system.</p>
                       </div>
                       {activeProject.brandGuide && (
-                        <button 
-                          onClick={handleDownloadBrandGuide}
-                          className="flex items-center gap-2 px-5 py-2.5 bg-brand-lead hover:bg-brand-lead/90 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm transition-all cursor-pointer self-start sm:self-auto"
-                        >
-                          <Download size={14} />
-                          Download Guide (.md)
-                        </button>
+                        <div className="flex flex-col sm:flex-row gap-2 self-start sm:self-auto">
+                          <button 
+                            onClick={handleDownloadBrandGuide}
+                            className="flex items-center gap-2 px-4 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-neutral-200 rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+                          >
+                            <Download size={14} />
+                            MD
+                          </button>
+                          <button 
+                            onClick={() => {
+                              import('./utils/pdfExport').then(({ exportBrandGuidePDF }) => {
+                                exportBrandGuidePDF(activeProject);
+                                toast('Brand Guide PDF generated.', 'success');
+                              }).catch(err => {
+                                console.error(err);
+                                toast('Failed to generate PDF.', 'error');
+                              });
+                            }}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-brand-lead hover:bg-brand-lead/90 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+                          >
+                            <Download size={14} />
+                            Download PDF
+                          </button>
+                          <button 
+                            onClick={() => {
+                              const guideEl = document.getElementById('brand-guide-content');
+                              if (!guideEl) {
+                                toast('Brand guide view not found.', 'error');
+                                return;
+                              }
+                              import('html2canvas').then(({ default: html2canvas }) => {
+                                toast('Generating image... this may take a moment.', 'success');
+                                html2canvas(guideEl, { useCORS: true, backgroundColor: null }).then(canvas => {
+                                  const link = document.createElement('a');
+                                  link.download = `${activeProject.name}-brand-board.png`;
+                                  link.href = canvas.toDataURL('image/png');
+                                  link.click();
+                                  toast('Image export complete.', 'success');
+                                }).catch(err => {
+                                  console.error(err);
+                                  toast('Failed to generate image.', 'error');
+                                });
+                              });
+                            }}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+                          >
+                            <Download size={14} />
+                            Export PNG
+                          </button>
+                        </div>
                       )}
                     </div>
                     
                     {activeProject.brandGuide ? (
-                      <div className="space-y-12">
+                      <div id="brand-guide-content" className="space-y-12 bg-white dark:bg-zinc-950 p-2 sm:p-6 rounded-2xl">
                         {/* Core Guide */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                           <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800">
@@ -3241,9 +3739,10 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                               </div>
                             </div>
 
-                            <div className="flex items-center justify-center p-12 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-100 dark:border-zinc-800/50">
+                            <div className="flex items-center justify-center p-12 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-100 dark:border-zinc-800/50" style={{ perspective: '1200px' }}>
                               <div 
-                                className={`w-full max-w-md aspect-[1.75/1] rounded-2xl shadow-xl border border-neutral-200/40 p-8 flex flex-col justify-between transition-all duration-300 relative overflow-hidden ${
+                                style={{ transform: 'rotateX(15deg) rotateY(-20deg) rotateZ(5deg)' }}
+                                className={`w-full max-w-md aspect-[1.75/1] rounded-2xl shadow-2xl border border-neutral-200/40 p-8 flex flex-col justify-between transition-all duration-300 relative overflow-hidden hover:rotate-0 hover:scale-105 ${
                                   cardBg === 'cream' ? 'bg-[#FDFBF7] text-[#3c362d] border-[#ebe3d5]' :
                                   cardBg === 'charcoal' ? 'bg-[#161617] text-[#eaeaea] border-[#2c2c2d]' :
                                   'bg-[#1a2c22] text-[#efe8db] border-[#294234]'
@@ -3281,8 +3780,11 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                           <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800 space-y-6">
                             <h3 className="font-bold text-sm uppercase tracking-wider text-neutral-500">Mobile Launch Experience</h3>
                             
-                            <div className="flex items-center justify-center p-12 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-100 dark:border-zinc-800/50">
-                              <div className="w-64 aspect-[9/19] bg-[#0c0c0e] rounded-[36px] shadow-2xl border-[6px] border-[#27272a] p-4 flex flex-col justify-between relative overflow-hidden text-white">
+                            <div className="flex items-center justify-center p-12 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-100 dark:border-zinc-800/50" style={{ perspective: '1200px' }}>
+                              <div 
+                                style={{ transform: 'rotateX(5deg) rotateY(15deg) rotateZ(-2deg)' }}
+                                className="w-64 aspect-[9/19] bg-[#0c0c0e] rounded-[36px] shadow-2xl border-[6px] border-[#27272a] p-4 flex flex-col justify-between relative overflow-hidden text-white transition-all duration-300 hover:rotate-0 hover:scale-105"
+                              >
                                 {/* Ambient screen glow */}
                                 <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-48 h-48 bg-brand-lead/20 rounded-full blur-3xl pointer-events-none"></div>
                                 
@@ -3334,8 +3836,11 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                           <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800 space-y-6">
                             <h3 className="font-bold text-sm uppercase tracking-wider text-neutral-500">Urban Architectural Signage</h3>
                             
-                            <div className="flex items-center justify-center p-12 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-100 dark:border-zinc-800/50">
-                              <div className="w-full max-w-lg aspect-[16/9] bg-[#141517] rounded-2xl shadow-2xl relative overflow-hidden border border-zinc-800 p-8 flex flex-col justify-between text-white">
+                            <div className="flex items-center justify-center p-12 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-100 dark:border-zinc-800/50" style={{ perspective: '1200px' }}>
+                              <div 
+                                style={{ transform: 'rotateX(5deg) rotateY(-10deg) rotateZ(0deg)' }}
+                                className="w-full max-w-lg aspect-[16/9] bg-[#141517] rounded-2xl shadow-2xl relative overflow-hidden border border-zinc-800 p-8 flex flex-col justify-between text-white transition-all duration-300 hover:rotate-0 hover:scale-105"
+                              >
                                 {/* Grid texture background */}
                                 <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
                                 
@@ -3390,9 +3895,106 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                           <span className="text-[10px] opacity-70">JPEG, PNG, SVG<br/>(PSD/FIG visual placeholder)</span>
                         </label>
                       </div>
-                    )}
+                                        )}
+                  </motion.div>
+                ) : activeTab === 'competitor' ? (
+                  <motion.div key="competitor" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col mb-8">
+                      <h2 className="text-3xl font-display font-bold">Rival Intelligence</h2>
+                      <p className="text-sm text-neutral-500">Analyze competitor branding and find strategic white space.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-6">
+                        <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-neutral-200 dark:border-zinc-800 shadow-sm">
+                          <h3 className="font-bold mb-4">Competitor Details</h3>
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold uppercase tracking-wider mb-2">Competitor Name</label>
+                              <input type="text" value={competitorNameInput} onChange={(e) => setCompetitorNameInput(e.target.value)} className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead" placeholder="e.g. Stripe, Apple, Nike" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold uppercase tracking-wider mb-2">Competitor Logo URL (Optional)</label>
+                              <input type="text" value={competitorLogoUrlInput || ''} onChange={(e) => setCompetitorLogoUrlInput(e.target.value)} className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead" placeholder="https://..." />
+                            </div>
+                            <button onClick={handleAnalyzeCompetitor} disabled={isAnalyzingCompetitor || !competitorNameInput} className="w-full bg-brand-lead hover:bg-brand-lead/90 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                              {isAnalyzingCompetitor ? <RefreshCw className="animate-spin" size={18} /> : <Target size={18} />}
+                              Analyze Competitor
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-6">
+                        {activeProject.competitorAnalysis ? (
+                          <div className="bg-neutral-900 text-white p-6 rounded-3xl shadow-sm border border-neutral-800 prose prose-invert max-w-none">
+                            <h3 className="text-xl font-display font-bold mb-4 text-brand-growth">Strategic Analysis</h3>
+                            <div className="text-sm leading-relaxed opacity-90 whitespace-pre-wrap">
+                              {activeProject.competitorAnalysis}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="h-full border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl flex flex-col items-center justify-center text-center p-8 text-neutral-500">
+                            <Target size={48} className="mb-4 opacity-50" />
+                            <p className="font-bold mb-2">No Analysis Yet</p>
+                            <p className="text-sm opacity-80">Enter competitor details to generate a strategic brand comparison.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : activeTab === 'ecosystem' ? (
+                  <motion.div key="ecosystem" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col mb-8">
+                      <h2 className="text-3xl font-display font-bold">Ecosystem Automation</h2>
+                      <p className="text-sm text-neutral-500">Generate on-brand assets using your tailored Brand Guide.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                      <div className="col-span-1 space-y-6">
+                        <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-neutral-200 dark:border-zinc-800 shadow-sm">
+                          <h3 className="font-bold mb-4">Create Asset</h3>
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold uppercase tracking-wider mb-2">Asset Type</label>
+                              <select value={ecosystemAssetType} onChange={(e) => setEcosystemAssetType(e.target.value)} className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead">
+                                <option value="Instagram Post Caption">Instagram Post</option>
+                                <option value="Twitter Thread Hook">Twitter Thread Hook</option>
+                                <option value="LinkedIn Post">LinkedIn Post</option>
+                                <option value="Email Newsletter Intro">Newsletter Intro</option>
+                                <option value="Website Hero Copy">Website Hero Copy</option>
+                              </select>
+                            </div>
+                            <button onClick={handleGenerateEcosystem} disabled={isGeneratingEcosystem} className="w-full bg-brand-lead hover:bg-brand-lead/90 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                              {isGeneratingEcosystem ? <RefreshCw className="animate-spin" size={18} /> : <Wand2 size={18} />}
+                              Generate Asset
+                            </button>
+                            {!activeProject.brandGuide && (
+                              <p className="text-[10px] text-red-500 font-bold mt-2 text-center">Requires a generated Brand Guide.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-span-1 md:col-span-2 space-y-4">
+                        {activeProject.ecosystemAssets && activeProject.ecosystemAssets.length > 0 ? (
+                          activeProject.ecosystemAssets.map((asset, i) => (
+                            <div key={i} className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-neutral-200 dark:border-zinc-800 shadow-sm relative group">
+                              <span className="inline-block px-2 py-1 bg-neutral-100 dark:bg-zinc-800 rounded text-[10px] font-bold uppercase tracking-wider mb-3 text-brand-lead">{asset.type}</span>
+                              <div className="whitespace-pre-wrap text-sm">{asset.content}</div>
+                              <button onClick={() => { navigator.clipboard.writeText(asset.content); toast('Copied to clipboard', 'success'); }} className="absolute top-4 right-4 p-2 bg-neutral-100 dark:bg-zinc-800 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Copy size={14} />
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="h-full border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl flex flex-col items-center justify-center text-center p-8 text-neutral-500">
+                            <Globe size={48} className="mb-4 opacity-50" />
+                            <p className="font-bold mb-2">No Ecosystem Assets</p>
+                            <p className="text-sm opacity-80">Generate your first on-brand asset using the panel on the left.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </motion.div>
                 ) : activeTab === 'refine' ? (
+
                   <motion.div key="refine" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                       <h2 className="text-3xl font-bold">AI Refinement Studio</h2>
@@ -3551,7 +4153,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                           >
                             <option value="Senior Art Director 🎨">Senior Art Director 🎨 (Visual Balance & Metaphor)</option>
                             <option value="Typography Specialist ✍️">Typography Specialist ✍️ (Legibility & Pairings)</option>
-                            <option value="Color Specialist 💧">Color Specialist 💧 (Palette Synergy & Vibe)</option>
+                            <option value="Color Specialist 💧">Color Specialist 💧 (Palette Harmony & Vibe)</option>
                           </select>
                         </div>
                         <button 
@@ -3730,7 +4332,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                         Colors are emotional signals. We categorize our custom brand guides using the **Srvel Triad**:
                         <br />- **Serve**: Turquoise/Teal. Evokes security, service, health, trust, and cleanliness.
                         <br />- **Grow**: Amber/Yellow. Evokes optimism, development, organic success, warmth, and discovery.
-                        <br />- **Lead**: Royal Purple. Evokes excellence, luxury, authority, innovation, and futuristic technology.
+                        <br />- **Lead**: Royal Purple. Evokes excellence, luxury, leadership, innovation, and futuristic technology.
                       </p>
 
                       <div className="bg-neutral-50 dark:bg-zinc-950 p-6 rounded-2xl border border-neutral-200/50 dark:border-zinc-800 space-y-4">
@@ -4073,6 +4675,249 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     </button>
                   </div>
                 </div>
+              </div>
+
+              {/* Database Backups & Cloud Mirroring Block */}
+              <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800">
+                <h2 className="text-xl font-bold font-display mb-2 flex items-center gap-2">
+                  <Layers size={22} className="text-indigo-500" />
+                  Database Backups & Mirroring
+                </h2>
+                <p className="text-sm text-neutral-500 mb-6">
+                  Set up automatic secondary mirroring of your projects to a secure relational database fallback in case Firebase is unavailable.
+                </p>
+
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-3">Backup Provider</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {(['none', 'postgres', 'supabase', 'both'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={() => updateSettings({ backupMode: mode })}
+                          className={`px-3 py-2 text-xs font-bold rounded-xl border capitalize transition-all ${
+                            (settings.backupMode || 'none') === mode
+                              ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                              : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-400 hover:border-indigo-400'
+                          }`}
+                        >
+                          {mode === 'none' ? 'Disabled 🚫' : mode === 'postgres' ? 'PostgreSQL 🐘' : mode === 'supabase' ? 'Supabase ⚡' : 'Both 💫'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* PostgreSQL configuration */}
+                  {((settings.backupMode === 'postgres' || settings.backupMode === 'both')) && (
+                    <div className="p-5 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-850 space-y-4">
+                      <div className="flex items-center justify-between border-b border-neutral-200 dark:border-zinc-800 pb-2">
+                        <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-700 dark:text-zinc-300">PostgreSQL Settings</h3>
+                        <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md font-mono">🐘 Relational</span>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-neutral-500 mb-1.5">Connection URI</label>
+                        <input
+                          type="password"
+                          placeholder="postgresql://username:password@localhost:5432/dbname"
+                          value={settings.postgresConnectionString || ''}
+                          onChange={(e) => updateSettings({ postgresConnectionString: e.target.value })}
+                          className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <p className="text-[10px] text-neutral-400 mt-1.5">Leave blank to use the server-side default DATABASE_URL variable, or enter your own.</p>
+                      </div>
+                      
+                      {activeProject && (
+                        <button
+                          onClick={() => handleManualBackup('postgres')}
+                          disabled={isBackingUpDb}
+                          className="flex items-center justify-center gap-2 px-4 py-2 bg-neutral-200 hover:bg-neutral-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-zinc-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full"
+                        >
+                          <RefreshCw size={12} className={isBackingUpDb ? "animate-spin" : ""} />
+                          {isBackingUpDb ? 'Mirroring...' : 'Mirror Active Project to Postgres Now'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Supabase configuration */}
+                  {((settings.backupMode === 'supabase' || settings.backupMode === 'both')) && (
+                    <div className="p-5 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-850 space-y-4">
+                      <div className="flex items-center justify-between border-b border-neutral-200 dark:border-zinc-800 pb-2">
+                        <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-700 dark:text-zinc-300">Supabase Settings</h3>
+                        <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-md font-mono">⚡ Supabase</span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-500 mb-1.5">Supabase URL</label>
+                          <input
+                            type="text"
+                            placeholder="https://your-project.supabase.co"
+                            value={settings.supabaseUrl || ''}
+                            onChange={(e) => updateSettings({ supabaseUrl: e.target.value })}
+                            className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-500 mb-1.5">Anon API Key</label>
+                          <input
+                            type="password"
+                            placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                            value={settings.supabaseAnonKey || ''}
+                            onChange={(e) => updateSettings({ supabaseAnonKey: e.target.value })}
+                            className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-neutral-400">Leave blank to use the server-side pre-configured fallback keys, or enter custom ones.</p>
+                      
+                      {activeProject && (
+                        <button
+                          onClick={() => handleManualBackup('supabase')}
+                          disabled={isBackingUpDb}
+                          className="flex items-center justify-center gap-2 px-4 py-2 bg-neutral-200 hover:bg-neutral-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-zinc-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full"
+                        >
+                          <RefreshCw size={12} className={isBackingUpDb ? "animate-spin" : ""} />
+                          {isBackingUpDb ? 'Mirroring...' : 'Mirror Active Project to Supabase Now'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {settings.backupMode && settings.backupMode !== 'none' && (
+                    <div className="flex gap-2 items-center text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-950">
+                      <CheckCircle size={14} className="shrink-0" />
+                      <p>
+                        <strong>Active Auto-Mirroring:</strong> Whenever you modify your brand assets, the latest states will sync instantly to Firestore and your designated secondary SQL database in the background!
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* User Roles & Directory Management Card */}
+              <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800">
+                <h2 className="text-xl font-bold font-display mb-2 flex items-center gap-2">
+                  <Users size={22} className="text-violet-500" />
+                  User Directory & Role Management
+                </h2>
+                <p className="text-sm text-neutral-500 mb-6">
+                  Manage authenticated users, platform privileges, and role permissions. Default role is Designer. Server role is required to modify roles.
+                </p>
+
+                {!user ? (
+                  <div className="flex gap-3 items-center text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 p-5 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+                    <ShieldAlert size={18} className="shrink-0 text-amber-500" />
+                    <p>
+                      <strong>Authentication Required:</strong> Please sign in with your Google Account in the upper right corner to access the live system-wide User Directory and manage role assignments.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {isUsersLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <RefreshCw className="animate-spin text-zinc-500" size={24} />
+                      </div>
+                    ) : (
+                      <div className="border border-neutral-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-neutral-50 dark:bg-zinc-950/50 border-b border-neutral-200 dark:border-zinc-800 font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                                <th className="px-5 py-3 font-semibold">User</th>
+                                <th className="px-5 py-3 font-semibold">UID</th>
+                                <th className="px-5 py-3 font-semibold">Role</th>
+                                <th className="px-5 py-3 font-semibold text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-neutral-200 dark:divide-zinc-800">
+                              {allUsers.map((u) => {
+                                const isSelf = u.uid === user.uid;
+                                const isActiveUserServer = settings.role === 'Server';
+                                return (
+                                  <tr key={u.uid} className="hover:bg-neutral-50 dark:hover:bg-zinc-950/20 transition-colors">
+                                    <td className="px-5 py-4">
+                                      <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-violet-100 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold text-xs uppercase border border-violet-200 dark:border-violet-800/40">
+                                          {(u.displayName || u.email || 'U').substring(0, 2)}
+                                        </div>
+                                        <div>
+                                          <div className="font-medium text-neutral-800 dark:text-zinc-200 flex items-center gap-1.5">
+                                            {u.displayName || 'No Name'}
+                                            {isSelf && (
+                                              <span className="text-[10px] bg-neutral-100 dark:bg-zinc-850 text-neutral-600 dark:text-zinc-400 px-2 py-0.5 rounded font-mono font-bold uppercase">You</span>
+                                            )}
+                                          </div>
+                                          <div className="text-[11px] text-neutral-400">{u.email}</div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="px-5 py-4 font-mono text-[10px] text-neutral-400 select-all">{u.uid}</td>
+                                    <td className="px-5 py-4">
+                                      {u.role === 'Server' ? (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-md border border-emerald-100 dark:border-emerald-900/30">
+                                          <ShieldCheck size={10} /> SERVER
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-md border border-indigo-100 dark:border-indigo-900/30">
+                                          <Palette size={10} /> DESIGNER
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="px-5 py-4 text-right space-x-1.5">
+                                      {isActiveUserServer ? (
+                                        <>
+                                          {u.role === 'Server' ? (
+                                            <button
+                                              onClick={() => handleChangeUserRole(u.uid, 'Designer')}
+                                              className="px-2.5 py-1.5 bg-neutral-100 hover:bg-neutral-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-700 dark:text-zinc-300 rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center gap-1 border border-neutral-200 dark:border-zinc-700"
+                                              title="Demote to Designer Role"
+                                            >
+                                              <Lock size={10} /> Demote
+                                            </button>
+                                          ) : (
+                                            <button
+                                              onClick={() => handleChangeUserRole(u.uid, 'Server')}
+                                              className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+                                              title="Promote to Server Role"
+                                            >
+                                              <Unlock size={10} /> Promote
+                                            </button>
+                                          )}
+                                          
+                                          <button
+                                            onClick={() => handleDeleteUserProfile(u.uid)}
+                                            className="p-1.5 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/20 text-neutral-400 dark:hover:text-red-400 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center border border-transparent hover:border-red-200 dark:hover:border-red-900/30"
+                                            title="Delete User Profile"
+                                          >
+                                            <Trash2 size={12} />
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <span className="text-[11px] text-neutral-400 italic font-mono">Read Only</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-2 items-start text-[11px] text-neutral-400 bg-neutral-50 dark:bg-zinc-950/20 p-3.5 rounded-2xl border border-neutral-150 dark:border-zinc-800">
+                      <Info size={14} className="shrink-0 text-neutral-400 mt-0.5" />
+                      <div>
+                        <strong>Administrative Guidelines:</strong>
+                        <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                          <li>Only users with the <span className="text-emerald-500 font-bold">Server</span> role can elevate or demote roles.</li>
+                          <li>You cannot demote or delete the last <span className="text-emerald-500 font-bold">Server</span> of the application to prevent server lockout.</li>
+                          <li>The first Server (lcoulagency@gmail.com) is provisioned automatically.</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

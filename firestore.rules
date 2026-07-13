@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net - default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Helper to check if current user is a Server
+    function isServerUser() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Server';
+    }
+
+    // Validation helper for Project entity
+    function isValidProject(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 500 &&
+             data.createdAt is int &&
+             data.ownerId is string && data.ownerId.size() <= 128 &&
+             data.stage is string && (
+               data.stage == 'discovery' ||
+               data.stage == 'ideation' ||
+               data.stage == 'drafting' ||
+               data.stage == 'refinement' ||
+               data.stage == 'delivery'
+             ) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 20000)) &&
+             (!('archived' in data) || data.archived is bool);
+    }
+
+    // Validation helper for User entity
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() <= 320 &&
+             data.role is string && (data.role == 'Designer' || data.role == 'Server');
+    }
+
+    // Projects collection rules
+    match /projects/{projectId} {
+      // Validate document path ID for non-list operations
+      allow get: if isSignedIn() && isValidId(projectId) && isOwner(resource.data.ownerId);
+      
+      // List query security (Query Enforcer): explicit check on resource.data
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      // Create rules
+      allow create: if isSignedIn() && 
+                    isValidId(projectId) && 
+                    isOwner(request.resource.data.ownerId) && 
+                    isValidProject(request.resource.data);
+
+      // Update rules - with immutability constraints
+      allow update: if isSignedIn() && 
+                    isValidId(projectId) &&
+                    isOwner(resource.data.ownerId) && 
+                    isOwner(request.resource.data.ownerId) &&
+                    request.resource.data.id == resource.data.id &&
+                    request.resource.data.createdAt == resource.data.createdAt &&
+                    isValidProject(request.resource.data);
+
+      // Delete rules
+      allow delete: if isSignedIn() && isValidId(projectId) && isOwner(resource.data.ownerId);
+    }
+
+    // Users collection rules
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if isSignedIn();
+
+      // Create profile: owner only, and can only self-assign Server if they are lcoulagency@gmail.com
+      allow create: if isSignedIn() && 
+                    isValidId(userId) && 
+                    userId == request.auth.uid && 
+                    isValidUser(request.resource.data) &&
+                    request.resource.data.uid == userId &&
+                    request.resource.data.role == (request.auth.token.email == 'lcoulagency@gmail.com' ? 'Server' : 'Designer');
+
+      // Update profile: Owner can update their settings, but not their role. Server can update everything.
+      allow update: if isSignedIn() && 
+                    isValidId(userId) && 
+                    isValidUser(request.resource.data) &&
+                    (
+                      // Case A: Owner updates settings, keeping their role intact
+                      (userId == request.auth.uid && request.resource.data.role == resource.data.role) ||
+                      // Case B: A Server updates any user profile (e.g. promoting/demoting)
+                      isServerUser()
+                    );
+
+      // Delete profile: Only a Server can delete user profiles
+      allow delete: if isSignedIn() && isValidId(userId) && isServerUser();
+    }
+  }
+}

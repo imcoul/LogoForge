@@ -1,0 +1,99 @@
+                    )}
+                  </motion.div>
+                ) : activeTab === 'competitor' ? (
+                  <motion.div key="competitor" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col mb-8">
+                      <h2 className="text-3xl font-display font-bold">Rival Intelligence</h2>
+                      <p className="text-sm text-neutral-500">Analyze competitor branding and find strategic white space.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-6">
+                        <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-neutral-200 dark:border-zinc-800 shadow-sm">
+                          <h3 className="font-bold mb-4">Competitor Details</h3>
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold uppercase tracking-wider mb-2">Competitor Name</label>
+                              <input type="text" value={competitorNameInput} onChange={(e) => setCompetitorNameInput(e.target.value)} className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead" placeholder="e.g. Stripe, Apple, Nike" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold uppercase tracking-wider mb-2">Competitor Logo URL (Optional)</label>
+                              <input type="text" value={competitorLogoUrlInput || ''} onChange={(e) => setCompetitorLogoUrlInput(e.target.value)} className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead" placeholder="https://..." />
+                            </div>
+                            <button onClick={handleAnalyzeCompetitor} disabled={isAnalyzingCompetitor || !competitorNameInput} className="w-full bg-brand-lead hover:bg-brand-lead/90 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                              {isAnalyzingCompetitor ? <RefreshCw className="animate-spin" size={18} /> : <Target size={18} />}
+                              Analyze Competitor
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-6">
+                        {activeProject.competitorAnalysis ? (
+                          <div className="bg-neutral-900 text-white p-6 rounded-3xl shadow-sm border border-neutral-800 prose prose-invert max-w-none">
+                            <h3 className="text-xl font-display font-bold mb-4 text-brand-growth">Strategic Analysis</h3>
+                            <div className="text-sm leading-relaxed opacity-90 whitespace-pre-wrap">
+                              {activeProject.competitorAnalysis}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="h-full border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl flex flex-col items-center justify-center text-center p-8 text-neutral-500">
+                            <Target size={48} className="mb-4 opacity-50" />
+                            <p className="font-bold mb-2">No Analysis Yet</p>
+                            <p className="text-sm opacity-80">Enter competitor details to generate a strategic brand comparison.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : activeTab === 'ecosystem' ? (
+                  <motion.div key="ecosystem" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col mb-8">
+                      <h2 className="text-3xl font-display font-bold">Ecosystem Automation</h2>
+                      <p className="text-sm text-neutral-500">Generate on-brand assets using your tailored Brand Guide.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                      <div className="col-span-1 space-y-6">
+                        <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-neutral-200 dark:border-zinc-800 shadow-sm">
+                          <h3 className="font-bold mb-4">Create Asset</h3>
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold uppercase tracking-wider mb-2">Asset Type</label>
+                              <select value={ecosystemAssetType} onChange={(e) => setEcosystemAssetType(e.target.value)} className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead">
+                                <option value="Instagram Post Caption">Instagram Post</option>
+                                <option value="Twitter Thread Hook">Twitter Thread Hook</option>
+                                <option value="LinkedIn Post">LinkedIn Post</option>
+                                <option value="Email Newsletter Intro">Newsletter Intro</option>
+                                <option value="Website Hero Copy">Website Hero Copy</option>
+                              </select>
+                            </div>
+                            <button onClick={handleGenerateEcosystem} disabled={isGeneratingEcosystem} className="w-full bg-brand-lead hover:bg-brand-lead/90 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                              {isGeneratingEcosystem ? <RefreshCw className="animate-spin" size={18} /> : <Wand2 size={18} />}
+                              Generate Asset
+                            </button>
+                            {!activeProject.brandGuide && (
+                              <p className="text-[10px] text-red-500 font-bold mt-2 text-center">Requires a generated Brand Guide.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-span-1 md:col-span-2 space-y-4">
+                        {activeProject.ecosystemAssets && activeProject.ecosystemAssets.length > 0 ? (
+                          activeProject.ecosystemAssets.map((asset, i) => (
+                            <div key={i} className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-neutral-200 dark:border-zinc-800 shadow-sm relative group">
+                              <span className="inline-block px-2 py-1 bg-neutral-100 dark:bg-zinc-800 rounded text-[10px] font-bold uppercase tracking-wider mb-3 text-brand-lead">{asset.type}</span>
+                              <div className="whitespace-pre-wrap text-sm">{asset.content}</div>
+                              <button onClick={() => { navigator.clipboard.writeText(asset.content); toast('Copied to clipboard', 'success'); }} className="absolute top-4 right-4 p-2 bg-neutral-100 dark:bg-zinc-800 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Copy size={14} />
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="h-full border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl flex flex-col items-center justify-center text-center p-8 text-neutral-500">
+                            <Globe size={48} className="mb-4 opacity-50" />
+                            <p className="font-bold mb-2">No Ecosystem Assets</p>
+                            <p className="text-sm opacity-80">Generate your first on-brand asset using the panel on the left.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : activeTab === 'refine' ? (

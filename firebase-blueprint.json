@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "Project": {
+      "title": "Project",
+      "description": "A brand identity design project",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the project"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Name of the brand"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Creation timestamp in epoch milliseconds"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Last modified timestamp in epoch milliseconds"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase UID of the project owner"
+        },
+        "stage": {
+          "type": "string",
+          "enum": ["discovery", "ideation", "drafting", "refinement", "delivery"],
+          "description": "Current stage of the project"
+        },
+        "archived": {
+          "type": "boolean",
+          "description": "Whether the project is archived"
+        },
+        "logoUrl": {
+          "type": "string",
+          "description": "URL of the active logo image"
+        },
+        "logoMimeType": {
+          "type": "string",
+          "description": "MIME type of the logo image"
+        },
+        "svgSource": {
+          "type": "string",
+          "description": "Raw SVG source code for precision canvas"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Brand description/brief"
+        },
+        "sonicPhilosophy": {
+          "type": "string",
+          "description": "AI-generated organic sonic branding philosophy"
+        },
+        "competitorAnalysis": {
+          "type": "string",
+          "description": "AI-generated competitor brand comparison"
+        }
+      },
+      "required": ["id", "name", "createdAt", "ownerId", "stage"]
+    },
+    "UserPreference": {
+      "title": "UserPreference",
+      "description": "User profile, role, and custom application preferences",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Authentication UID of the user"
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the user"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Name of the user"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["Designer", "Server"],
+          "description": "Role of the user in the application"
+        },
+        "settings": {
+          "type": "object",
+          "description": "User custom settings, key maps, and database configs"
+        }
+      },
+      "required": ["uid", "email", "role"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Collection of brand identity projects"
+    },
+    "/users/{userId}": {
+      "schema": "UserPreference",
+      "description": "Collection of user preferences and roles"
+    }
+  }
+}

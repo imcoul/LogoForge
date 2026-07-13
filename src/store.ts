@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { get, set } from 'idb-keyval';
+import { User } from 'firebase/auth';
+import { collection, query, where, getDocs, getDoc, setDoc, doc, deleteDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from './services/firebase';
 import { BrandGuide, RefinementSuggestion } from './services/geminiService';
 
 export type ProjectStage = 'discovery' | 'ideation' | 'drafting' | 'refinement' | 'delivery';
@@ -36,6 +39,7 @@ export interface StickyNote {
 
 export interface Project {
   id: string;
+  ownerId?: string; // Firebase user ID or 'local'
   name: string;
   createdAt: number;
   updatedAt?: number; // Last modified timestamp
@@ -50,12 +54,15 @@ export interface Project {
   sonicPhilosophy: string | null;
   refinementFiles: { name: string; base64Data: string; mimeType: string }[];
   refinementSuggestions: RefinementSuggestion | null;
+  competitorAnalysis: string | null; // Phase D: Competitor Engine
+  ecosystemAssets: { type: string; content: string }[]; // Phase D: Ecosystem Automation
   comments: Comment[];
   mockups: Mockup[];
   logoHistory?: string[]; // Stack of logo history
   snapshots?: Snapshot[]; // List of version snapshots
   stickyNotes?: StickyNote[]; // Interactive sticky notes anchored to canvas
   driveFileId?: string; // Linked Google Drive file identifier
+  tags?: string[]; // Bulk tags for organization
 }
 
 export interface KeyboardMap {
@@ -78,6 +85,11 @@ export interface AppSettings {
   customEndpoint?: string;
   role?: 'Designer' | 'Server';
   keyboardMap?: KeyboardMap;
+  postgresConnectionString?: string;
+  supabaseUrl?: string;
+  supabasePublicKey?: string;
+  supabaseAnonKey?: string;
+  backupMode?: 'none' | 'postgres' | 'supabase' | 'both';
 }
 
 interface AppState {
@@ -85,9 +97,12 @@ interface AppState {
   activeProjectId: string | null;
   settings: AppSettings;
   isHydrated: boolean;
+  user: User | null;
   loadProjects: () => Promise<void>;
+  setUser: (user: User | null) => Promise<void>;
   createProject: (name?: string) => Promise<Project>;
   updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
+  bulkUpdateProjects: (ids: string[], updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   deleteProjects: (ids: string[]) => Promise<void>;
   cloneProject: (id: string) => Promise<void>;
@@ -100,6 +115,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   activeProjectId: null,
   settings: {},
   isHydrated: false,
+  user: null,
 
   loadProjects: async () => {
     try {
@@ -108,17 +124,125 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       if (!storedSettings.role) {
         storedSettings.role = 'Designer';
       }
-      setStore({ projects: storedProjects, settings: storedSettings, isHydrated: true });
+      
+      const { user } = getStore();
+      if (user) {
+        // If user is already set, load remote projects
+        const q = query(collection(db, 'projects'), where('ownerId', '==', user.uid));
+        const querySnapshot = await getDocs(q);
+        const fbProjects: Project[] = [];
+        querySnapshot.forEach((docSnap) => {
+          fbProjects.push(docSnap.data() as Project);
+        });
+        const sorted = fbProjects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        setStore({ projects: sorted, settings: storedSettings, isHydrated: true });
+        await set('projects', sorted);
+      } else {
+        // Otherwise use local projects
+        const localOnly = storedProjects.filter(p => !p.ownerId || p.ownerId === 'local');
+        setStore({ projects: localOnly, settings: storedSettings, isHydrated: true });
+      }
     } catch (e) {
       console.error('Failed to load projects/settings', e);
       setStore({ isHydrated: true });
     }
   },
 
+  setUser: async (user: User | null) => {
+    setStore({ user });
+    if (user) {
+      try {
+        // 1. Fetch or create user preferences/role in Firestore
+        const userDocRef = doc(db, 'users', user.uid);
+        let userRole: 'Designer' | 'Server' = 'Designer';
+        let userSettings: AppSettings = {};
+
+        try {
+          const docSnap = await getDoc(userDocRef);
+
+          if (docSnap.exists()) {
+            const profileData = docSnap.data();
+            userRole = profileData.role || 'Designer';
+            userSettings = profileData.settings || {};
+          } else {
+            // Profile does not exist yet, create it!
+            userRole = user.email === 'lcoulagency@gmail.com' ? 'Server' : 'Designer';
+            const localSettings = await get<AppSettings>('settings') || {};
+            userSettings = { ...localSettings };
+            
+            const newProfile = {
+              uid: user.uid,
+              email: user.email || '',
+              displayName: user.displayName || '',
+              role: userRole,
+              settings: userSettings
+            };
+            await setDoc(userDocRef, newProfile);
+          }
+        } catch (err) {
+          console.error('Failed to load user profile from Firestore, using default', err);
+          userRole = user.email === 'lcoulagency@gmail.com' ? 'Server' : 'Designer';
+          userSettings = await get<AppSettings>('settings') || {};
+        }
+
+        // Apply loaded role and settings
+        userSettings.role = userRole;
+        setStore({ settings: userSettings });
+        await set('settings', userSettings);
+
+        // 2. Fetch remote projects
+        const q = query(collection(db, 'projects'), where('ownerId', '==', user.uid));
+        const querySnapshot = await getDocs(q);
+        const fbProjects: Project[] = [];
+        querySnapshot.forEach((docSnap) => {
+          fbProjects.push(docSnap.data() as Project);
+        });
+
+        // 3. See if there are any local unsynced projects to merge
+        const localProjects = await get<Project[]>('projects') || [];
+        const unsyncedProjects = localProjects.filter(p => !p.ownerId || p.ownerId === 'local');
+
+        if (unsyncedProjects.length > 0) {
+          for (const p of unsyncedProjects) {
+            const syncedProject = { ...p, ownerId: user.uid, updatedAt: Date.now() };
+            try {
+              await setDoc(doc(db, 'projects', p.id), syncedProject);
+              // Avoid duplicates
+              if (!fbProjects.some(existing => existing.id === p.id)) {
+                fbProjects.push(syncedProject);
+              }
+            } catch (err) {
+              handleFirestoreError(err, OperationType.WRITE, `projects/${p.id}`);
+            }
+          }
+        }
+
+        const sorted = fbProjects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        setStore({ projects: sorted });
+        await set('projects', sorted);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, 'projects');
+      }
+    } else {
+      // User logged out, restore local-only projects & reset settings to local state
+      const storedProjects = await get<Project[]>('projects') || [];
+      const localOnly = storedProjects.filter(p => !p.ownerId || p.ownerId === 'local');
+      const storedSettings = await get<AppSettings>('settings') || {};
+      if (!storedSettings.role) {
+        storedSettings.role = 'Designer';
+      }
+      setStore({ projects: localOnly, activeProjectId: null, settings: storedSettings });
+    }
+  },
+
   createProject: async (name = 'Untitled Brand') => {
     const now = Date.now();
+    const { user, projects } = getStore();
+    const ownerId = user ? user.uid : 'local';
+
     const newProject: Project = {
       id: crypto.randomUUID(),
+      ownerId,
       name,
       createdAt: now,
       updatedAt: now,
@@ -133,6 +257,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       sonicPhilosophy: null,
       refinementFiles: [],
       refinementSuggestions: null,
+      competitorAnalysis: null,
+      ecosystemAssets: [],
       comments: [],
       mockups: [],
       logoHistory: [],
@@ -140,7 +266,14 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       stickyNotes: []
     };
     
-    const { projects } = getStore();
+    if (user) {
+      try {
+        await setDoc(doc(db, 'projects', newProject.id), newProject);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `projects/${newProject.id}`);
+      }
+    }
+
     const updatedProjects = [newProject, ...projects];
     setStore({ projects: updatedProjects, activeProjectId: newProject.id });
     await set('projects', updatedProjects);
@@ -148,18 +281,28 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   },
 
   cloneProject: async (id) => {
-    const { projects } = getStore();
+    const { user, projects } = getStore();
     const projectToClone = projects.find(p => p.id === id);
     if (!projectToClone) return;
 
+    const ownerId = user ? user.uid : 'local';
     const newProject: Project = {
       ...projectToClone,
       id: crypto.randomUUID(),
+      ownerId,
       name: `Copy of ${projectToClone.name}`,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       archived: false
     };
+
+    if (user) {
+      try {
+        await setDoc(doc(db, 'projects', newProject.id), newProject);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `projects/${newProject.id}`);
+      }
+    }
 
     const updatedProjects = [newProject, ...projects];
     setStore({ projects: updatedProjects });
@@ -167,7 +310,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   },
 
   updateProject: async (id, updates) => {
-    const { projects } = getStore();
+    const { user, projects } = getStore();
     const updatedProjects = projects.map(p => 
       p.id === id 
         ? { ...p, ...updates, updatedAt: Date.now() } 
@@ -175,26 +318,79 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     );
     setStore({ projects: updatedProjects });
     await set('projects', updatedProjects);
+
+    if (user) {
+      const updatedProject = updatedProjects.find(p => p.id === id);
+      if (updatedProject) {
+        try {
+          await setDoc(doc(db, 'projects', id), updatedProject);
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
+        }
+      }
+    }
+  },
+
+  bulkUpdateProjects: async (ids, updates) => {
+    const { user, projects } = getStore();
+    const updatedProjects = projects.map(p => 
+      ids.includes(p.id) 
+        ? { ...p, ...updates, updatedAt: Date.now() } 
+        : p
+    );
+    setStore({ projects: updatedProjects });
+    await set('projects', updatedProjects);
+
+    if (user) {
+      for (const id of ids) {
+        const updatedProject = updatedProjects.find(p => p.id === id);
+        if (updatedProject) {
+          try {
+            await setDoc(doc(db, 'projects', id), updatedProject);
+          } catch (err) {
+            handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
+          }
+        }
+      }
+    }
   },
 
   deleteProject: async (id) => {
-    const { projects, activeProjectId } = getStore();
+    const { user, projects, activeProjectId } = getStore();
     const updatedProjects = projects.filter(p => p.id !== id);
     setStore({ 
       projects: updatedProjects, 
       activeProjectId: activeProjectId === id ? null : activeProjectId 
     });
     await set('projects', updatedProjects);
+
+    if (user) {
+      try {
+        await deleteDoc(doc(db, 'projects', id));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `projects/${id}`);
+      }
+    }
   },
 
   deleteProjects: async (ids) => {
-    const { projects, activeProjectId } = getStore();
+    const { user, projects, activeProjectId } = getStore();
     const updatedProjects = projects.filter(p => !ids.includes(p.id));
     setStore({ 
       projects: updatedProjects, 
       activeProjectId: ids.includes(activeProjectId || '') ? null : activeProjectId 
     });
     await set('projects', updatedProjects);
+
+    if (user) {
+      for (const id of ids) {
+        try {
+          await deleteDoc(doc(db, 'projects', id));
+        } catch (err) {
+          handleFirestoreError(err, OperationType.DELETE, `projects/${id}`);
+        }
+      }
+    }
   },
 
   setActiveProject: (id) => {
@@ -202,9 +398,22 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   },
 
   updateSettings: async (updates) => {
-    const { settings } = getStore();
+    const { settings, user } = getStore();
     const newSettings = { ...settings, ...updates };
     setStore({ settings: newSettings });
     await set('settings', newSettings);
+
+    if (user) {
+      try {
+        await setDoc(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          email: user.email || '',
+          role: newSettings.role || 'Designer',
+          settings: newSettings
+        }, { merge: true });
+      } catch (err) {
+        console.error('Failed to sync settings to Firestore', err);
+      }
+    }
   }
 }));

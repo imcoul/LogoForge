@@ -36,7 +36,7 @@ router.post("/generate-logo", async (req, res) => {
     }
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An internal server error occurred during AI generation." });
   }
 });
 
@@ -88,7 +88,7 @@ router.post("/analyze-refinement", async (req, res) => {
     }
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An internal server error occurred during AI generation." });
   }
 });
 
@@ -139,7 +139,7 @@ router.post("/generate-brand-guide", async (req, res) => {
     }
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An internal server error occurred during AI generation." });
   }
 });
 
@@ -161,7 +161,7 @@ router.post("/generate-sonic", async (req, res) => {
     }
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An internal server error occurred during AI generation." });
   }
 });
 
@@ -179,7 +179,7 @@ router.post("/generate-rationale", async (req, res) => {
     res.json({ text: response.text?.trim() || "Rationale could not be generated." });
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An internal server error occurred during AI generation." });
   }
 });
 
@@ -206,8 +206,56 @@ router.post("/generate-critic", async (req, res) => {
     res.json({ text: response.text?.trim() || "Terrific start. Consider checking color values for balanced contrast." });
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An internal server error occurred during AI generation." });
   }
 });
 
+
+
+router.post("/analyze-competitor", async (req, res) => {
+  try {
+    const { companyDescription, competitorName, competitorLogoUrl } = req.body;
+    const client = getClient(req);
+
+    const prompt = `You are an elite Brand Strategist. The user is building a brand with this description: "${companyDescription}". They want to analyze a competitor named "${competitorName}". Perform a strategic analysis comparing the two. If a logo was provided, analyze its visual elements. Outline: 1) Competitor Strengths, 2) Competitor Weaknesses, 3) Visual/Brand Tone, 4) Strategic Differentiation for the user's brand.`;
+    
+    const parts: any[] = [{ text: prompt }];
+
+    if (competitorLogoUrl && competitorLogoUrl.startsWith('data:')) {
+      const base64Data = competitorLogoUrl.split(',')[1];
+      const mimeTypeMatch = competitorLogoUrl.match(/data:(.*?);/);
+      const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/png';
+      parts.push({ inlineData: { data: base64Data, mimeType } });
+    }
+
+    const response = await client.models.generateContent({
+      model: 'gemini-3.1-pro-preview',
+      contents: { parts }
+    });
+
+    res.json({ text: response.text?.trim() || "Analysis could not be generated." });
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+  }
+});
+
+router.post("/generate-ecosystem", async (req, res) => {
+  try {
+    const { brandGuide, assetType } = req.body;
+    const client = getClient(req);
+
+    const prompt = `You are a social media copywriter and brand manager. Based on this Brand Guide: ${JSON.stringify(brandGuide)}, generate a compelling and engaging asset of type: "${assetType}". Examples of asset types include 'Instagram Post Caption', 'Email Newsletter Intro', 'Twitter Thread Hook', or 'LinkedIn Post'. Write only the content for the asset, ensuring it perfectly matches the brand voice, tone, and keywords. Do not include introductory text, just the content itself.`;
+
+    const response = await client.models.generateContent({
+      model: 'gemini-3.1-pro-preview',
+      contents: { parts: [{ text: prompt }] }
+    });
+
+    res.json({ text: response.text?.trim() || "Asset could not be generated." });
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+  }
+});
 export default router;
