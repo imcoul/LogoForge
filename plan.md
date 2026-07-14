@@ -26,6 +26,7 @@
 **Findings**:
 - SVG Canvas Touch Gestures: Panning and pinch-to-zoom are partially implemented in `SVGPathEditor.tsx`. Two-finger undo/redo exists but might require fine-tuning for reliability.
 - Performance: SVG rendering may become slow with large paths.
+- Accessibility: Keyboard navigation and screen reader support need improvement for the drawing canvas.
 
 **Action Item**:
 - Touch Gestures: Refine touch gesture thresholds in `SVGPathEditor.tsx` for better UX. Implement a clear visual feedback when gestures (undo/redo/zoom) are triggered.
