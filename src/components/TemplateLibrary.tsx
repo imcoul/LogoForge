@@ -177,6 +177,7 @@ const TEMPLATES = [
 ];
 
 interface TemplateLibraryProps {
+  onSelectTemplate?: (svg: any, guide: any) => Promise<void> | void;
   activeProjectId: string | null;
   onApplyTemplate: (updatedFields: Partial<Project>) => void;
 }

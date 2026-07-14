@@ -405,7 +405,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Map client/screen coords to 200x200 canvas coords taking panOffset & zoom into account
   const getEventCoords = (
-    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
+    e: any | any,
     rect: DOMRect
   ) => {
     let clientX = 0;
@@ -443,7 +443,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Handle touch starts on drawing board (panning, swiping, zooming, drawing)
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+  const handleTouchStart = (e: any) => {
     if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current) || !actualSvgSource) return;
 
     const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
@@ -520,7 +520,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Handle Touch moves
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+  const handleTouchMove = (e: any) => {
     if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)) return;
     const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
 
@@ -614,7 +614,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Handle Touch ends
-  const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+  const handleTouchEnd = (e: any) => {
     if (e.touches.length < 2) {
       setInitialDistance(null);
       setSwipeStartX(null);
@@ -634,7 +634,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Handle Desktop Mouse Event Start
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseDown = (e: any) => {
     if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current) || !actualSvgSource) return;
     const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
     const coords = getEventCoords(e, rect);
@@ -668,7 +668,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Handle Desktop Mouse Move
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = (e: any) => {
     if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)) return;
     const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
 
@@ -810,7 +810,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   const handleNodeDragStart = (
-    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>, 
+    e: any | any, 
     nodeId: number, 
     valIdx: number, 
     initialVal: number

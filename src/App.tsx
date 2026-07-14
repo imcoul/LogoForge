@@ -1,7 +1,8 @@
+import Markdown from 'react-markdown';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud, Copy, Target, Users, ShieldAlert } from 'lucide-react';
+import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud, Copy, Target, Users, ShieldAlert, ArrowRight, X, Loader2, Send } from 'lucide-react';
 import { generateLogoImage, generateBrandGuide, analyzeRefinementContext, generateSonicPhilosophy, generateDesignRationale, generateAICriticComment, analyzeCompetitor, generateEcosystemAsset } from './services/geminiService';
 import { useAppStore, Project, Mockup } from './store';
 import { auth, signInWithGoogle, logout, db } from './services/firebase';
@@ -30,16 +31,21 @@ const sanitizeSVG = (svg: string | null): string => {
 };
 
 const ANIMATIONS = {
-  float: { animate: { y: [0, -15, 0] }, transition: { duration: 3, repeat: Infinity, ease: "easeInOut" } },
-  pulse: { animate: { scale: [1, 1.05, 1], rotate: [0, 2, -2, 0] }, transition: { duration: 2.5, repeat: Infinity, ease: "easeInOut" } },
-  spin: { animate: { rotate: 360 }, transition: { duration: 8, repeat: Infinity, ease: "linear" } },
-  pop: { animate: { scale: [0.8, 1.1, 1] }, transition: { duration: 0.5, type: "spring", bounce: 0.6, repeat: Infinity, repeatDelay: 1 } },
-  flip: { animate: { rotateY: 360 }, transition: { duration: 3, repeat: Infinity, ease: "easeInOut", repeatDelay: 1 } }
+  float: { animate: { y: [0, -15, 0] }, transition: { duration: 3, repeat: Infinity, ease: "easeInOut" as const } },
+  pulse: { animate: { scale: [1, 1.05, 1], rotate: [0, 2, -2, 0] }, transition: { duration: 2.5, repeat: Infinity, ease: "easeInOut" as const } },
+  spin: { animate: { rotate: 360 }, transition: { duration: 8, repeat: Infinity, ease: "linear" as const } },
+  pop: { animate: { scale: [0.8, 1.1, 1] }, transition: { duration: 0.5, type: "spring" as const, bounce: 0.6, repeat: Infinity, repeatDelay: 1 } },
+  flip: { animate: { rotateY: 360 }, transition: { duration: 3, repeat: Infinity, ease: "easeInOut" as const, repeatDelay: 1 } }
 };
 
 type AnimationType = keyof typeof ANIMATIONS;
 type ViewMode = 'dashboard' | 'studio' | 'course' | 'settings';
-type StudioTab = 'preview' | 'guide' | 'refine' | 'sonic' | 'comments' | 'precision' | 'mockups' | 'competitor' | 'ecosystem' | 'draw';
+type WorkspaceType = 'sandbox' | 'workbench' | 'identity' | 'strategy';
+type SandboxSubTab = 'preview' | 'refine';
+type WorkbenchSubTab = 'sketch' | 'precision';
+type IdentitySubTab = 'guidelines' | 'mockups' | 'collateral';
+type StrategySubTab = 'rivals' | 'sonic';
+type StudioTab = 'preview' | 'guide' | 'refine' | 'sonic' | 'comments' | 'precision' | 'mockups' | 'competitor' | 'ecosystem' | 'draw'; // keep it temporarily for backwards comp or gradual replacement
 
 interface TooltipProps {
   content: React.ReactNode;
@@ -891,6 +897,26 @@ const safeFormatDate = (dateVal: any, lang: string): string => {
 };
 
 export default function App() {
+
+  const handleExportSVG = () => {
+    if (!activeProject?.svgSource) return;
+    const blob = new Blob([activeProject.svgSource], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeProject.name || 'logo'}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPNG = () => {
+    if (!activeProject?.logoUrl) return;
+    const a = document.createElement('a');
+    a.href = activeProject.logoUrl;
+    a.download = `${activeProject.name || 'logo'}.png`;
+    a.click();
+  };
+
   const { toast } = useToast();
   const { 
     projects, activeProjectId, isHydrated, settings, user, setUser,
@@ -993,7 +1019,21 @@ export default function App() {
   const [isGeneratingRationale, setIsGeneratingRationale] = useState(false);
   
   const [activeAnimation, setActiveAnimation] = useState<AnimationType>('float');
-  const [activeTab, setActiveTab] = useState<StudioTab>('preview');
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>('sandbox');
+  const [sandboxSubTab, setSandboxSubTab] = useState<SandboxSubTab>('preview');
+  const [workbenchSubTab, setWorkbenchSubTab] = useState<WorkbenchSubTab>('sketch');
+  const [identitySubTab, setIdentitySubTab] = useState<IdentitySubTab>('guidelines');
+  const [strategySubTab, setStrategySubTab] = useState<StrategySubTab>('rivals');
+  const [activeTab, setActiveTab] = useState<StudioTab>('preview'); // Temporary
+  const [isCollabDrawerOpen, setIsCollabDrawerOpen] = useState(false);
+  
+  const [useConsolidatedWorkspace, setUseConsolidatedWorkspace] = useState(true);
+  
+  // Migrated from individual component scopes to App scope for Sandbox
+  const [brandName, setBrandName] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [creativeDirection, setCreativeDirection] = useState('');
+
   const [error, setError] = useState<string | null>(null);
 
   // --- Parallel Epic Spikes States ---
@@ -2269,8 +2309,8 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
 
         {/* Brand Attribution */}
         <div className="hidden md:flex flex-col items-center justify-center text-center px-1 pb-4 pt-4 group cursor-default" title="Built by Srvel — Serve. Grow. Lead.">
-          <span className="text-[9px] font-display font-bold text-neutral-400 dark:text-zinc-500 group-hover:text-brand-lead transition-colors uppercase tracking-wider">Forged for</span>
-          <span className="text-[9px] font-sans font-bold text-neutral-500 dark:text-zinc-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200 transition-colors uppercase tracking-widest mt-0.5">Creators</span>
+          <span className="text-[9px] font-display font-bold text-neutral-400 dark:text-zinc-500 group-hover:text-brand-lead transition-colors uppercase tracking-wider">Built by Srvel</span>
+          <span className="text-[9px] font-sans font-medium text-neutral-500 dark:text-zinc-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200 transition-colors uppercase tracking-widest mt-0.5 whitespace-nowrap">Serve. Grow. Lead.</span>
         </div>
       </div>
 
@@ -2601,7 +2641,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                   onClick={async (e) => { 
                                     e.stopPropagation(); 
                                     await cloneProject(proj.id);
-                                    toast('success', 'Project cloned successfully!');
+                                    toast('Project cloned successfully!', 'success');
                                   }} 
                                   className="p-2 bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 hover:bg-amber-100 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
                                   title="Clone Project"
@@ -3185,25 +3225,46 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
           <div className="flex-1 bg-neutral-100 dark:bg-zinc-950 relative overflow-hidden flex flex-col border-l border-white/50">
             {activeProject && (
               <>
-                {/* Desktop Tabs */}
-                <div className="relative z-20 hidden md:flex justify-start md:justify-center pt-6 pb-2 border-b border-neutral-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 backdrop-blur-md px-4 overflow-x-auto no-scrollbar scroll-smooth">
-                  <div className="flex gap-2 p-1 bg-neutral-200 dark:bg-zinc-800 rounded-full shrink-0">
-                    <button onClick={() => setActiveTab('preview')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'preview' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><ImageIcon size={14} /> {t('studio_tabs_preview')}</button>
-                    <button onClick={() => setActiveTab('draw')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'draw' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Hammer size={14} /> DRAW</button>
-                    <button onClick={() => setActiveTab('precision')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'precision' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><FileText size={14} /> PRECISION</button>
-                    <button onClick={() => setActiveTab('mockups')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'mockups' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Layers size={14} /> MOCKUPS</button>
-                    <button onClick={() => setActiveTab('competitor')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'competitor' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Target size={14} /> COMPETITOR</button>
-                    <button onClick={() => setActiveTab('ecosystem')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'ecosystem' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Globe size={14} /> ECOSYSTEM</button>
-                    <button onClick={() => setActiveTab('guide')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'guide' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><BookOpen size={14} /> {t('studio_tabs_guide')}</button>
-                    <button onClick={() => setActiveTab('refine')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'refine' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Sparkles size={14} /> {t('studio_tabs_refine')}</button>
-                    <button onClick={() => setActiveTab('sonic')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'sonic' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Music size={14} /> {t('studio_tabs_sonic')}</button>
-                    <button onClick={() => setActiveTab('comments')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'comments' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><MessageSquare size={14} /> {t('studio_tabs_collab')}</button>
+                
+                
+                {/* Desktop Tabs (Old) */}
+                {!useConsolidatedWorkspace && (
+                  <div className="relative z-20 hidden md:flex justify-start md:justify-center pt-6 pb-2 border-b border-neutral-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 backdrop-blur-md px-4 overflow-x-auto no-scrollbar scroll-smooth">
+                    <div className="flex gap-2 p-1 bg-neutral-200 dark:bg-zinc-800 rounded-full shrink-0">
+                      <button onClick={() => setActiveTab('preview')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'preview' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><ImageIcon size={14} /> {t('studio_tabs_preview')}</button>
+                      <button onClick={() => setActiveTab('draw')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'draw' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Hammer size={14} /> DRAW</button>
+                      <button onClick={() => setActiveTab('precision')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'precision' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><FileText size={14} /> PRECISION</button>
+                      <button onClick={() => setActiveTab('mockups')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'mockups' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Layers size={14} /> MOCKUPS</button>
+                      <button onClick={() => setActiveTab('competitor')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'competitor' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Target size={14} /> COMPETITOR</button>
+                      <button onClick={() => setActiveTab('ecosystem')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'ecosystem' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Globe size={14} /> ECOSYSTEM</button>
+                      <button onClick={() => setActiveTab('guide')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'guide' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><BookOpen size={14} /> {t('studio_tabs_guide')}</button>
+                      <button onClick={() => setActiveTab('refine')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'refine' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Sparkles size={14} /> {t('studio_tabs_refine')}</button>
+                      <button onClick={() => setActiveTab('sonic')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'sonic' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Music size={14} /> {t('studio_tabs_sonic')}</button>
+                      <button onClick={() => setActiveTab('comments')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'comments' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><MessageSquare size={14} /> {t('studio_tabs_collab')}</button>
+                    </div>
+                    
+                    <button onClick={handleExportNotion} className="ml-auto flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-full text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shrink-0">
+                      <Share2 size={14} /> {t('export_notion')}
+                    </button>
                   </div>
-                  
-                  <button onClick={handleExportNotion} className="ml-auto flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-full text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shrink-0">
-                    <Share2 size={14} /> {t('export_notion')}
-                  </button>
-                </div>
+                )}
+                
+                {/* Consolidated Workspace Tabs */}
+                {useConsolidatedWorkspace && (
+                  <div className="relative z-20 hidden md:flex justify-start md:justify-center pt-6 pb-2 border-b border-neutral-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 backdrop-blur-md px-4 overflow-x-auto no-scrollbar scroll-smooth">
+                    <div className="flex gap-2 p-1 bg-neutral-200 dark:bg-zinc-800 rounded-full shrink-0">
+                      <button onClick={() => setActiveWorkspace('sandbox')} className={`px-6 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeWorkspace === 'sandbox' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Wand2 size={14} /> LOGO SANDBOX</button>
+                      <button onClick={() => setActiveWorkspace('workbench')} className={`px-6 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeWorkspace === 'workbench' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Hammer size={14} /> VECTOR WORKBENCH</button>
+                      <button onClick={() => setActiveWorkspace('identity')} className={`px-6 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeWorkspace === 'identity' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><BookOpen size={14} /> IDENTITY PORTAL</button>
+                      <button onClick={() => setActiveWorkspace('strategy')} className={`px-6 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeWorkspace === 'strategy' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Target size={14} /> STRATEGY CENTRE</button>
+                    </div>
+                    
+                    <button onClick={handleExportNotion} className="ml-auto flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-full text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors shrink-0">
+                      <Share2 size={14} /> {t('export_notion')}
+                    </button>
+                  </div>
+                )}
+
 
                 {/* Mobile Bottom Navigation */}
                 <div className="md:hidden absolute bottom-0 left-0 right-0 z-50 bg-white dark:bg-zinc-900 border-t border-neutral-200 dark:border-zinc-800 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
@@ -3263,6 +3324,968 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     <h2 className="text-2xl font-bold tracking-tight text-neutral-800 dark:text-zinc-300 mb-2">Blank Workspace</h2>
                     <p className="text-neutral-500 dark:text-zinc-400 font-medium">Create or select a brand project workspace on the left sidebar to begin!</p>
                   </motion.div>
+                ) : useConsolidatedWorkspace ? (
+                  <div className="w-full h-full flex flex-col relative">
+                    {activeWorkspace === 'sandbox' && (
+                      <div className="flex-1 flex flex-col lg:flex-row w-full h-full relative">
+                        {/* Logo Sandbox View */}
+                        <div className="w-full lg:w-[400px] bg-white dark:bg-zinc-900 border-r border-neutral-200 dark:border-zinc-800 flex flex-col z-20 shadow-xl">
+                          <div className="p-4 border-b border-neutral-200 dark:border-zinc-800 shrink-0">
+                            <h2 className="text-xl font-bold font-display tracking-tight mb-4">Logo Sandbox</h2>
+                            <div className="flex gap-2">
+                              <button onClick={() => setSandboxSubTab('preview')} className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl transition-colors ${sandboxSubTab === 'preview' ? 'bg-brand-lead text-white' : 'bg-neutral-100 dark:bg-zinc-800 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-200'}`}>Generation</button>
+                              <button onClick={() => setSandboxSubTab('refine')} className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl transition-colors ${sandboxSubTab === 'refine' ? 'bg-brand-lead text-white' : 'bg-neutral-100 dark:bg-zinc-800 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-200'}`}>Refine</button>
+                            </div>
+                          </div>
+                          <div className="flex-1 overflow-y-auto p-6">
+                            {sandboxSubTab === 'preview' && (
+                              <div className="space-y-6">
+                                {/* Generation Form */}
+                                <div>
+                                  <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-zinc-400 mb-2">{t('brand_name')}</label>
+                                  <input 
+                                    type="text" 
+                                    value={brandName}
+                                    onChange={(e) => setBrandName(e.target.value)}
+                                    placeholder={t('brand_name_placeholder')}
+                                    className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead dark:text-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-zinc-400 mb-2">{t('industry')}</label>
+                                  <input 
+                                    type="text" 
+                                    value={industry}
+                                    onChange={(e) => setIndustry(e.target.value)}
+                                    placeholder={t('industry_placeholder')}
+                                    className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead dark:text-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-zinc-400 mb-2">Creative Direction</label>
+                                  <textarea 
+                                    value={creativeDirection}
+                                    onChange={(e) => setCreativeDirection(e.target.value)}
+                                    placeholder="Describe the vibe, metaphor, or specific symbols..."
+                                    className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 min-h-[100px] focus:ring-2 focus:ring-brand-lead dark:text-white resize-none"
+                                  />
+                                </div>
+                                <button
+                                  onClick={handleGenerateLogo}
+                                  disabled={isGenerating || !brandName || !industry}
+                                  className="w-full py-4 bg-brand-lead hover:bg-brand-lead/90 text-white font-bold rounded-xl transition-all shadow-md active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                  {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Wand2 size={18} />}
+                                  {isGenerating ? 'Forging Logo...' : 'Forge Initial Concept'}
+                                </button>
+                                
+                                {activeProject?.logoHistory && activeProject.logoHistory.length > 0 && (
+                                  <div className="mt-8 pt-6 border-t border-neutral-200 dark:border-zinc-800">
+                                    <h3 className="text-sm font-bold mb-4 uppercase tracking-wider text-neutral-500">History Trail</h3>
+                                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                                      {activeProject.logoHistory.map((itemSvg, idx) => {
+                                        const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(itemSvg)}`;
+                                        return (
+                                        <button 
+                                          key={idx}
+                                          onClick={() => {
+                                            updateProject(activeProject.id, { 
+                                              logoUrl: dataUrl,
+                                              svgSource: itemSvg
+                                            });
+                                          }}
+                                          className="relative shrink-0 w-16 h-16 rounded-xl border border-neutral-200 dark:border-zinc-700 overflow-hidden group hover:border-brand-lead transition-colors focus:outline-none focus:ring-2 focus:ring-brand-lead"
+                                        >
+                                          <img src={dataUrl} alt="History" className="w-full h-full object-cover" />
+                                        </button>
+                                      );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            
+                            {sandboxSubTab === 'refine' && (
+                              <div className="space-y-6">
+                                <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800">
+                                  <h3 className="font-bold text-sm text-indigo-900 dark:text-indigo-300 flex items-center gap-2 mb-2"><Sparkles size={16} /> Concept Refinement</h3>
+                                  <p className="text-xs text-indigo-700 dark:text-indigo-400">Iterate on the current concept using AI instructions. The AI will preserve the core structure and modify based on your input.</p>
+                                </div>
+                                
+                                <div>
+                                  <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 dark:text-zinc-400 mb-2">Modification Prompt</label>
+                                  <textarea 
+                                    value={creativeDirection}
+                                    onChange={(e) => setCreativeDirection(e.target.value)}
+                                    placeholder="e.g. Make the edges sharper, change to a geometric style..."
+                                    className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 min-h-[100px] focus:ring-2 focus:ring-brand-lead dark:text-white resize-none"
+                                  />
+                                </div>
+                                <button
+                                  onClick={handleGenerateLogo}
+                                  disabled={isGenerating || !activeProject?.logoUrl}
+                                  className="w-full py-3 bg-black hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 dark:text-black text-white font-bold rounded-xl transition-all shadow-md active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                  {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                                  {isGenerating ? 'Refining...' : 'Apply Refinement'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="flex-1 p-6 lg:p-12 flex flex-col items-center justify-center relative bg-neutral-50/50 dark:bg-zinc-950/50">
+                           {!activeProject?.logoUrl ? (
+                              <div className="flex flex-col items-center justify-center text-center max-w-sm">
+                                <div className="w-32 h-32 mb-6 rounded-full border-2 border-dashed border-neutral-300 dark:border-zinc-700 flex items-center justify-center text-neutral-400 bg-white dark:bg-zinc-900"><Wand2 size={40} className="opacity-50" /></div>
+                                <h2 className="text-2xl font-display font-bold tracking-tight text-neutral-800 dark:text-zinc-200 mb-2">Ready to Forge</h2>
+                                <p className="text-neutral-500 dark:text-zinc-400 font-medium">Use the panel on the left to generate your first logo concept.</p>
+                              </div>
+                           ) : (
+                              <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-2xl aspect-square flex items-center justify-center">
+                                <img src={activeProject.logoUrl} alt="Logo" className="w-full h-full object-contain filter drop-shadow-2xl" />
+                              </motion.div>
+                           )}
+                           
+                           {/* Quick Actions overlay */}
+                           {activeProject?.logoUrl && (
+                             <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-white/20 dark:border-zinc-800">
+                                <button onClick={handleExportSVG} className="px-4 py-2 hover:bg-neutral-100 dark:hover:bg-zinc-800 rounded-xl transition-colors font-bold text-sm flex items-center gap-2"><Download size={16} /> SVG</button>
+                                <button onClick={handleExportPNG} className="px-4 py-2 hover:bg-neutral-100 dark:hover:bg-zinc-800 rounded-xl transition-colors font-bold text-sm flex items-center gap-2"><Download size={16} /> PNG</button>
+                                <div className="w-px h-6 bg-neutral-200 dark:bg-zinc-800 mx-1"></div>
+                                <button onClick={() => setActiveWorkspace('workbench')} className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-xl transition-colors font-bold text-sm flex items-center gap-2">Edit Vector <ArrowRight size={16} /></button>
+                             </div>
+                           )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {activeWorkspace === 'workbench' && (
+                      <div className="flex-1 flex flex-col w-full h-full relative">
+                        {/* Vector Workbench View */}
+                        <div className="absolute top-4 left-4 z-50 flex gap-4 p-2 rounded-2xl bg-white/80 dark:bg-zinc-900/80 backdrop-blur shadow-sm border border-neutral-200 dark:border-zinc-800">
+                          <button onClick={() => setWorkbenchSubTab('sketch')} className={`px-4 py-2 text-xs font-bold rounded-xl ${workbenchSubTab === 'sketch' ? 'bg-brand-lead text-white' : 'bg-transparent text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100 dark:hover:bg-zinc-800'}`}>Freeform Sketching</button>
+                          <button onClick={() => setWorkbenchSubTab('precision')} className={`px-4 py-2 text-xs font-bold rounded-xl ${workbenchSubTab === 'precision' ? 'bg-brand-lead text-white' : 'bg-transparent text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100 dark:hover:bg-zinc-800'}`}>Precision Nodes</button>
+                        </div>
+                        
+                        <div className="flex-1 relative w-full h-full">
+                          {workbenchSubTab === 'sketch' ? (
+                            
+<motion.div key="draw" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col mb-8">
+                      <h2 className="text-3xl font-display font-bold">Whiteboard</h2>
+                      <p className="text-sm text-neutral-500">Sketch your logo ideas.</p>
+                    </div>
+                    <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-neutral-200 dark:border-zinc-800">
+                      {/* WhiteboardCanvas */}
+                      {activeProject ? (
+                        <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} />
+                      ) : (
+                        <div className="p-4 text-center">Please select a project to start drawing.</div>
+                      )}
+                    </div>
+                  </motion.div>
+
+                          ) : (
+                            
+<motion.div key="precision" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-6xl mx-auto w-full h-full flex flex-col gap-6">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                      <div>
+                        <h2 className="text-3xl font-display font-bold tracking-tight text-neutral-900 dark:text-white">Precision Studio</h2>
+                        <p className="text-sm text-neutral-500">Coordinate mapping, design compliance audits, & live collaboration</p>
+                      </div>
+
+                      {/* Web Worker Benchmark Panel */}
+                      <div className="flex items-center gap-3 bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 p-3.5 rounded-2xl">
+                        <button
+                          onClick={() => worker?.postMessage({ type: 'BENCHMARK_RENDER' })}
+                          className="px-4 py-2 bg-neutral-900 dark:bg-white text-white dark:text-black rounded-xl text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-2"
+                        >
+                          <Terminal size={12} />
+                          Benchmark GPU
+                        </button>
+                        {benchmarkResult && (
+                          <div className="text-right font-mono text-[10px]">
+                            <span className="text-neutral-400 block uppercase">Thread Latency</span>
+                            <span className={`font-bold ${benchmarkResult.frameTimeMs < 16 ? 'text-green-500' : 'text-amber-500'}`}>
+                              {benchmarkResult.frameTimeMs}ms ({benchmarkResult.opsPerSec.toLocaleString()} ops/s)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {/* Left: SVG Canvas Workspace */}
+                      <div className="lg:col-span-2 space-y-6">
+                        <div 
+                          className="relative aspect-square w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-3xl flex items-center justify-center p-12 overflow-hidden shadow-inner cursor-crosshair"
+                          onMouseMove={(e) => {
+                            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const x = ((e.clientX - rect.left) / rect.width) * 100;
+                            const y = ((e.clientY - rect.top) / rect.height) * 100;
+                            socket.send(JSON.stringify({
+                              type: 'cursor',
+                              username,
+                              color: '#6366F1',
+                              x,
+                              y
+                            }));
+                          }}
+                          onClick={(e) => {
+                            if (!isAddingSticky) return;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const x = ((e.clientX - rect.left) / rect.width) * 100;
+                            const y = ((e.clientY - rect.top) / rect.height) * 100;
+                            
+                            const newNote = {
+                              id: Math.random().toString(36).substring(7),
+                              text: stickyNoteText || 'Needs path refinement',
+                              x,
+                              y,
+                              color: selectedStickyColor
+                            };
+                            
+                            handleUpdateAndSync({
+                              stickyNotes: [...(activeProject.stickyNotes || []), newNote]
+                            });
+                            setIsAddingSticky(false);
+                            setStickyNoteText('');
+                          }}
+                        >
+                          {/* Live Render SVG */}
+                          {activeProject.svgSource ? (
+                            <div 
+                              dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.svgSource) }} 
+                              className="w-full h-full max-w-[400px] max-h-[400px] flex items-center justify-center" 
+                            />
+                          ) : activeProject.logoUrl ? (
+                            <img src={activeProject.logoUrl} className="max-w-[320px] max-h-[320px] object-contain" />
+                          ) : (
+                            <div className="text-center p-6 bg-neutral-50 dark:bg-zinc-900 rounded-2xl border border-dashed border-neutral-200 dark:border-zinc-800">
+                              <Wand2 className="w-12 h-12 mx-auto text-neutral-300 dark:text-zinc-700 mb-2 animate-bounce" />
+                              <p className="text-xs font-bold text-neutral-500 dark:text-zinc-400">Blank Workspace</p>
+                              <p className="text-[10px] text-neutral-400 mt-1">Select a vector shape template below or write custom XML tags.</p>
+                            </div>
+                          )}
+
+                          {/* Render Live Cursors Overlays */}
+                          {Object.entries(remoteCursors).map(([uid, cur]) => {
+                            const c = cur as any;
+                            return (
+                              <div
+                                key={uid}
+                                className="absolute pointer-events-none transition-all duration-75 z-40"
+                                style={{ left: `${c.x}%`, top: `${c.y}%` }}
+                              >
+                                <div className="w-3.5 h-3.5 rounded-full border-2 border-white shadow-md animate-bounce" style={{ backgroundColor: c.color }} />
+                                <span className="text-[9px] text-white px-1.5 py-0.5 rounded-md font-mono font-bold shrink-0 block -mt-1 ml-2 shadow" style={{ backgroundColor: c.color }}>
+                                  {c.username}
+                                </span>
+                              </div>
+                            );
+                          })}
+
+                          {/* Render SVG Anchored Sticky Notes */}
+                          {(activeProject.stickyNotes || []).map((note) => (
+                            <div
+                              key={note.id}
+                              className="absolute z-30 group p-2.5 rounded-xl shadow-lg border border-neutral-300 dark:border-neutral-700 max-w-[140px] text-[10px] leading-snug font-bold"
+                              style={{ left: `${note.x}%`, top: `${note.y}%`, backgroundColor: note.color, color: '#18181B' }}
+                            >
+                              <p>{note.text}</p>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUpdateAndSync({
+                                    stickyNotes: (activeProject.stickyNotes || []).filter(n => n.id !== note.id)
+                                  });
+                                }}
+                                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-bold shadow hover:scale-110 transition-transform cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+
+                          {isAddingSticky && (
+                            <div className="absolute top-4 left-4 bg-yellow-100 dark:bg-yellow-950/80 border border-yellow-300 dark:border-yellow-800 text-yellow-800 dark:text-yellow-300 px-3.5 py-2 rounded-xl text-xs font-bold animate-pulse z-40">
+                              🎯 Click anywhere on the logo canvas to drop your note.
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Automated WCAG compliance grading */}
+                        <AccessibilityScore 
+                          primaryColors={activeProject.brandGuide?.primaryColors || []} 
+                          bgColors={[
+                            { hex: '#FFFFFF', name: 'Standard Light' },
+                            { hex: '#09090B', name: 'Operating System Dark' }
+                          ]} 
+                        />
+
+                        {/* Interactive Template Auto-Populator */}
+                        <TemplateLibrary 
+                          activeProjectId={activeProjectId} 
+                          onApplyTemplate={handleUpdateAndSync} 
+                        />
+                      </div>
+
+                      {/* Right: Manual XML Code & SVG Node Coordinate Editor */}
+                      <div className="space-y-6">
+                        {/* Vector Node Path coordinate editor */}
+                        <SVGPathEditor 
+                          svgContent={activeProject.svgSource || ''} 
+                          onChange={(newSvg) => handleUpdateAndSync({ svgSource: newSvg })} 
+                        />
+
+                        {/* Raw SVG XML input editor */}
+                        <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-5 space-y-4">
+                          <div>
+                            <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Manual XML Buffer</h3>
+                            <p className="text-[10px] text-neutral-500">Edit XML nodes directly to override coordinates</p>
+                          </div>
+                          
+                          <textarea
+                            className="w-full h-44 bg-zinc-950 text-emerald-400 font-mono text-[10px] p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none border border-zinc-800 leading-normal"
+                            value={activeProject.svgSource || ''}
+                            onChange={(e) => handleUpdateAndSync({ svgSource: e.target.value })}
+                            placeholder="<svg viewBox='0 0 100 100'>...</svg>"
+                          />
+                        </div>
+
+                        {/* Add Sticky Note annotation form */}
+                        <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-5 space-y-4">
+                          <div>
+                            <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Sticky Comments Editor</h3>
+                            <p className="text-[10px] text-neutral-500">Annotate modifications directly onto the canvas</p>
+                          </div>
+
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              value={stickyNoteText}
+                              onChange={(e) => setStickyNoteText(e.target.value)}
+                              placeholder="e.g., Round off top corner bevel"
+                              className="w-full bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+
+                            <div className="flex items-center justify-between gap-2.5">
+                              <div className="flex gap-2">
+                                {['#FDE047', '#FDA4AF', '#86EFAC', '#93C5FD'].map((hex) => (
+                                  <button
+                                    key={hex}
+                                    onClick={() => setSelectedStickyColor(hex)}
+                                    className={`w-5 h-5 rounded-full border transition-all cursor-pointer ${selectedStickyColor === hex ? 'scale-125 border-neutral-800 dark:border-white ring-2 ring-indigo-500/20' : 'border-transparent'}`}
+                                    style={{ backgroundColor: hex }}
+                                  />
+                                ))}
+                              </div>
+
+                              <button
+                                onClick={() => setIsAddingSticky(true)}
+                                className="px-4 py-2 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:text-black rounded-xl text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                              >
+                                Place note
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Snapshots Sidebar */}
+                        <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-5 space-y-4">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Version Snapshots</h3>
+                              <p className="text-[10px] text-neutral-500">Instant coordinate state recovery points</p>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={newSnapshotName}
+                              onChange={(e) => setNewSnapshotName(e.target.value)}
+                              placeholder="Snapshot name (e.g., Draft V1)"
+                              className="flex-1 bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2 text-xs focus:outline-none"
+                            />
+                            <button
+                              onClick={() => {
+                                if (!activeProject) return;
+                                const nextSnap = {
+                                  id: Math.random().toString(36).substring(7),
+                                  name: newSnapshotName || `Version ${new Date().toLocaleTimeString()}`,
+                                  timestamp: Date.now(),
+                                  svgSource: activeProject.svgSource || '',
+                                  logoUrl: activeProject.logoUrl || ''
+                                };
+                                handleUpdateAndSync({
+                                  snapshots: [...(activeProject.snapshots || []), nextSnap]
+                                });
+                                setNewSnapshotName('');
+                              }}
+                              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold uppercase transition-colors cursor-pointer"
+                            >
+                              Save
+                            </button>
+                          </div>
+
+                          <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                            {(activeProject.snapshots || []).length === 0 ? (
+                              <p className="text-[10px] text-neutral-400">No versions saved yet.</p>
+                            ) : (
+                              (activeProject.snapshots || []).map((snap) => (
+                                <div key={snap.id} className="flex justify-between items-center p-2.5 bg-neutral-50 dark:bg-zinc-950 rounded-xl border border-neutral-100 dark:border-zinc-900">
+                                  <div className="min-w-0">
+                                    <span className="text-xs font-bold text-neutral-800 dark:text-zinc-200 block truncate">{snap.name}</span>
+                                    <span className="text-[9px] text-neutral-400 font-mono block">{new Date(snap.timestamp).toLocaleTimeString()}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleUpdateAndSync({
+                                      svgSource: snap.svgSource,
+                                      logoUrl: snap.logoUrl
+                                    })}
+                                    className="px-2.5 py-1 bg-white dark:bg-zinc-900 hover:bg-neutral-100 border border-neutral-200 dark:border-zinc-800 rounded-lg text-[9px] font-bold uppercase transition-colors cursor-pointer"
+                                  >
+                                    Restore
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {activeWorkspace === 'identity' && (
+                      <div className="flex-1 flex flex-col w-full h-full">
+                        {/* Identity Portal View */}
+                         <div className="flex gap-4 p-4 border-b border-neutral-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                          <button onClick={() => setIdentitySubTab('guidelines')} className={`px-4 py-2 text-xs font-bold rounded-full ${identitySubTab === 'guidelines' ? 'bg-black text-white' : 'bg-neutral-100'}`}>Brand Guidelines</button>
+                          <button onClick={() => setIdentitySubTab('mockups')} className={`px-4 py-2 text-xs font-bold rounded-full ${identitySubTab === 'mockups' ? 'bg-black text-white' : 'bg-neutral-100'}`}>Live Mockups</button>
+                          <button onClick={() => setIdentitySubTab('collateral')} className={`px-4 py-2 text-xs font-bold rounded-full ${identitySubTab === 'collateral' ? 'bg-black text-white' : 'bg-neutral-100'}`}>Marketing Kit</button>
+                        </div>
+                        <div className="flex-1 p-6 overflow-y-auto">
+                          {identitySubTab === 'guidelines' && (
+<motion.div key="guide" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+                      <div>
+                        <h2 className="text-3xl font-display font-bold">Brand Architect</h2>
+                        <p className="text-sm text-neutral-500">Comprehensive custom brand identity system.</p>
+                      </div>
+                      {activeProject.brandGuide && (
+                        <div className="flex flex-col sm:flex-row gap-2 self-start sm:self-auto">
+                          <button 
+                            onClick={handleDownloadBrandGuide}
+                            className="flex items-center gap-2 px-4 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-neutral-200 rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+                          >
+                            <Download size={14} />
+                            MD
+                          </button>
+                          <button 
+                            onClick={() => {
+                              import('./utils/pdfExport').then(({ exportBrandGuidePDF }) => {
+                                exportBrandGuidePDF(activeProject);
+                                toast('Brand Guide PDF generated.', 'success');
+                              }).catch(err => {
+                                console.error(err);
+                                toast('Failed to generate PDF.', 'error');
+                              });
+                            }}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-brand-lead hover:bg-brand-lead/90 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+                          >
+                            <Download size={14} />
+                            Download PDF
+                          </button>
+                          <button 
+                            onClick={() => {
+                              const guideEl = document.getElementById('brand-guide-content');
+                              if (!guideEl) {
+                                toast('Brand guide view not found.', 'error');
+                                return;
+                              }
+                              import('html2canvas').then(({ default: html2canvas }) => {
+                                toast('Generating image... this may take a moment.', 'success');
+                                html2canvas(guideEl, { useCORS: true, backgroundColor: null }).then(canvas => {
+                                  const link = document.createElement('a');
+                                  link.download = `${activeProject.name}-brand-board.png`;
+                                  link.href = canvas.toDataURL('image/png');
+                                  link.click();
+                                  toast('Image export complete.', 'success');
+                                }).catch(err => {
+                                  console.error(err);
+                                  toast('Failed to generate image.', 'error');
+                                });
+                              });
+                            }}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+                          >
+                            <Download size={14} />
+                            Export PNG
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {activeProject.brandGuide ? (
+                      <div id="brand-guide-content" className="space-y-12 bg-white dark:bg-zinc-950 p-2 sm:p-6 rounded-2xl">
+                        {/* Core Guide */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800">
+                            <h3 className="text-xl font-bold mb-4 font-display flex items-center justify-between">
+                              <span>Primary Colors</span>
+                              <span className="text-[10px] text-neutral-400 font-normal">Click a chip to copy HEX</span>
+                            </h3>
+                            <div className="space-y-4">
+                              {activeProject.brandGuide.primaryColors.map((c, i) => (
+                                <button 
+                                  key={i} 
+                                  onClick={() => handleCopyColor(c.hex)}
+                                  className="w-full flex items-center justify-between p-2.5 rounded-xl border border-transparent hover:border-neutral-200 dark:hover:border-zinc-800 hover:bg-neutral-50 dark:hover:bg-zinc-950 text-left transition-all cursor-pointer group"
+                                  title={`Copy ${c.hex}`}
+                                >
+                                  <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-full border border-neutral-200 dark:border-zinc-800 shadow-inner group-hover:scale-105 transition-transform" style={{ backgroundColor: c.hex }}></div>
+                                    <div>
+                                      <p className="font-bold text-neutral-900 dark:text-zinc-100">{c.name}</p>
+                                      <p className="text-xs text-neutral-400 mt-0.5">{c.usage}</p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className={`text-xs font-mono font-bold px-2 py-1 rounded-md transition-all ${copiedColorHex === c.hex ? 'bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-400' : 'bg-neutral-100 dark:bg-zinc-800 text-neutral-500'}`}>
+                                      {copiedColorHex === c.hex ? 'Copied!' : c.hex}
+                                    </span>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          
+                          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800 flex flex-col justify-between">
+                            <div>
+                              <h3 className="text-xl font-bold mb-4 font-display">Typography</h3>
+                              <div className="space-y-4">
+                                <div className="p-3 bg-neutral-50 dark:bg-zinc-950 rounded-xl">
+                                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest font-bold">Primary Font</p>
+                                  <p className="text-2xl font-bold text-neutral-900 dark:text-white mt-0.5">{activeProject.brandGuide.typography.primaryFont}</p>
+                                </div>
+                                <div className="p-3 bg-neutral-50 dark:bg-zinc-950 rounded-xl">
+                                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest font-bold">Secondary Font</p>
+                                  <p className="text-xl text-neutral-800 dark:text-zinc-200 mt-0.5">{activeProject.brandGuide.typography.secondaryFont}</p>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-4 pt-4 border-t border-neutral-100 dark:border-zinc-800/80">
+                              <p className="text-xs text-neutral-500 leading-relaxed font-sans">
+                                <span className="font-bold block mb-0.5">Pairing Guideline</span>
+                                {activeProject.brandGuide.typography.guidelines}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Extended Details */}
+                        <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800">
+                          <h3 className="text-xl font-bold mb-4 font-display">Voice & Tone</h3>
+                          <p className="text-lg mb-4 text-neutral-800 dark:text-zinc-200 leading-relaxed">{activeProject.brandGuide.brandVoice.tone}</p>
+                          <div className="flex flex-wrap gap-2 mb-4">
+                            {activeProject.brandGuide.brandVoice.keywords.map(kw => (
+                              <span key={kw} className="px-3 py-1 bg-brand-lead/10 text-brand-lead rounded-full text-xs font-bold uppercase tracking-wider">{kw}</span>
+                            ))}
+                          </div>
+                          <p className="text-neutral-600 dark:text-zinc-400 text-sm leading-relaxed">{activeProject.brandGuide.brandVoice.description}</p>
+                        </div>
+                        
+                        {activeProject.brandGuide.photography && (
+                          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800">
+                            <h3 className="text-xl font-bold mb-4 font-display">Photography & Imagery</h3>
+                            <p className="text-neutral-600 dark:text-zinc-400 text-sm leading-relaxed">{activeProject.brandGuide.photography}</p>
+                          </div>
+                        )}
+                        
+                        {activeProject.brandGuide.iconography && (
+                          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800">
+                            <h3 className="text-xl font-bold mb-4 font-display">Iconography</h3>
+                            <p className="text-neutral-600 dark:text-zinc-400 text-sm leading-relaxed">{activeProject.brandGuide.iconography}</p>
+                          </div>
+                        )}
+                        
+                        {activeProject.brandGuide.dosAndDonts && activeProject.brandGuide.dosAndDonts.length > 0 && (
+                          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800">
+                            <h3 className="text-xl font-bold mb-4 font-display text-red-600 dark:text-red-400">Do's and Don'ts</h3>
+                            <ul className="space-y-2.5 text-sm text-neutral-600 dark:text-zinc-400">
+                              {activeProject.brandGuide.dosAndDonts.map((rule, idx) => (
+                                <li key={idx} className="flex gap-2 items-start">
+                                  <span className={`font-bold ${idx % 2 === 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                    {idx % 2 === 0 ? '✓' : '✗'}
+                                  </span>
+                                  <span>{rule}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="bg-neutral-50 dark:bg-zinc-900/50 p-8 rounded-3xl border border-dashed border-neutral-300 dark:border-zinc-800 flex flex-col items-center justify-center text-center">
+                         <Wand2 className="w-8 h-8 text-neutral-400 mb-4" />
+                         <h3 className="text-xl font-bold mb-2">No Brand Guide Yet</h3>
+                         <p className="text-neutral-500 mb-6 max-w-md">Generate a comprehensive brand guide in the Studio sidebar to unlock color palettes, typography pairings, and voice instructions.</p>
+                      </div>
+                    )}
+                    
+                    <DesignChecklist />
+                  </motion.div>
+)}
+                          {identitySubTab === 'mockups' && (
+<motion.div key="mockups" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                      <div>
+                        <h2 className="text-3xl font-display font-bold">Real-World Context</h2>
+                        <p className="text-sm text-neutral-500">Preview your brand identity in high-end mockups and physical materials.</p>
+                      </div>
+                      
+                      <div className="flex bg-neutral-200 dark:bg-zinc-800 p-1 rounded-xl self-start sm:self-auto">
+                        <button
+                          onClick={() => setMockupTab('templates')}
+                          className={`px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${mockupTab === 'templates' ? 'bg-white dark:bg-zinc-900 shadow-sm text-black dark:text-white' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}
+                        >
+                          Built-in Studio
+                        </button>
+                        <button
+                          onClick={() => setMockupTab('uploaded')}
+                          className={`px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${mockupTab === 'uploaded' ? 'bg-white dark:bg-zinc-900 shadow-sm text-black dark:text-white' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}
+                        >
+                          Uploaded Mockups
+                        </button>
+                      </div>
+                    </div>
+
+                    {mockupTab === 'templates' ? (
+                      <div className="space-y-8">
+                        {/* Selector for default templates */}
+                        <div className="flex gap-2">
+                          {[
+                            { id: 'card', name: 'Luxury Business Card 💳' },
+                            { id: 'splash', name: 'Mobile App Splash Screen 📱' },
+                            { id: 'billboard', name: 'Urban Billboard 🏢' }
+                          ].map(t => (
+                            <button
+                              key={t.id}
+                              onClick={() => setSelectedTemplate(t.id as any)}
+                              className={`px-4 py-2 text-xs font-bold rounded-full border transition-all cursor-pointer ${selectedTemplate === t.id ? 'bg-black text-white dark:bg-white dark:text-black border-transparent shadow-sm' : 'bg-white dark:bg-zinc-900 text-neutral-600 dark:text-zinc-400 border-neutral-200 dark:border-zinc-800 hover:bg-neutral-50'}`}
+                            >
+                              {t.name}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Interactive Template Viewer */}
+                        {selectedTemplate === 'card' && (
+                          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800 space-y-6">
+                            <div className="flex justify-between items-center">
+                              <h3 className="font-bold text-sm uppercase tracking-wider text-neutral-500">Business Card Customizer</h3>
+                              <div className="flex gap-2">
+                                {[
+                                  { id: 'cream', name: 'Cream Linen', bg: 'bg-[#FDFBF7] text-[#3c362d]' },
+                                  { id: 'charcoal', name: 'Noir Matte', bg: 'bg-[#121212] text-[#f7f7f7]' },
+                                  { id: 'forest', name: 'Forest Velvet', bg: 'bg-[#182a20] text-[#eae2cf]' }
+                                ].map(preset => (
+                                  <button
+                                    key={preset.id}
+                                    onClick={() => setCardBg(preset.id as any)}
+                                    className={`px-2.5 py-1 text-[10px] font-bold rounded border transition-all cursor-pointer ${cardBg === preset.id ? 'border-brand-lead ring-2 ring-brand-lead/20' : 'border-neutral-200 dark:border-zinc-800 hover:bg-neutral-100'}`}
+                                  >
+                                    {preset.name}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-center p-12 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-100 dark:border-zinc-800/50" style={{ perspective: '1200px' }}>
+                              <div 
+                                style={{ transform: 'rotateX(15deg) rotateY(-20deg) rotateZ(5deg)' }}
+                                className={`w-full max-w-md aspect-[1.75/1] rounded-2xl shadow-2xl border border-neutral-200/40 p-8 flex flex-col justify-between transition-all duration-300 relative overflow-hidden hover:rotate-0 hover:scale-105 ${
+                                  cardBg === 'cream' ? 'bg-[#FDFBF7] text-[#3c362d] border-[#ebe3d5]' :
+                                  cardBg === 'charcoal' ? 'bg-[#161617] text-[#eaeaea] border-[#2c2c2d]' :
+                                  'bg-[#1a2c22] text-[#efe8db] border-[#294234]'
+                                }`}
+                              >
+                                {/* Textured effect */}
+                                <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '12px 12px' }}></div>
+                                
+                                <div className="flex justify-between items-start z-10">
+                                  <div className="w-14 h-14 bg-white/10 rounded-xl p-1.5 flex items-center justify-center backdrop-blur-sm border border-white/20">
+                                    <img src={activeProject.logoUrl!} alt="logo" className="max-w-full max-h-full object-contain filter drop-shadow-md" />
+                                  </div>
+                                  <div className="text-right">
+                                    <h4 className="font-bold text-base tracking-tight">{activeProject.brandGuide?.brandName || activeProject.name}</h4>
+                                    <p className="text-[9px] uppercase tracking-widest opacity-80 mt-0.5">Est. {new Date(activeProject.createdAt).getFullYear()}</p>
+                                  </div>
+                                </div>
+
+                                <div className="z-10 flex justify-between items-end border-t border-current/10 pt-4">
+                                  <div>
+                                    <p className="font-bold text-xs">Alex Rivers</p>
+                                    <p className="text-[9px] uppercase tracking-wider opacity-75 mt-0.5">Brand Director</p>
+                                  </div>
+                                  <div className="text-right text-[9px] font-mono opacity-80 leading-relaxed">
+                                    <p>hello@{(activeProject.brandGuide?.brandName || 'studio').toLowerCase().replace(/\s+/g, '')}.com</p>
+                                    <p>+1 (555) 902-1810</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {selectedTemplate === 'splash' && (
+                          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800 space-y-6">
+                            <h3 className="font-bold text-sm uppercase tracking-wider text-neutral-500">Mobile Launch Experience</h3>
+                            
+                            <div className="flex items-center justify-center p-12 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-100 dark:border-zinc-800/50" style={{ perspective: '1200px' }}>
+                              <div 
+                                style={{ transform: 'rotateX(5deg) rotateY(15deg) rotateZ(-2deg)' }}
+                                className="w-64 aspect-[9/19] bg-[#0c0c0e] rounded-[36px] shadow-2xl border-[6px] border-[#27272a] p-4 flex flex-col justify-between relative overflow-hidden text-white transition-all duration-300 hover:rotate-0 hover:scale-105"
+                              >
+                                {/* Ambient screen glow */}
+                                <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-48 h-48 bg-brand-lead/20 rounded-full blur-3xl pointer-events-none"></div>
+                                
+                                {/* Phone Notch */}
+                                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-5 bg-[#27272a] rounded-b-2xl z-20 flex items-center justify-center">
+                                  <div className="w-3 h-3 bg-zinc-900 rounded-full mr-2"></div>
+                                  <div className="w-8 h-1 bg-zinc-800 rounded-full"></div>
+                                </div>
+
+                                {/* Phone Status Bar */}
+                                <div className="flex justify-between items-center text-[10px] font-mono px-3 pt-2 z-10 opacity-80">
+                                  <span>09:41</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <span>LTE</span>
+                                    <div className="w-4 h-2.5 border border-white/80 rounded-sm p-0.5 flex items-center"><div className="w-full h-full bg-white rounded-xs"></div></div>
+                                  </div>
+                                </div>
+
+                                {/* Central Brand Visual */}
+                                <div className="flex flex-col items-center justify-center flex-1 gap-4 z-10 mt-12">
+                                  <motion.div 
+                                    animate={{ y: [0, -6, 0] }}
+                                    transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                                    className="w-24 h-24 bg-white rounded-full p-4 flex items-center justify-center shadow-lg border border-white/10"
+                                  >
+                                    <img src={activeProject.logoUrl!} alt="logo" className="w-full h-full object-contain" />
+                                  </motion.div>
+                                  <div className="text-center">
+                                    <h4 className="font-bold text-lg font-display tracking-tight text-white">{activeProject.brandGuide?.brandName || activeProject.name}</h4>
+                                    <p className="text-[10px] text-zinc-500 font-sans tracking-wide mt-1">Design Studio Forge</p>
+                                  </div>
+                                </div>
+
+                                {/* Loading Bottom Indicators */}
+                                <div className="flex flex-col items-center gap-4 z-10 pb-2">
+                                  <div className="flex gap-1">
+                                    <div className="w-1.5 h-1.5 bg-brand-lead rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+                                    <div className="w-1.5 h-1.5 bg-brand-lead rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                    <div className="w-1.5 h-1.5 bg-brand-lead rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                                  </div>
+                                  <div className="w-24 h-1 bg-zinc-800 rounded-full"></div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {selectedTemplate === 'billboard' && (
+                          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800 space-y-6">
+                            <h3 className="font-bold text-sm uppercase tracking-wider text-neutral-500">Urban Architectural Signage</h3>
+                            
+                            <div className="flex items-center justify-center p-12 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-100 dark:border-zinc-800/50" style={{ perspective: '1200px' }}>
+                              <div 
+                                style={{ transform: 'rotateX(5deg) rotateY(-10deg) rotateZ(0deg)' }}
+                                className="w-full max-w-lg aspect-[16/9] bg-[#141517] rounded-2xl shadow-2xl relative overflow-hidden border border-zinc-800 p-8 flex flex-col justify-between text-white transition-all duration-300 hover:rotate-0 hover:scale-105"
+                              >
+                                {/* Grid texture background */}
+                                <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
+                                
+                                <div className="flex justify-between items-start z-10">
+                                  <div className="p-3 border-l-2 border-brand-lead">
+                                    <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold">Studio Showcase</span>
+                                    <h4 className="text-lg font-bold font-display tracking-wide mt-0.5">{activeProject.brandGuide?.brandName || activeProject.name}</h4>
+                                  </div>
+                                  <span className="text-[9px] bg-zinc-800 text-zinc-400 font-mono px-2 py-1 rounded border border-zinc-700">BILLBOARD ID #812</span>
+                                </div>
+
+                                <div className="flex justify-center items-center flex-1 z-10 py-4">
+                                  <div className="w-28 h-28 bg-[#18191c] rounded-2xl border border-zinc-800/80 p-4 flex items-center justify-center shadow-2xl shadow-indigo-500/10 relative group">
+                                    {/* Neon halo glow */}
+                                    <div className="absolute inset-0 rounded-2xl bg-brand-lead/20 blur-xl opacity-80 pointer-events-none"></div>
+                                    <img src={activeProject.logoUrl!} alt="logo" className="w-full h-full object-contain filter drop-shadow-[0_0_12px_rgba(99,102,241,0.5)] z-10" />
+                                  </div>
+                                </div>
+
+                                <div className="flex justify-between items-end z-10 text-[9px] text-zinc-500 font-medium">
+                                  <p>BRUTALIST ARCHITECTURE DISTRICT</p>
+                                  <p>© FORGEL OUTDOOR MEDIA</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {activeProject.mockups?.map(mockup => (
+                          <div key={mockup.id} className="relative h-64 bg-neutral-200 dark:bg-zinc-800 rounded-3xl overflow-hidden group">
+                            <img src={mockup.base64Data} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 flex items-center justify-center p-8 opacity-90 hover:opacity-100 transition-opacity pointer-events-none">
+                              {activeProject.svgSource ? (
+                                <div dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.svgSource) }} className="w-1/2 h-1/2 object-contain filter drop-shadow-lg" />
+                              ) : (
+                                 <img src={activeProject.logoUrl!} className="w-1/2 h-1/2 object-contain filter drop-shadow-lg" />
+                              )}
+                            </div>
+                            <button onClick={() => {
+                              updateProject(activeProject.id, { mockups: activeProject.mockups.filter(m => m.id !== mockup.id) });
+                            }} className="absolute top-4 right-4 p-2 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        ))}
+                        <label className="h-64 border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl flex flex-col items-center justify-center gap-4 text-neutral-500 hover:border-brand-lead hover:text-brand-lead transition-colors bg-white dark:bg-zinc-900 cursor-pointer text-center px-4">
+                          <input type="file" className="hidden" accept="image/*,.psd,.svg,.ai,.fig" onChange={handleMockupUpload} />
+                          <Upload size={32} />
+                          <span className="font-bold uppercase tracking-wider text-xs">Upload Mockup</span>
+                          <span className="text-[10px] opacity-70">JPEG, PNG, SVG<br/>(PSD/FIG visual placeholder)</span>
+                        </label>
+                      </div>
+                                        )}
+                  </motion.div>
+)}
+                          {identitySubTab === 'collateral' && (
+<motion.div key="ecosystem" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col mb-8">
+                      <h2 className="text-3xl font-display font-bold">Ecosystem Automation</h2>
+                      <p className="text-sm text-neutral-500">Generate on-brand assets using your tailored Brand Guide.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                      <div className="col-span-1 space-y-6">
+                        <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-neutral-200 dark:border-zinc-800 shadow-sm">
+                          <h3 className="font-bold mb-4">Create Asset</h3>
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold uppercase tracking-wider mb-2">Asset Type</label>
+                              <select value={ecosystemAssetType} onChange={(e) => setEcosystemAssetType(e.target.value)} className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead">
+                                <option value="Instagram Post Caption">Instagram Post</option>
+                                <option value="Twitter Thread Hook">Twitter Thread Hook</option>
+                                <option value="LinkedIn Post">LinkedIn Post</option>
+                                <option value="Email Newsletter Intro">Newsletter Intro</option>
+                                <option value="Website Hero Copy">Website Hero Copy</option>
+                              </select>
+                            </div>
+                            <button onClick={handleGenerateEcosystem} disabled={isGeneratingEcosystem} className="w-full bg-brand-lead hover:bg-brand-lead/90 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                              {isGeneratingEcosystem ? <RefreshCw className="animate-spin" size={18} /> : <Wand2 size={18} />}
+                              Generate Asset
+                            </button>
+                            {!activeProject.brandGuide && (
+                              <p className="text-[10px] text-red-500 font-bold mt-2 text-center">Requires a generated Brand Guide.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-span-1 md:col-span-2 space-y-4">
+                        {activeProject.ecosystemAssets && activeProject.ecosystemAssets.length > 0 ? (
+                          activeProject.ecosystemAssets.map((asset, i) => (
+                            <div key={i} className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-neutral-200 dark:border-zinc-800 shadow-sm relative group">
+                              <span className="inline-block px-2 py-1 bg-neutral-100 dark:bg-zinc-800 rounded text-[10px] font-bold uppercase tracking-wider mb-3 text-brand-lead">{asset.type}</span>
+                              <div className="whitespace-pre-wrap text-sm">{asset.content}</div>
+                              <button onClick={() => { navigator.clipboard.writeText(asset.content); toast('Copied to clipboard', 'success'); }} className="absolute top-4 right-4 p-2 bg-neutral-100 dark:bg-zinc-800 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Copy size={14} />
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="h-full border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl flex flex-col items-center justify-center text-center p-8 text-neutral-500">
+                            <Globe size={48} className="mb-4 opacity-50" />
+                            <p className="font-bold mb-2">No Ecosystem Assets</p>
+                            <p className="text-sm opacity-80">Generate your first on-brand asset using the panel on the left.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+)}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {activeWorkspace === 'strategy' && (
+                      <div className="flex-1 flex flex-col w-full h-full">
+                        {/* Strategy Centre View */}
+                        <div className="flex gap-4 p-4 border-b border-neutral-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                          <button onClick={() => setStrategySubTab('rivals')} className={`px-4 py-2 text-xs font-bold rounded-full ${strategySubTab === 'rivals' ? 'bg-black text-white' : 'bg-neutral-100'}`}>Competitor Rivals</button>
+                          <button onClick={() => setStrategySubTab('sonic')} className={`px-4 py-2 text-xs font-bold rounded-full ${strategySubTab === 'sonic' ? 'bg-black text-white' : 'bg-neutral-100'}`}>Sonic Guidelines</button>
+                        </div>
+                        <div className="flex-1 p-6 overflow-y-auto">
+                           {strategySubTab === 'rivals' && (
+<motion.div key="competitor" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col mb-8">
+                      <h2 className="text-3xl font-display font-bold">Rival Intelligence</h2>
+                      <p className="text-sm text-neutral-500">Analyze competitor branding and find strategic white space.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-6">
+                        <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-neutral-200 dark:border-zinc-800 shadow-sm">
+                          <h3 className="font-bold mb-4">Competitor Details</h3>
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold uppercase tracking-wider mb-2">Competitor Name</label>
+                              <input type="text" value={competitorNameInput} onChange={(e) => setCompetitorNameInput(e.target.value)} className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead" placeholder="e.g. Stripe, Apple, Nike" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold uppercase tracking-wider mb-2">Competitor Logo URL (Optional)</label>
+                              <input type="text" value={competitorLogoUrlInput || ''} onChange={(e) => setCompetitorLogoUrlInput(e.target.value)} className="w-full bg-neutral-100 dark:bg-zinc-800 border-none rounded-xl p-3 focus:ring-2 focus:ring-brand-lead" placeholder="https://..." />
+                            </div>
+                            <button onClick={handleAnalyzeCompetitor} disabled={isAnalyzingCompetitor || !competitorNameInput} className="w-full bg-brand-lead hover:bg-brand-lead/90 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                              {isAnalyzingCompetitor ? <RefreshCw className="animate-spin" size={18} /> : <Target size={18} />}
+                              Analyze Competitor
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-6">
+                        {activeProject.competitorAnalysis ? (
+                          <div className="bg-neutral-900 text-white p-6 rounded-3xl shadow-sm border border-neutral-800 prose prose-invert max-w-none">
+                            <h3 className="text-xl font-display font-bold mb-4 text-brand-growth">Strategic Analysis</h3>
+                            <div className="text-sm leading-relaxed opacity-90 whitespace-pre-wrap">
+                              {activeProject.competitorAnalysis}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="h-full border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl flex flex-col items-center justify-center text-center p-8 text-neutral-500">
+                            <Target size={48} className="mb-4 opacity-50" />
+                            <p className="font-bold mb-2">No Analysis Yet</p>
+                            <p className="text-sm opacity-80">Enter competitor details to generate a strategic brand comparison.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+)}
+                           {strategySubTab === 'sonic' && (
+                             <div className="text-sm">Sonic audio synth...</div>
+                           )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : activeTab === 'preview' && !activeProject?.logoUrl ? (
                   <motion.div key="placeholder" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative z-10 flex flex-col items-center justify-center text-center max-w-sm px-6 m-auto h-full">
                     <div className="w-32 h-32 mb-6 rounded-full border-2 border-dashed border-neutral-400 flex items-center justify-center text-neutral-400 bg-white dark:bg-zinc-900/50"><Wand2 size={40} className="opacity-50" /></div>
@@ -3594,7 +4617,8 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
 
                         {/* Interactive Template Auto-Populator */}
                         <TemplateLibrary 
-                          onSelectTemplate={(svg, guide) => handleUpdateAndSync({ svgSource: svg, brandGuide: guide })} 
+                          activeProjectId={activeProjectId} 
+                          onApplyTemplate={handleUpdateAndSync} 
                         />
                       </div>
 
@@ -4197,123 +5221,6 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                       </div>
                     </div>
                   </motion.div>
-                ) : activeTab === 'comments' ? (
-                  <motion.div key="comments" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-3xl mx-auto w-full flex flex-col h-full">
-                    <h2 className="text-3xl font-bold mb-2 shrink-0">Collaboration & Comments</h2>
-                    <p className="text-sm text-neutral-500 mb-6 shrink-0">Engage in dialogue or request specialized critique from the Forgel AI Creative Panel.</p>
-                    
-                    {/* AI Critic Panel */}
-                    <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 p-5 rounded-3xl shadow-sm mb-6 shrink-0 space-y-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">✨</span>
-                        <h3 className="font-bold text-sm uppercase tracking-wider text-neutral-700 dark:text-zinc-300">Forgel AI Advisory Panel</h3>
-                      </div>
-                      <div className="flex flex-col sm:flex-row gap-4 items-end">
-                        <div className="flex-1 space-y-2">
-                          <label className="text-xs text-neutral-400 block">Select AI Creative Specialist</label>
-                          <select 
-                            value={criticRole}
-                            onChange={(e) => setCriticRole(e.target.value)}
-                            className="w-full bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider cursor-pointer"
-                          >
-                            <option value="Senior Art Director 🎨">Senior Art Director 🎨 (Visual Balance & Metaphor)</option>
-                            <option value="Typography Specialist ✍️">Typography Specialist ✍️ (Legibility & Pairings)</option>
-                            <option value="Color Specialist 💧">Color Specialist 💧 (Palette Harmony & Vibe)</option>
-                          </select>
-                        </div>
-                        <button 
-                          onClick={handleRequestAICritic}
-                          disabled={isCriticLoading}
-                          className="px-6 py-2.5 bg-brand-lead hover:bg-brand-lead/95 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                        >
-                          {isCriticLoading ? <RefreshCw className="animate-spin" size={14} /> : <Sparkles size={14} />}
-                          {isCriticLoading ? 'Reviewing...' : 'Request Feedback'}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex-1 bg-white dark:bg-zinc-900 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800 flex flex-col overflow-hidden h-[450px]">
-                      <div className="flex-1 p-6 overflow-y-auto space-y-4 bg-neutral-50 dark:bg-zinc-900">
-                        {activeProject.comments.length === 0 && !isCriticLoading ? (
-                          <div className="text-center text-neutral-400 py-16 flex flex-col items-center justify-center h-full">
-                            <MessageSquare className="w-12 h-12 mb-4 opacity-30" />
-                            <p className="font-medium">No comments yet.</p>
-                            <p className="text-sm">Start the conversation below.</p>
-                          </div>
-                        ) : (
-                          <>
-                            {activeProject.comments.map(c => (
-                              <div key={c.id} className="bg-white dark:bg-zinc-900 p-4 rounded-2xl shadow-sm border border-neutral-100 flex gap-4">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold shrink-0 text-sm ${c.author.includes('AI') ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-400 border border-indigo-200' : 'bg-neutral-100 text-neutral-700 dark:bg-zinc-800 dark:text-zinc-200'}`}>
-                                  {c.author.includes('AI') ? '🤖' : c.author.charAt(0).toUpperCase()}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-baseline justify-between gap-2 mb-1">
-                                    <span className="font-bold text-sm text-neutral-900 dark:text-zinc-100">{c.author}</span>
-                                    <span className="text-[10px] text-neutral-400 shrink-0">{new Date(c.timestamp).toLocaleString()}</span>
-                                  </div>
-                                  <p className="text-neutral-700 dark:text-zinc-300 text-sm leading-relaxed whitespace-pre-wrap">{c.text}</p>
-                                </div>
-                              </div>
-                            ))}
-                            {isCriticLoading && (
-                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl shadow-sm border border-neutral-100 flex gap-4 animate-pulse">
-                                <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center shrink-0">
-                                  <span>🤖</span>
-                                </div>
-                                <div className="flex-1 space-y-2">
-                                  <div className="h-4 bg-neutral-200 dark:bg-zinc-800 rounded w-1/4"></div>
-                                  <div className="h-3 bg-neutral-100 dark:bg-zinc-800 rounded w-3/4"></div>
-                                  <div className="h-3 bg-neutral-100 dark:bg-zinc-800 rounded w-1/2"></div>
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      
-                      <div className="p-4 bg-white dark:bg-zinc-900 border-t border-neutral-200 dark:border-zinc-800 flex gap-2">
-                        <input
-                          type="text"
-                          value={commentText}
-                          onChange={(e) => setCommentText(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && commentText.trim() && activeProjectId) {
-                              updateProject(activeProjectId, {
-                                comments: [...activeProject.comments, {
-                                  id: Math.random().toString(36).substring(7),
-                                  author: 'You',
-                                  text: commentText.trim(),
-                                  timestamp: Date.now()
-                                }]
-                              });
-                              setCommentText('');
-                            }
-                          }}
-                          placeholder="Add a comment... (Press Enter to send)"
-                          className="flex-1 bg-neutral-100 dark:bg-zinc-950 border-none rounded-full px-6 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                        <button
-                          onClick={() => {
-                            if (commentText.trim() && activeProjectId) {
-                              updateProject(activeProjectId, {
-                                comments: [...activeProject.comments, {
-                                  id: Math.random().toString(36).substring(7),
-                                  author: 'You',
-                                  text: commentText.trim(),
-                                  timestamp: Date.now()
-                                }]
-                              });
-                              setCommentText('');
-                            }
-                          }}
-                          className="px-5 py-3 bg-brand-lead text-white text-xs font-bold uppercase tracking-wider rounded-full hover:bg-brand-lead/90 transition-all cursor-pointer"
-                        >
-                          Send
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
                 ) : null}
               </AnimatePresence>
             </div>
@@ -4694,6 +5601,17 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Google Gemini API Key</label>
                     <input type="password" placeholder="AIzaSy..." value={settings.geminiKey || ''} onChange={(e) => updateSettings({ geminiKey: e.target.value })} className="w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-lead" />
+                    {settings.geminiKey ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400 border border-green-200 dark:border-green-900 mt-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                        Custom Key Active — Requests will use your own billing limits
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-200 dark:border-amber-900 mt-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                        Shared Workspace Key — Requests use the developer's limits
+                      </span>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">OpenAI API Key</label>
@@ -5015,7 +5933,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
               initial={{ scale: 0.95, y: 30 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 30 }}
-              transition={{ type: "spring", damping: 28, stiffness: 200 }}
+              transition={{ type: "spring" as const, damping: 28, stiffness: 200 }}
               className="bg-zinc-950 border border-zinc-800 rounded-[32px] w-full max-w-5xl h-[85vh] overflow-hidden flex flex-col text-zinc-100 shadow-2xl relative"
               onClick={(e) => e.stopPropagation()}
             >
@@ -5506,6 +6424,166 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
         )}
       </AnimatePresence>
       )}
+
+      {/* Collab FAB */}
+      {view === 'dashboard' && (
+        <button 
+          onClick={() => setIsCollabDrawerOpen(!isCollabDrawerOpen)}
+          className="fixed bottom-6 right-6 p-4 bg-brand-lead text-white rounded-full shadow-2xl z-[60] hover:bg-brand-lead/90 active:scale-95 transition-all cursor-pointer flex items-center justify-center border-4 border-white dark:border-zinc-900"
+        >
+          <MessageSquare size={24} />
+          {activeUsers.length > 0 && (
+            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full border-2 border-white dark:border-zinc-900">
+              {activeUsers.length}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Collaboration Drawer */}
+      <div 
+        className={`fixed inset-y-0 right-0 w-full md:w-[450px] bg-white dark:bg-zinc-900 border-l border-neutral-200 dark:border-zinc-800 shadow-2xl z-[65] transform transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isCollabDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      >
+        <div className="h-full flex flex-col pt-safe">
+          <div className="flex items-center justify-between p-4 border-b border-neutral-200 dark:border-zinc-800 shrink-0">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <MessageSquare size={18} /> Collaboration
+            </h2>
+            <button 
+              onClick={() => setIsCollabDrawerOpen(false)}
+              className="p-2 hover:bg-neutral-100 dark:hover:bg-zinc-800 rounded-full transition-colors cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar flex flex-col">
+            {/* Active Users presence bar */}
+            <div className="mb-6 p-4 bg-neutral-50 dark:bg-zinc-950 rounded-xl border border-neutral-200 dark:border-zinc-800">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-500 mb-3 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                Active Presence
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-900 rounded-lg shadow-sm border border-neutral-200 dark:border-zinc-800 text-xs font-bold">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#10b981' }}></div>
+                  You ({username})
+                </div>
+                {activeUsers.filter(u => u.username !== username).map(u => (
+                  <div key={u.id} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-900 rounded-lg shadow-sm border border-neutral-200 dark:border-zinc-800 text-xs font-bold">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: u.color }}></div>
+                    {u.username}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* AI Critic Panel */}
+            <div className="mb-6">
+              <h3 className="text-sm font-bold mb-3 flex items-center gap-2 text-brand-lead">
+                <Wand2 size={16} /> AI Creative Directors
+              </h3>
+              <div className="flex flex-col gap-2">
+                 <select 
+                   value={criticRole}
+                   onChange={(e) => setCriticRole(e.target.value)}
+                   className="w-full bg-white dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wider cursor-pointer"
+                 >
+                   <option value="Senior Art Director 🎨">Senior Art Director (Metaphor)</option>
+                   <option value="Typography Specialist ✍️">Typography Specialist (Legibility)</option>
+                   <option value="Color Specialist 💧">Color Specialist (Harmony)</option>
+                 </select>
+                 <button 
+                   onClick={handleRequestAICritic}
+                   disabled={isCriticLoading || !activeProject}
+                   className="p-3 text-center border border-neutral-200 dark:border-zinc-800 rounded-xl hover:border-brand-lead hover:bg-brand-lead hover:text-white transition-colors disabled:opacity-50 font-bold text-sm cursor-pointer"
+                 >
+                   {isCriticLoading ? 'Analyzing...' : 'Request Feedback'}
+                 </button>
+              </div>
+            </div>
+            
+            {/* Thread */}
+            <h3 className="text-sm font-bold mb-4 flex items-center gap-2 border-b border-neutral-200 dark:border-zinc-800 pb-2">
+              Project Thread
+            </h3>
+            
+            <div className="flex-1 space-y-4 mb-4">
+              {activeProject?.comments?.map((comment) => (
+                <div key={comment.id} className={`p-4 rounded-xl shadow-sm border ${comment.author.includes('AI') ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-100 dark:border-indigo-900/50' : 'bg-white dark:bg-zinc-900 border-neutral-200 dark:border-zinc-800'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${comment.author.includes('AI') ? 'bg-brand-lead' : 'bg-neutral-800 dark:bg-zinc-700'}`}>
+                      {comment.author.includes('AI') ? <Wand2 size={12} /> : comment.author.charAt(0)}
+                    </div>
+                    <span className="font-bold text-xs">{comment.author}</span>
+                    <span className="text-[10px] text-neutral-400 ml-auto">{new Date(comment.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  
+                  {comment.author.includes('AI') ? (
+                    <div className="text-sm prose prose-sm dark:prose-invert max-w-none prose-p:leading-snug">
+                      <Markdown>{comment.text}</Markdown>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300">{comment.text}</p>
+                  )}
+                </div>
+              ))}
+              
+              {isCriticLoading && (
+                <div className="p-4 bg-indigo-50 dark:bg-indigo-950/30 border-indigo-100 dark:border-indigo-900/50 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 h-6 rounded-full bg-brand-lead flex items-center justify-center">
+                      <RefreshCw size={12} className="text-white animate-spin" />
+                    </div>
+                    <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 animate-pulse">The Critic is analyzing the logo...</span>
+                  </div>
+                </div>
+              )}
+              
+              {(!activeProject?.comments || activeProject.comments.length === 0) && !isCriticLoading && (
+                <div className="text-center py-8 text-neutral-400 dark:text-zinc-500">
+                  <MessageSquare size={32} className="mx-auto mb-3 opacity-20" />
+                  <p className="text-sm">No comments yet.</p>
+                  <p className="text-xs mt-1">Request an AI critique or add a note below.</p>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="p-4 bg-neutral-50 dark:bg-zinc-950 border-t border-neutral-200 dark:border-zinc-800 shrink-0">
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (commentText.trim() && activeProject) {
+                updateProject(activeProject.id, {
+                  comments: [...activeProject.comments, {
+                    id: Math.random().toString(36).substring(7),
+                    author: 'You',
+                    text: commentText.trim(),
+                    timestamp: Date.now()
+                  }]
+                });
+                setCommentText('');
+              }
+            }} className="flex gap-2">
+              <input
+                type="text"
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                placeholder="Write a comment..."
+                className="flex-1 bg-white dark:bg-zinc-900 border border-neutral-300 dark:border-zinc-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-lead"
+              />
+              <button 
+                type="submit"
+                disabled={!commentText.trim()}
+                className="p-2 bg-brand-lead hover:bg-brand-lead/90 text-white rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                <Send size={18} />
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }

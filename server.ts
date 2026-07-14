@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import { Client } from "@notionhq/client";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
+import cors from "cors";
 import geminiRouter from "./src/server/geminiRouter.ts";
 import backupRouter from "./src/server/backupRouter.ts";
 
@@ -13,6 +14,26 @@ dotenv.config();
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Strict CORS configuration
+  const allowedOrigins = [
+    process.env.APP_URL, // Production/Staging URL
+    "http://localhost:3000",
+    "http://localhost:5173"
+  ].filter(Boolean) as string[];
+
+  app.use(cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.indexOf(origin) !== -1 || origin.endsWith('.run.app')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true
+  }));
 
   app.use(express.json({ limit: "50mb" }));
   app.use(cookieParser());

@@ -176,7 +176,93 @@ The transition to a highly consolidated, robust, and secure application is organ
 ## 7. Developer Checklist & Quality Gates
 
 Ensure every phase is checked against these three standard metrics before proceeding:
+ 
+ 1.  **Strict Lint Compliance:** No type-safety bypasses (`any` should be avoided where possible, use explicit typings in `src/types.ts`).
+ 2.  **No Performance Regression:** Throttled event triggers on WebSocket nodes and memoized canvas updates.
+ 3.  **Cross-Device Responsiveness:** Every consolidated workspace must resize gracefully down to mobile views, mapping components into fluid panels.
+ 
+---
 
-1.  **Strict Lint Compliance:** No type-safety bypasses (`any` should be avoided where possible, use explicit typings in `src/types.ts`).
-2.  **No Performance Regression:** Throttled event triggers on WebSocket nodes and memoized canvas updates.
-3.  **Cross-Device Responsiveness:** Every consolidated workspace must resize gracefully down to mobile views, mapping components into fluid panels.
+## 8. Gaps & Architectural Risks Addressed
+
+The implementation addresses the core technical and architectural considerations raised in the High-Level Analysis:
+
+### 8.1 Canonical Data Model
+Rather than distributing state across multiple disconnected sources, the workspace acts on a **unified serializable Project Schema** (`Project` typed in `/src/types.ts` and managed in `/src/store.ts`). This encapsulates:
+*   Logo history queues and version snapshots.
+*   Generated brand voice guidelines, typography tokens, and color listings.
+*   The raw canvas coordinate scene graph, enabling a single source of truth for saves, exports, and collaboration.
+
+### 8.2 Elements Synchronization & Locking Strategy
+To mitigate collision conflicts during simultaneous collaborative updates:
+*   We employ a hybrid strategy combining full scene state synchronization with element-level ephemeral interaction locking.
+*   Heavy manual modifications (e.g., control point manipulation on path anchors) establish transient locks, while standard text or comment operations are updated on an event-driven basis to maintain high performance.
+
+### 8.3 Raster-to-Vector (R2V) Extraction & Path Provenance
+*   The Vector Workbench includes a lightweight tracing algorithm to map AI-generated PNG boundaries into clean SVG `<path>` records.
+*   Each traced path retains references to its parent raster logo source, preserving visual provenance so users can compare or regenerate original raster details easily.
+
+### 8.4 Execution & Performance Budgets
+*   Rendering of canvas nodes relies on optimized requestAnimationFrame wrappers to stay within a 16.6ms (60fps) frame time budget, even on mobile viewports.
+*   Exports and high-fidelity PDF compilers are executed using canvas buffering techniques, minimizing UI thread blocking during layout assembly.
+
+### 8.5 Bring Your Own Key (BYOK) Integration & User Quota Isolation
+To eliminate rate-limiting bottlenecking on the shared developer quota:
+*   We implemented a flexible client-side **Google Gemini API Key** configuration field in Settings.
+*   The system persists this token inside IndexedDB (and synced securely to user Firestore profiles if authenticated).
+*   During active API operations, client calls forward this custom token using the `x-custom-api-key` header to our server endpoints.
+*   The server's GoogleGenAI initializer lazily instantiates models with the provided header key, isolating billing consumption to the user's personal quota. If omitted, the system falls back seamlessly to the developer's shared workspace key.
+
+---
+
+## 9. Advanced Continuous Testing & Validation Framework (Test-As-You-Go Blueprint)
+
+To fully satisfy the complexity of Forgel (which involves real-time sync, visual assets generation, dynamic layouts, and AI outputs), our **Incremental Test-Driven Approach** is enhanced into a comprehensive continuous verification system. 
+
+The framework is structured as follows:
+
+```
+                           [ CONTINUOUS QA BLUEPRINT ]
+  ┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐
+  │  9.1 VISUAL REGRESSION  │ ──> │   9.2 SCHEMA ASSERTION  │ ──> │   9.3 BYOK MATRIX TEST  │
+  │  Verify canvas, layouts │     │  AI JSON structures     │     │  Key fallback workflows │
+  └─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
+               │                                                               │
+               ▼                                                               ▼
+  ┌─────────────────────────┐                                     ┌─────────────────────────┐
+  │  9.4 CONCURRENCY STRESS │ <────────────────────────────────── │  9.5 E2E INTEGRATION   │
+  │  Throttle & lock speeds │                                     │  Critical user journeys │
+  └─────────────────────────┘                                     └─────────────────────────┘
+```
+
+### 9.1 Visual Regression & Layout Verification (Aesthetic QA)
+Standard DOM assertions pass even if text overflows or SVGs overlap. We introduce visual snapshot checks for brand assets:
+1.  **Canvas Rendering Snapshots:** Run headless browser visual regression checks (e.g., using Playwright's `toHaveScreenshot()`) on the **Vector Workbench Canvas** to verify that drawing brushes and precision path anchors align correctly on the high-definition grid under both Light and Dark themes.
+2.  **Export Layout Verification:** Verify that generated PDFs and exported business card/mockup PNG assets match pre-calculated layouts with no bounding box or perspective skewing failures.
+
+### 9.2 Schema-Strict Payload Testing for AI Outputs
+Since Gemini generates structured brand books and suggestion parameters, we validate all AI contract models:
+1.  **Strict Contract Validation:** Write unit tests utilizing schema verification (e.g., matching the `BrandGuide` type definitions in `/src/types.ts`) against local test fixtures.
+2.  **Integration Failsafes:** Programmatic checks to verify that if an AI response is corrupted or partial, the UI falls back gracefully to standard structures instead of triggering React state errors or infinite re-renders.
+
+### 9.3 Bring Your Own Key (BYOK) Fallback Simulation Matrix
+To verify that billing is correctly and safely offloaded to the user's custom key, the following validation matrix is executed:
+
+| Test Scenario | Client Settings State | Mock API Request Header | Expected Backend Client Outcome | Expected UI Indicator |
+|:---|:---|:---|:---|:---|
+| **A. Valid Custom Key** | `geminiKey: "AIzaSy..."` | `x-custom-api-key: "AIzaSy..."` | Initialized with the custom key. Uses user billing limits. | green dot badge ("Custom Key Active") |
+| **B. Omitted Custom Key** | `geminiKey: ""` | Header is absent | Fallback to server `process.env.GEMINI_API_KEY`. | amber dot badge ("Shared Workspace Key") |
+| **C. Invalid/Expired Key**| `geminiKey: "AIzaSy_EXPIRED"`| `x-custom-api-key: "AIzaSy_EXPIRED"`| Initialization succeeds, but Gemini returns `401 Unauthorized`. | red dot error badge ("Key unauthorized/invalid") |
+
+*Verification Action:* Validate this matrix using a Vitest suite mocking Express request headers and server-side route responses.
+
+### 9.4 Real-Time Concurrency & Lock Stress Tests
+To ensure smooth performance during heavy multi-user collaboration sessions:
+1.  **Throttling Benchmarks:** Test drawing path payload sizes. Create virtual coordinate series simulating freehand mouse actions, and verify that the WebSocket manager throttles outputs to a maximum frequency of 30 frames-per-second (33ms).
+2.  **Lock Expiry Verification:** Verify that if an editor disconnects or remains idle while locking a precision vector path node, the lock is automatically released after a defined 60-second timeout to prevent project deadlocks.
+
+### 9.5 End-to-End (E2E) Integration Checklist
+For every feature or consolidated workspace shipped, the engineering team must satisfy the following integration checkpoints:
+*   [ ] **The Happy Path:** The user creates a project, generates a logo using their own key, Refines it, edits its vertices inside the Workbench, exports a Brand Guide PDF, and visually reviews Mockups on stationary.
+*   [ ] **The Resilience Path:** The user launches the app offline, relies on Cached IndexedDB stores, loads prior sessions, and reconnects to WebSockets seamlessly.
+*   [ ] **The Accessibility Path:** Keyboard navigation remains fully functional, page layouts are responsive on standard resolutions (Mobile to Desktop), and contrast ratios conform to modern WCAG visual guidance.
