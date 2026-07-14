@@ -4,6 +4,7 @@ import { User } from 'firebase/auth';
 import { collection, query, where, getDocs, getDoc, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './services/firebase';
 import { BrandGuide, RefinementSuggestion } from './services/geminiService';
+import { Node } from './types';
 
 export type ProjectStage = 'discovery' | 'ideation' | 'drafting' | 'refinement' | 'delivery';
 
@@ -56,6 +57,7 @@ export interface Project {
   refinementSuggestions: RefinementSuggestion | null;
   competitorAnalysis: string | null; // Phase D: Competitor Engine
   ecosystemAssets: { type: string; content: string }[]; // Phase D: Ecosystem Automation
+  sceneGraph: Node[];
   comments: Comment[];
   mockups: Mockup[];
   logoHistory?: string[]; // Stack of logo history
@@ -259,6 +261,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       refinementSuggestions: null,
       competitorAnalysis: null,
       ecosystemAssets: [],
+      sceneGraph: [],
       comments: [],
       mockups: [],
       logoHistory: [],

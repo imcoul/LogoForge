@@ -938,13 +938,24 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           if (editorMode === 'coordinate') {
             // Dragging on 2D visual coordinate canvas: update BOTH X and Y values
             const baseIdx = draggedNode.valIdx;
-            nextVals[baseIdx] = parseFloat(finalX.toFixed(precision));
+            let x = finalX;
+            let y = finalY;
+            if (showGrid) {
+              const gridSize = 10;
+              x = Math.round(x / gridSize) * gridSize;
+              y = Math.round(y / gridSize) * gridSize;
+            }
+            nextVals[baseIdx] = parseFloat(x.toFixed(precision));
             if (baseIdx + 1 < nextVals.length) {
-              nextVals[baseIdx + 1] = parseFloat(finalY.toFixed(precision));
+              nextVals[baseIdx + 1] = parseFloat(y.toFixed(precision));
             }
           } else {
             // Dragging on 1D range slider
-            const targetVal = draggedNode.valIdx % 2 === 0 ? finalX : finalY;
+            let targetVal = draggedNode.valIdx % 2 === 0 ? finalX : finalY;
+            if (showGrid) {
+              const gridSize = 10;
+              targetVal = Math.round(targetVal / gridSize) * gridSize;
+            }
             nextVals[draggedNode.valIdx] = parseFloat(targetVal.toFixed(precision));
           }
           return { ...node, values: nextVals };

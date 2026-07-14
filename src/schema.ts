@@ -96,6 +96,7 @@ export interface ForgelProjectSchema {
   comments: CommentSpec[];
   snapshots: VersionSnapshotSpec[];
   exportManifests: ExportManifestSpec[];
+  sceneGraph: { id: string; type: string; [key: string]: any }[];
 }
 
 /**

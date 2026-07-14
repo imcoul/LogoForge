@@ -13,6 +13,7 @@ import { Sheet } from './components/Sheet';
 import { StudioControls } from './components/StudioControls';
 import { TemplateLibrary } from './components/TemplateLibrary';
 import { SVGPathEditor } from './components/SVGPathEditor';
+import { WhiteboardCanvas } from './components/WhiteboardCanvas';
 import { AccessibilityScore } from './components/AccessibilityScore';
 import { ProjectAnalytics } from './components/ProjectAnalytics';
 import { Whacanudo } from './components/Whacanudo';
@@ -38,7 +39,7 @@ const ANIMATIONS = {
 
 type AnimationType = keyof typeof ANIMATIONS;
 type ViewMode = 'dashboard' | 'studio' | 'course' | 'settings';
-type StudioTab = 'preview' | 'guide' | 'refine' | 'sonic' | 'comments' | 'precision' | 'mockups' | 'competitor' | 'ecosystem';
+type StudioTab = 'preview' | 'guide' | 'refine' | 'sonic' | 'comments' | 'precision' | 'mockups' | 'competitor' | 'ecosystem' | 'draw';
 
 interface TooltipProps {
   content: React.ReactNode;
@@ -1845,6 +1846,13 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
     setMode('create');
   };
 
+  const handleCreateNewBlankProject = async () => {
+    const proj = await createProject('New Blank Project');
+    setView('studio');
+    setMode('create');
+    setActiveTab('draw');
+  };
+
   const handleMockupUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeProjectId || !activeProject) return;
@@ -2331,6 +2339,13 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                   }`}
                 >
                   <Plus size={18} /> {t('new_project')}
+                </button>
+                <button 
+                  id="btn-create-blank-project"
+                  onClick={handleCreateNewBlankProject} 
+                  className="flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-all cursor-pointer"
+                >
+                  <Hammer size={18} /> New Blank Project
                 </button>
               </div>
             </div>
@@ -3153,6 +3168,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                 <div className="relative z-20 hidden md:flex justify-start md:justify-center pt-6 pb-2 border-b border-neutral-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 backdrop-blur-md px-4 overflow-x-auto no-scrollbar scroll-smooth">
                   <div className="flex gap-2 p-1 bg-neutral-200 dark:bg-zinc-800 rounded-full shrink-0">
                     <button onClick={() => setActiveTab('preview')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'preview' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><ImageIcon size={14} /> {t('studio_tabs_preview')}</button>
+                    <button onClick={() => setActiveTab('draw')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'draw' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Hammer size={14} /> DRAW</button>
                     <button onClick={() => setActiveTab('precision')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'precision' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><FileText size={14} /> PRECISION</button>
                     <button onClick={() => setActiveTab('mockups')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'mockups' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Layers size={14} /> MOCKUPS</button>
                     <button onClick={() => setActiveTab('competitor')} className={`px-4 py-2 rounded-full text-xs font-bold tracking-wider transition-all flex items-center gap-2 ${activeTab === 'competitor' ? 'bg-white dark:bg-zinc-900 text-black dark:text-white shadow-sm' : 'text-neutral-500 dark:text-zinc-400 hover:text-black dark:text-white'}`}><Target size={14} /> COMPETITOR</button>
@@ -3174,6 +3190,10 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     <button onClick={() => setActiveTab('preview')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'preview' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
                       <ImageIcon size={20} />
                       <span className="text-[10px] font-bold">Preview</span>
+                    </button>
+                    <button onClick={() => setActiveTab('draw')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'draw' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                      <Hammer size={20} />
+                      <span className="text-[10px] font-bold">Draw</span>
                     </button>
                     <button onClick={() => setActiveTab('precision')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'precision' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
                       <FileText size={20} />
@@ -3939,6 +3959,21 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                           </div>
                         )}
                       </div>
+                    </div>
+                  </motion.div>
+                ) : activeTab === 'draw' ? (
+                  <motion.div key="draw" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">
+                    <div className="flex flex-col mb-8">
+                      <h2 className="text-3xl font-display font-bold">Whiteboard</h2>
+                      <p className="text-sm text-neutral-500">Sketch your logo ideas.</p>
+                    </div>
+                    <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-neutral-200 dark:border-zinc-800">
+                      {/* WhiteboardCanvas */}
+                      {activeProject ? (
+                        <WhiteboardCanvas />
+                      ) : (
+                        <div className="p-4 text-center">Please select a project to start drawing.</div>
+                      )}
                     </div>
                   </motion.div>
                 ) : activeTab === 'ecosystem' ? (
