@@ -110,6 +110,7 @@ interface AppState {
   cloneProject: (id: string) => Promise<void>;
   setActiveProject: (id: string | null) => void;
   updateSettings: (settings: Partial<AppSettings>) => Promise<void>;
+  addNodeToScene: (node: Node) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((setStore, getStore) => ({
@@ -418,5 +419,14 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         console.error('Failed to sync settings to Firestore', err);
       }
     }
+  },
+
+  addNodeToScene: async (node) => {
+    const { activeProjectId, projects, updateProject } = getStore();
+    if (!activeProjectId) return;
+    const project = projects.find(p => p.id === activeProjectId);
+    if (!project) return;
+    const updatedNodes = [...(project.sceneGraph || []), node];
+    await updateProject(activeProjectId, { sceneGraph: updatedNodes });
   }
 }));

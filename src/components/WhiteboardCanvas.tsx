@@ -10,6 +10,8 @@ export const WhiteboardCanvas: React.FC = () => {
   const [sketches, setSketches] = useState<{ id: string; name: string; path: string }[]>([]);
   const [currentPoints, setCurrentPoints] = useState<string>('');
   const [mode, setMode] = useState<'drawing' | 'gallery'>('drawing');
+  const [tool, setTool] = useState<'pencil' | 'sweeping-eraser' | 'duster-eraser'>('pencil');
+  const [pencilType, setPencilType] = useState<'pen' | 'marker'>('pen');
   const [fullscreen, setFullscreen] = useState(false);
 
   useEffect(() => {
@@ -59,15 +61,37 @@ export const WhiteboardCanvas: React.FC = () => {
 
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     if (mode !== 'drawing') return;
-    setIsDrawing(true);
-    const point = getPoint(e);
-    setCurrentPoints(`${point.x},${point.y}`);
+    if (tool === 'pencil') {
+        setIsDrawing(true);
+        const point = getPoint(e);
+        setCurrentPoints(`${point.x},${point.y}`);
+    } else if (tool === 'sweeping-eraser') {
+        // Simple sweeping eraser: clear path if close enough
+        // This is a naive implementation
+        setIsDrawing(true);
+        // ... (implement path intersection later)
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDrawing || mode !== 'drawing') return;
+    if (!isDrawing) return;
     const point = getPoint(e);
-    setCurrentPoints(prev => `${prev} ${point.x},${point.y}`);
+    
+    if (tool === 'pencil') {
+      setCurrentPoints(prev => `${prev} ${point.x},${point.y}`);
+    } else if (tool === 'sweeping-eraser') {
+      // Find a sketch to delete
+      const deletedSketch = sketches.find(s => {
+        // Simple bounding box check: path string parsing is hard
+        // For now, just check if point is in a generic rect if we had bounds.
+        // As a fallback for this prototype, we'll just not implement exact path collision
+        // and instead just use a simple distance to a point
+        return false; // Collision detection placeholder
+      });
+      if (deletedSketch) {
+        deleteSketch(deletedSketch.id);
+      }
+    }
   };
 
   const handleMouseUp = async () => {
@@ -94,6 +118,13 @@ export const WhiteboardCanvas: React.FC = () => {
             <button onClick={() => setMode('gallery')} className={`p-2 rounded ${mode === 'gallery' ? 'bg-indigo-100' : ''}`}><Grid size={20} /></button>
             <button onClick={() => setFullscreen(!fullscreen)} className="p-2 rounded"><Maximize2 size={20} /></button>
         </div>
+        {mode === 'drawing' && (
+            <div className="flex gap-1">
+                <button onClick={() => setTool('pencil')} className={`p-1 rounded ${tool === 'pencil' ? 'bg-indigo-100' : ''}`}>P</button>
+                <button onClick={() => setTool('sweeping-eraser')} className={`p-1 rounded ${tool === 'sweeping-eraser' ? 'bg-indigo-100' : ''}`}>SE</button>
+                <button onClick={() => setTool('duster-eraser')} className={`p-1 rounded ${tool === 'duster-eraser' ? 'bg-indigo-100' : ''}`}>DE</button>
+            </div>
+        )}
         <div className="font-bold">{mode === 'drawing' ? 'Drawing' : 'Gallery'}</div>
       </div>
 

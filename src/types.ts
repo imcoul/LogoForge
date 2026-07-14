@@ -3,7 +3,7 @@ export type Stroke = string | { type: 'linear-gradient', stops: { offset: number
 
 export type Node = {
   id: string;
-  type: "group" | "path" | "rect" | "ellipse" | "text" | "image";
+  type: "group" | "path" | "rect" | "ellipse" | "text" | "image" | "line";
   transform: { x: number; y: number; scaleX: number; scaleY: number; rotate: number };
   style?: {
     fill?: Fill;
