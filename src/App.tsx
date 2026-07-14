@@ -985,6 +985,7 @@ export default function App() {
   const [mode, setMode] = useState<'create' | 'upload'>('create');
   const [description, setDescription] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingVariation, setIsGeneratingVariation] = useState(false);
   const [isGeneratingGuide, setIsGeneratingGuide] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   const [isGeneratingSonic, setIsGeneratingSonic] = useState(false);
@@ -1883,6 +1884,25 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       setError("Failed to generate rationale.");
     } finally {
       setIsGeneratingRationale(false);
+    }
+  };
+
+  const handleGenerateVariation = async () => {
+    if (!activeProject || !activeProject.description) {
+      toast('No description found to base the variation on.', 'error');
+      return;
+    }
+    try {
+      setIsGeneratingVariation(true);
+      setError(null);
+      const url = await generateLogoImage(activeProject.description, true);
+      await updateProject(activeProject.id, { logoUrl: url, logoMimeType: 'image/png' });
+      toast('Logo variation generated successfully.', 'success');
+    } catch (err: any) {
+      console.error(err);
+      toast(err.message || "Failed to generate variation.", 'error');
+    } finally {
+      setIsGeneratingVariation(false);
     }
   };
 
@@ -3254,6 +3274,15 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     <motion.div {...currentAnim} className="w-64 h-64 md:w-96 md:h-96 rounded-full bg-white dark:bg-zinc-900 shadow-[0_20px_60px_rgba(0,0,0,0.1)] border break-words p-4 flex items-center justify-center overflow-hidden border-neutral-200 dark:border-zinc-800">
                       <img src={activeProject.logoUrl} alt="Logo" className="w-full h-full object-contain filter drop-shadow-sm" referrerPolicy="no-referrer" />
                     </motion.div>
+                    <div className="flex gap-4">
+                      <button 
+                        onClick={handleGenerateVariation}
+                        disabled={isGeneratingVariation}
+                        className="flex items-center gap-2 px-6 py-3 bg-neutral-900 text-white rounded-full text-sm font-bold uppercase tracking-wider hover:bg-neutral-800 transition-colors disabled:opacity-50"
+                      >
+                        {isGeneratingVariation ? <RefreshCw size={18} className="animate-spin" /> : <RefreshCw size={18} />} Generate Variation
+                      </button>
+                    </div>
                   </motion.div>
                 ) : activeTab === 'guide' ? (
                   <motion.div key="guide" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-4xl mx-auto w-full">

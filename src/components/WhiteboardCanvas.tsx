@@ -1,6 +1,7 @@
 import { WhiteboardToolbar } from './WhiteboardToolbar';
 import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from '../store';
+import { Node } from '../types';
 import { Trash2, Copy, Edit2, Grid, PenTool, Square, Circle, Maximize2, Save } from 'lucide-react';
 
 export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f: boolean) => void }> = ({ fullscreen, setFullscreen }) => {
@@ -83,17 +84,19 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
     if (tool === 'pencil') {
       setCurrentPoints(prev => `${prev} ${point.x},${point.y}`);
     } else if (tool === 'line' && startPoint) {
-      // Snapping logic
-      const dx = point.x - startPoint.x;
-      const dy = point.y - startPoint.y;
-      const angle = Math.atan2(dy, dx);
-      const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
-      const length = Math.sqrt(dx * dx + dy * dy);
-      const snappedPoint = {
-          x: startPoint.x + length * Math.cos(snappedAngle),
-          y: startPoint.y + length * Math.sin(snappedAngle)
-      };
-      setCurrentPoints(`${startPoint.x},${startPoint.y} ${snappedPoint.x},${snappedPoint.y}`);
+      let endPoint = point;
+      if (e.shiftKey) {
+          const dx = point.x - startPoint.x;
+          const dy = point.y - startPoint.y;
+          const angle = Math.atan2(dy, dx);
+          const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+          const length = Math.sqrt(dx * dx + dy * dy);
+          endPoint = {
+              x: startPoint.x + length * Math.cos(snappedAngle),
+              y: startPoint.y + length * Math.sin(snappedAngle)
+          };
+      }
+      setCurrentPoints(`${startPoint.x},${startPoint.y} ${endPoint.x},${endPoint.y}`);
     } else if (tool === 'sweeping-eraser') {
       // Find a sketch to delete
       const deletedSketch = sketches.find(s => {

@@ -62,11 +62,11 @@ const fetchWithRetry = async (url: string, options: RequestInit, retries = 2, ba
   }
 };
 
-export const generateLogoImage = async (companyDescription: string): Promise<string> => {
+export const generateLogoImage = async (companyDescription: string, isVariation: boolean = false): Promise<string> => {
   const res = await fetchWithRetry('/api/gemini/generate-logo', {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ companyDescription })
+    body: JSON.stringify({ companyDescription, isVariation })
   });
   if (!res.ok) {
     const error = await res.json();

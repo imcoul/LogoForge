@@ -3,7 +3,9 @@ import { useAppStore } from '../store';
 import { Node } from '../types';
 
 export const CanvasRenderer: React.FC = () => {
-  const { sceneGraph } = useAppStore();
+  const { activeProjectId, projects } = useAppStore();
+  const activeProject = projects.find(p => p.id === activeProjectId);
+  const sceneGraph = activeProject?.sceneGraph || [];
 
   const renderNode = (node: Node) => {
     const { transform, style } = node;

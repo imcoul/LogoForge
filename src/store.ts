@@ -65,6 +65,7 @@ export type Project = {
   logoHistory?: string[]; // Stack of logo history
   snapshots?: Snapshot[]; // List of version snapshots
   stickyNotes?: StickyNote[]; // Interactive sticky notes anchored to canvas
+  whiteboardSketches?: { id: string; name: string; path: string }[];
   driveFileId?: string; // Linked Google Drive file identifier
   tags?: string[]; // Bulk tags for organization
 };
@@ -179,7 +180,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
 
   loadProjects: async () => {
     try {
-      const storedProjects = await get<Project[]>('projects') || [];
+      const rawStoredProjects = await get<any[]>('projects') || [];
+      const storedProjects = rawStoredProjects.map(loadFromFirestore);
       const storedSettings = await get<AppSettings>('settings') || {};
       if (!storedSettings.role) {
         storedSettings.role = 'Designer';
@@ -255,11 +257,12 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         const querySnapshot = await getDocs(q);
         const fbProjects: Project[] = [];
         querySnapshot.forEach((docSnap) => {
-          fbProjects.push(docSnap.data() as Project);
+          fbProjects.push(loadFromFirestore(docSnap.data()));
         });
 
         // 3. See if there are any local unsynced projects to merge
-        const localProjects = await get<Project[]>('projects') || [];
+        const rawLocalProjects = await get<any[]>('projects') || [];
+        const localProjects = rawLocalProjects.map(loadFromFirestore);
         const unsyncedProjects = localProjects.filter(p => !p.ownerId || p.ownerId === 'local');
 
         if (unsyncedProjects.length > 0) {
@@ -293,7 +296,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       }
     } else {
       // User logged out, restore local-only projects & reset settings to local state
-      const storedProjects = await get<Project[]>('projects') || [];
+      const rawStoredProjects = await get<any[]>('projects') || [];
+      const storedProjects = rawStoredProjects.map(loadFromFirestore);
       const localOnly = storedProjects.filter(p => !p.ownerId || p.ownerId === 'local');
       const storedSettings = await get<AppSettings>('settings') || {};
       if (!storedSettings.role) {

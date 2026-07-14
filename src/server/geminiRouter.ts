@@ -40,9 +40,13 @@ router.post("/interpreter", async (req, res) => {
 
 router.post("/generate-logo", async (req, res) => {
   try {
-    const { companyDescription } = req.body;
+    const { companyDescription, isVariation } = req.body;
     const client = getClient(req);
-    const prompt = `A professional, minimalist, scalable vector-style logo design based on this company description: "${companyDescription}". The logo MUST be isolated on a pure white background. Flat colors, clear simple shapes, negative space. No complex realistic details, no text. Perfect for a startup identity.`;
+    let prompt = `A professional, minimalist, scalable vector-style logo design based on this company description: "${companyDescription}". The logo MUST be isolated on a pure white background. Flat colors, clear simple shapes, negative space. No complex realistic details, no text. Perfect for a startup identity.`;
+    
+    if (isVariation) {
+        prompt = `Generate a creative variation of a professional, minimalist vector-style logo for: "${companyDescription}". Explore a different layout, distinct visual metaphor, alternative shape geometry, and new color harmony while honoring the original brief. The logo MUST be isolated on a pure white background. Flat colors, clear simple shapes. No complex realistic details, no text.`;
+    }
     
     const response = await client.models.generateContent({
       model: 'gemini-2.5-flash-image',
