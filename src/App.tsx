@@ -1529,7 +1529,7 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
 
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}`;
+      const wsUrl = `${protocol}//${window.location.host}/ws-collab`;
       console.log('[Collab] Opening WebSocket connection:', wsUrl);
       
       ws = new WebSocket(wsUrl);
@@ -3269,46 +3269,88 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                 {/* Mobile Bottom Navigation */}
                 <div className="md:hidden absolute bottom-0 left-0 right-0 z-50 bg-white dark:bg-zinc-900 border-t border-neutral-200 dark:border-zinc-800 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
                   <div className="flex justify-around items-center p-2 overflow-x-auto no-scrollbar">
-                    <button onClick={() => setActiveTab('preview')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'preview' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <ImageIcon size={20} />
-                      <span className="text-[10px] font-bold">Preview</span>
-                    </button>
-                    <button onClick={() => setActiveTab('draw')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'draw' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <Hammer size={20} />
-                      <span className="text-[10px] font-bold">Draw</span>
-                    </button>
-                    <button onClick={() => setActiveTab('precision')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'precision' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <FileText size={20} />
-                      <span className="text-[10px] font-bold">Precision</span>
-                    </button>
-                    <button onClick={() => setActiveTab('mockups')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'mockups' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <Layers size={20} />
-                      <span className="text-[10px] font-bold">Mockups</span>
-                    </button>
-                    <button onClick={() => setActiveTab('competitor')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'competitor' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <Target size={20} />
-                      <span className="text-[10px] font-bold">Rivals</span>
-                    </button>
-                    <button onClick={() => setActiveTab('ecosystem')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'ecosystem' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <Globe size={20} />
-                      <span className="text-[10px] font-bold">Social</span>
-                    </button>
-                    <button onClick={() => setActiveTab('guide')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'guide' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <BookOpen size={20} />
-                      <span className="text-[10px] font-bold">Guide</span>
-                    </button>
-                    <button onClick={() => setActiveTab('refine')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'refine' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <Sparkles size={20} />
-                      <span className="text-[10px] font-bold">Refine</span>
-                    </button>
-                    <button onClick={() => setActiveTab('sonic')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'sonic' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <Music size={20} />
-                      <span className="text-[10px] font-bold">Sonic</span>
-                    </button>
-                    <button onClick={() => setActiveTab('comments')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'comments' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
-                      <MessageSquare size={20} />
-                      <span className="text-[10px] font-bold">Collab</span>
-                    </button>
+                    {useConsolidatedWorkspace ? (
+                      <>
+                        <button 
+                          onClick={() => setActiveWorkspace('sandbox')} 
+                          className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[72px] rounded-xl transition-colors ${activeWorkspace === 'sandbox' ? 'text-brand-lead bg-brand-lead/10' : 'text-neutral-500 dark:text-zinc-400'}`}
+                        >
+                          <Wand2 size={20} />
+                          <span className="text-[10px] font-bold">Sandbox</span>
+                        </button>
+                        <button 
+                          onClick={() => setActiveWorkspace('workbench')} 
+                          className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[72px] rounded-xl transition-colors ${activeWorkspace === 'workbench' ? 'text-brand-lead bg-brand-lead/10' : 'text-neutral-500 dark:text-zinc-400'}`}
+                        >
+                          <Hammer size={20} />
+                          <span className="text-[10px] font-bold">Workbench</span>
+                        </button>
+                        <button 
+                          onClick={() => setActiveWorkspace('identity')} 
+                          className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[72px] rounded-xl transition-colors ${activeWorkspace === 'identity' ? 'text-brand-lead bg-brand-lead/10' : 'text-neutral-500 dark:text-zinc-400'}`}
+                        >
+                          <BookOpen size={20} />
+                          <span className="text-[10px] font-bold">Identity</span>
+                        </button>
+                        <button 
+                          onClick={() => setActiveWorkspace('strategy')} 
+                          className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[72px] rounded-xl transition-colors ${activeWorkspace === 'strategy' ? 'text-brand-lead bg-brand-lead/10' : 'text-neutral-500 dark:text-zinc-400'}`}
+                        >
+                          <Target size={20} />
+                          <span className="text-[10px] font-bold">Strategy</span>
+                        </button>
+                        <button 
+                          onClick={() => setIsCollabDrawerOpen(!isCollabDrawerOpen)} 
+                          className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[72px] rounded-xl transition-colors ${isCollabDrawerOpen ? 'text-brand-lead bg-brand-lead/10' : 'text-neutral-500 dark:text-zinc-400'}`}
+                        >
+                          <MessageSquare size={20} />
+                          <span className="text-[10px] font-bold">Collab</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => setActiveTab('preview')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'preview' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <ImageIcon size={20} />
+                          <span className="text-[10px] font-bold">Preview</span>
+                        </button>
+                        <button onClick={() => setActiveTab('draw')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'draw' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <Hammer size={20} />
+                          <span className="text-[10px] font-bold">Draw</span>
+                        </button>
+                        <button onClick={() => setActiveTab('precision')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'precision' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <FileText size={20} />
+                          <span className="text-[10px] font-bold">Precision</span>
+                        </button>
+                        <button onClick={() => setActiveTab('mockups')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'mockups' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <Layers size={20} />
+                          <span className="text-[10px] font-bold">Mockups</span>
+                        </button>
+                        <button onClick={() => setActiveTab('competitor')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'competitor' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <Target size={20} />
+                          <span className="text-[10px] font-bold">Rivals</span>
+                        </button>
+                        <button onClick={() => setActiveTab('ecosystem')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'ecosystem' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <Globe size={20} />
+                          <span className="text-[10px] font-bold">Social</span>
+                        </button>
+                        <button onClick={() => setActiveTab('guide')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'guide' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <BookOpen size={20} />
+                          <span className="text-[10px] font-bold">Guide</span>
+                        </button>
+                        <button onClick={() => setActiveTab('refine')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'refine' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <Sparkles size={20} />
+                          <span className="text-[10px] font-bold">Refine</span>
+                        </button>
+                        <button onClick={() => setActiveTab('sonic')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'sonic' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <Music size={20} />
+                          <span className="text-[10px] font-bold">Sonic</span>
+                        </button>
+                        <button onClick={() => setActiveTab('comments')} className={`flex flex-col items-center justify-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === 'comments' ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'text-neutral-500 dark:text-zinc-400'}`}>
+                          <MessageSquare size={20} />
+                          <span className="text-[10px] font-bold">Collab</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </>

@@ -448,11 +448,15 @@ async function startServer() {
   }> = {};
 
   const { WebSocketServer } = await import("ws");
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ server, path: "/ws-collab" });
 
   wss.on("connection", (ws: any) => {
     let currentRoomId: string | null = null;
     let userId: string | null = null;
+
+    ws.on("error", (err: any) => {
+      console.error(`[Collab Server] Socket error for user ${userId || "unknown"}:`, err);
+    });
 
     ws.on("message", (messageStr: string) => {
       try {
