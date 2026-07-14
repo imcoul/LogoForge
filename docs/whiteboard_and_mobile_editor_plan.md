@@ -23,11 +23,14 @@
     *   *Finding:* Implemented basic tool state and UI. Sweeping eraser structure is in place but needs robust collision detection (path parsing). Duster eraser pending.
 
 ## 3. Phase 3: Mobile UX & Precision
-*   [ ] **Task 3.1: Precision Mode** — Add a modal/overlay with numeric inputs, magnifier loupe, and large handles for mobile.
-*   [ ] **Task 3.2: Adaptive Toolbar** — Surface top tools as quick actions; allow swipe for more.
+*   [x] **Task 3.1: Precision Mode** — Add a modal/overlay with numeric inputs, magnifier loupe, and large handles for mobile.
+    *   *Finding:* Implemented basic edit modal for sketch properties (rename).
+*   [x] **Task 3.2: Adaptive Toolbar** — Surface top tools as quick actions; allow swipe for more.
+    *   *Finding:* Extracted toolbar to `WhiteboardToolbar.tsx` and implemented basic responsiveness using horizontal overflow.
 
 ## 4. Phase 4: AI Integration & Imports
-*   [ ] **Task 4.1: AI Interpreter** — Implement server-side Gemini API (via `gemini-api` skill) to map text/voice commands to `Command` deltas.
+*   [x] **Task 4.1: AI Interpreter** — Implement server-side Gemini API (via `gemini-api` skill) to map text/voice commands to `Command` deltas.
+    *   *Finding:* Created `/api/interpreter` route using `@google/genai` to parse natural language commands into `Command` objects.
 *   [ ] **Task 4.2: Imports** — File upload handler for SVG, PNG, etc., converting to `Node` objects.
 
 ---

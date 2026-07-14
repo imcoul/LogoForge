@@ -1,3 +1,4 @@
+import { WhiteboardToolbar } from './WhiteboardToolbar';
 import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import { Trash2, Copy, Edit2, Grid, PenTool, Square, Circle, Maximize2, Save } from 'lucide-react';
@@ -13,6 +14,7 @@ export const WhiteboardCanvas: React.FC = () => {
   const [tool, setTool] = useState<'pencil' | 'sweeping-eraser' | 'duster-eraser'>('pencil');
   const [pencilType, setPencilType] = useState<'pen' | 'marker'>('pen');
   const [fullscreen, setFullscreen] = useState(false);
+  const [editingSketch, setEditingSketch] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     if (activeProject?.whiteboardSketches) {
@@ -112,21 +114,14 @@ export const WhiteboardCanvas: React.FC = () => {
 
   return (
     <div className={`relative bg-white dark:bg-black rounded-3xl p-4 border border-neutral-200 dark:border-zinc-800 ${fullscreen ? 'fixed inset-0 z-50' : 'w-full h-[500px]'}`}>
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex gap-2">
-            <button onClick={() => setMode('drawing')} className={`p-2 rounded ${mode === 'drawing' ? 'bg-indigo-100' : ''}`}><PenTool size={20} /></button>
-            <button onClick={() => setMode('gallery')} className={`p-2 rounded ${mode === 'gallery' ? 'bg-indigo-100' : ''}`}><Grid size={20} /></button>
-            <button onClick={() => setFullscreen(!fullscreen)} className="p-2 rounded"><Maximize2 size={20} /></button>
-        </div>
-        {mode === 'drawing' && (
-            <div className="flex gap-1">
-                <button onClick={() => setTool('pencil')} className={`p-1 rounded ${tool === 'pencil' ? 'bg-indigo-100' : ''}`}>P</button>
-                <button onClick={() => setTool('sweeping-eraser')} className={`p-1 rounded ${tool === 'sweeping-eraser' ? 'bg-indigo-100' : ''}`}>SE</button>
-                <button onClick={() => setTool('duster-eraser')} className={`p-1 rounded ${tool === 'duster-eraser' ? 'bg-indigo-100' : ''}`}>DE</button>
-            </div>
-        )}
-        <div className="font-bold">{mode === 'drawing' ? 'Drawing' : 'Gallery'}</div>
-      </div>
+        <WhiteboardToolbar 
+            tool={tool} 
+            setTool={setTool} 
+            mode={mode} 
+            setMode={setMode} 
+            setFullscreen={setFullscreen} 
+            fullscreen={fullscreen}
+        />
 
       {mode === 'drawing' ? (
         <svg 
@@ -153,10 +148,29 @@ export const WhiteboardCanvas: React.FC = () => {
                     <div className="flex gap-1 justify-end">
                         <button onClick={() => deleteSketch(s.id)}><Trash2 size={16} /></button>
                         <button onClick={() => duplicateSketch(s.id)}><Copy size={16} /></button>
-                        <button onClick={() => renameSketch(s.id, prompt('New name:', s.name) || s.name)}><Edit2 size={16} /></button>
+                        <button onClick={() => setEditingSketch(s)}><Edit2 size={16} /></button>
                     </div>
                 </div>
             ))}
+        </div>
+      )}
+      {editingSketch && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white dark:bg-zinc-900 p-4 rounded-lg">
+                <h3 className="font-bold mb-2">Edit Sketch</h3>
+                <input 
+                    className="border p-2 w-full mb-4"
+                    value={editingSketch.name}
+                    onChange={(e) => setEditingSketch({...editingSketch, name: e.target.value})}
+                />
+                <div className="flex gap-2 justify-end">
+                    <button onClick={() => setEditingSketch(null)} className="p-2">Cancel</button>
+                    <button onClick={() => {
+                        renameSketch(editingSketch.id, editingSketch.name);
+                        setEditingSketch(null);
+                    }} className="p-2 bg-indigo-500 text-white rounded">Save</button>
+                </div>
+            </div>
         </div>
       )}
     </div>

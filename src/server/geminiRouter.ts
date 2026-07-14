@@ -1,5 +1,6 @@
 import express from "express";
 import { GoogleGenAI, Type } from "@google/genai";
+import { Command } from '../types';
 
 const router = express.Router();
 
@@ -11,6 +12,31 @@ const getClient = (req: express.Request) => {
   }
   return new GoogleGenAI({ apiKey });
 };
+
+router.post("/interpreter", async (req, res) => {
+  try {
+    const { userCommand, sceneGraph } = req.body;
+    const client = getClient(req);
+    const prompt = `Parse the following user command: "${userCommand}" into a structured Command object (op, nodeId, etc). Current scene graph: ${JSON.stringify(sceneGraph)}. Return ONLY a JSON object matching the Command type. If ambiguous, assume sensible defaults.`;
+
+    const response = await client.models.generateContent({
+      model: 'gemini-3.1-pro-preview',
+      contents: { parts: [{ text: prompt }] },
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+
+    if (response.text) {
+      res.json(JSON.parse(response.text.trim()));
+    } else {
+      throw new Error("No command generated");
+    }
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: "Command interpretation failed." });
+  }
+});
 
 router.post("/generate-logo", async (req, res) => {
   try {
