@@ -3,17 +3,17 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import { Trash2, Copy, Edit2, Grid, PenTool, Square, Circle, Maximize2, Save } from 'lucide-react';
 
-export const WhiteboardCanvas: React.FC = () => {
-  const { activeProjectId, projects, updateProject } = useAppStore();
+export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f: boolean) => void }> = ({ fullscreen, setFullscreen }) => {
+  const { activeProjectId, projects, updateProject, undo, redo } = useAppStore();
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
   const canvasRef = useRef<SVGSVGElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [sketches, setSketches] = useState<{ id: string; name: string; path: string }[]>([]);
   const [currentPoints, setCurrentPoints] = useState<string>('');
   const [mode, setMode] = useState<'drawing' | 'gallery'>('drawing');
-  const [tool, setTool] = useState<'pencil' | 'sweeping-eraser' | 'duster-eraser'>('pencil');
+  const [tool, setTool] = useState<'pencil' | 'sweeping-eraser' | 'duster-eraser' | 'line'>('pencil');
+  const [startPoint, setStartPoint] = useState<{x: number, y: number} | null>(null);
   const [pencilType, setPencilType] = useState<'pen' | 'marker'>('pen');
-  const [fullscreen, setFullscreen] = useState(false);
   const [editingSketch, setEditingSketch] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
@@ -63,11 +63,12 @@ export const WhiteboardCanvas: React.FC = () => {
 
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     if (mode !== 'drawing') return;
-    if (tool === 'pencil') {
+    if (tool === 'pencil' || tool === 'line') {
         setIsDrawing(true);
         const point = getPoint(e);
+        setStartPoint(point);
         setCurrentPoints(`${point.x},${point.y}`);
-    } else if (tool === 'sweeping-eraser') {
+    } else if (tool === 'sweeping-eraser' || tool === 'duster-eraser') {
         // Simple sweeping eraser: clear path if close enough
         // This is a naive implementation
         setIsDrawing(true);
@@ -81,25 +82,66 @@ export const WhiteboardCanvas: React.FC = () => {
     
     if (tool === 'pencil') {
       setCurrentPoints(prev => `${prev} ${point.x},${point.y}`);
+    } else if (tool === 'line' && startPoint) {
+      // Snapping logic
+      const dx = point.x - startPoint.x;
+      const dy = point.y - startPoint.y;
+      const angle = Math.atan2(dy, dx);
+      const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+      const length = Math.sqrt(dx * dx + dy * dy);
+      const snappedPoint = {
+          x: startPoint.x + length * Math.cos(snappedAngle),
+          y: startPoint.y + length * Math.sin(snappedAngle)
+      };
+      setCurrentPoints(`${startPoint.x},${startPoint.y} ${snappedPoint.x},${snappedPoint.y}`);
     } else if (tool === 'sweeping-eraser') {
       // Find a sketch to delete
       const deletedSketch = sketches.find(s => {
-        // Simple bounding box check: path string parsing is hard
-        // For now, just check if point is in a generic rect if we had bounds.
-        // As a fallback for this prototype, we'll just not implement exact path collision
-        // and instead just use a simple distance to a point
-        return false; // Collision detection placeholder
+        const coords = s.path.replace('M ', '').split(' ').map(p => p.split(',').map(Number));
+        return coords.some(([x, y]) => Math.sqrt((x - point.x)**2 + (y - point.y)**2) < 20);
       });
       if (deletedSketch) {
         deleteSketch(deletedSketch.id);
       }
+      
+      // Find a node to delete
+      const nodeToDelete = (activeProject?.sceneGraph || []).find(n => {
+          return Math.sqrt((n.transform.x - point.x)**2 + (n.transform.y - point.y)**2) < 50; // simple distance check
+      });
+      if (nodeToDelete && activeProjectId) {
+          const updatedNodes = (activeProject?.sceneGraph || []).filter(n => n.id !== nodeToDelete.id);
+          updateProject(activeProjectId, { sceneGraph: updatedNodes });
+      }
+    } else if (tool === 'duster-eraser') {
+        setSketches([]);
+        saveSketch([]);
+        if (activeProjectId) {
+            updateProject(activeProjectId, { sceneGraph: [] });
+        }
     }
   };
 
   const handleMouseUp = async () => {
     if (!isDrawing) return;
     setIsDrawing(false);
-    if (currentPoints) {
+    
+    if (tool === 'line' && startPoint && currentPoints) {
+        const points = currentPoints.split(' ');
+        const endPoint = points[1].split(',').map(Number);
+        const newNode: Node = {
+            id: Date.now().toString(),
+            type: 'line',
+            transform: { x: startPoint.x, y: startPoint.y, scaleX: 1, scaleY: 1, rotate: 0 },
+            props: { x2: endPoint[0] - startPoint.x, y2: endPoint[1] - startPoint.y },
+            meta: { createdBy: 'user', timestamp: new Date().toISOString() }
+        };
+        if (activeProjectId) {
+            const updatedNodes = [...(activeProject?.sceneGraph || []), newNode];
+            await updateProject(activeProjectId, { sceneGraph: updatedNodes });
+        }
+        setCurrentPoints('');
+        setStartPoint(null);
+    } else if (tool === 'pencil' && currentPoints) {
         const newSketch = {
             id: Date.now().toString(),
             name: `Sketch ${sketches.length + 1}`,
@@ -114,14 +156,26 @@ export const WhiteboardCanvas: React.FC = () => {
 
   return (
     <div className={`relative bg-white dark:bg-black rounded-3xl p-4 border border-neutral-200 dark:border-zinc-800 ${fullscreen ? 'fixed inset-0 z-50' : 'w-full h-[500px]'}`}>
-        <WhiteboardToolbar 
-            tool={tool} 
-            setTool={setTool} 
-            mode={mode} 
-            setMode={setMode} 
-            setFullscreen={setFullscreen} 
-            fullscreen={fullscreen}
-        />
+        {!fullscreen && (
+            <WhiteboardToolbar 
+                tool={tool} 
+                setTool={setTool} 
+                mode={mode} 
+                setMode={setMode} 
+                setFullscreen={setFullscreen} 
+                fullscreen={fullscreen}
+                onUndo={undo}
+                onRedo={redo}
+            />
+        )}
+        {fullscreen && (
+            <button 
+                onClick={() => setFullscreen(false)}
+                className="absolute top-4 right-4 z-50 p-2 bg-white dark:bg-zinc-800 rounded-full shadow-lg"
+            >
+                <Maximize2 size={20} />
+            </button>
+        )}
 
       {mode === 'drawing' ? (
         <svg 
@@ -138,7 +192,40 @@ export const WhiteboardCanvas: React.FC = () => {
             {sketches.map((sketch) => (
                 <path key={sketch.id} d={sketch.path} fill="none" stroke="currentColor" strokeWidth="2" />
             ))}
-            <path key="current-sketch" d={currentPoints ? `M ${currentPoints}` : ''} fill="none" stroke="currentColor" strokeWidth="2" />
+            {(activeProject?.sceneGraph || []).filter(n => n.type === 'line').map((node) => (
+                <line
+                    key={node.id}
+                    x1={0}
+                    y1={0}
+                    x2={node.props?.x2}
+                    y2={node.props?.y2}
+                    transform={`translate(${node.transform.x}, ${node.transform.y})`}
+                    stroke="currentColor"
+                    strokeWidth="2"
+                />
+            ))}
+            {(activeProject?.sceneGraph || []).filter(n => n.type === 'image').map((node) => (
+                <image 
+                    key={node.id} 
+                    href={node.props?.src} 
+                    x={node.transform.x} 
+                    y={node.transform.y} 
+                    width={100} 
+                    height={100} 
+                />
+            ))}
+            {tool === 'pencil' && <path key="current-sketch" d={currentPoints ? `M ${currentPoints}` : ''} fill="none" stroke="currentColor" strokeWidth="2" />}
+            {tool === 'line' && startPoint && currentPoints && (
+                <line
+                    x1={startPoint.x}
+                    y1={startPoint.y}
+                    x2={currentPoints.split(' ')[1].split(',')[0]}
+                    y2={currentPoints.split(' ')[1].split(',')[1]}
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeDasharray="4 4"
+                />
+            )}
         </svg>
       ) : (
         <div className="grid grid-cols-2 gap-4">

@@ -38,7 +38,7 @@ export interface StickyNote {
   color: string;
 }
 
-export interface Project {
+export type Project = {
   id: string;
   ownerId?: string; // Firebase user ID or 'local'
   name: string;
@@ -58,6 +58,8 @@ export interface Project {
   competitorAnalysis: string | null; // Phase D: Competitor Engine
   ecosystemAssets: { type: string; content: string }[]; // Phase D: Ecosystem Automation
   sceneGraph: Node[];
+  sceneHistory: { nodes: Node[] }[];
+  sceneHistoryIndex: number;
   comments: Comment[];
   mockups: Mockup[];
   logoHistory?: string[]; // Stack of logo history
@@ -65,7 +67,7 @@ export interface Project {
   stickyNotes?: StickyNote[]; // Interactive sticky notes anchored to canvas
   driveFileId?: string; // Linked Google Drive file identifier
   tags?: string[]; // Bulk tags for organization
-}
+};
 
 export interface KeyboardMap {
   save: string;
@@ -111,6 +113,24 @@ interface AppState {
   setActiveProject: (id: string | null) => void;
   updateSettings: (settings: Partial<AppSettings>) => Promise<void>;
   addNodeToScene: (node: Node) => Promise<void>;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
+}
+
+function prepareForFirestore(project: Project): any {
+  return {
+    ...project,
+    sceneGraph: JSON.stringify(project.sceneGraph),
+    sceneHistory: JSON.stringify(project.sceneHistory),
+  };
+}
+
+function loadFromFirestore(data: any): Project {
+  return {
+    ...data,
+    sceneGraph: typeof data.sceneGraph === 'string' ? JSON.parse(data.sceneGraph) : (data.sceneGraph || []),
+    sceneHistory: typeof data.sceneHistory === 'string' ? JSON.parse(data.sceneHistory) : (data.sceneHistory || [{ nodes: [] }]),
+  };
 }
 
 export const useAppStore = create<AppState>((setStore, getStore) => ({
@@ -119,6 +139,43 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   settings: {},
   isHydrated: false,
   user: null,
+
+  // ... (existing methods remain the same, just adding undo/redo)
+  undo: async () => {
+    const { activeProjectId, projects, updateProject } = getStore();
+    if (!activeProjectId) return;
+    const project = projects.find(p => p.id === activeProjectId);
+    if (!project) return;
+
+    const history = (project.sceneHistory || [{ nodes: project.sceneGraph || [] }]).map(h => h.nodes);
+    const index = typeof project.sceneHistoryIndex === 'number' ? project.sceneHistoryIndex : 0;
+    
+    if (index <= 0) return;
+    
+    const newIndex = index - 1;
+    await updateProject(activeProjectId, {
+      sceneGraph: history[newIndex],
+      sceneHistoryIndex: newIndex
+    });
+  },
+
+  redo: async () => {
+    const { activeProjectId, projects, updateProject } = getStore();
+    if (!activeProjectId) return;
+    const project = projects.find(p => p.id === activeProjectId);
+    if (!project) return;
+    
+    const history = (project.sceneHistory || [{ nodes: project.sceneGraph || [] }]).map(h => h.nodes);
+    const index = typeof project.sceneHistoryIndex === 'number' ? project.sceneHistoryIndex : 0;
+
+    if (index >= history.length - 1) return;
+    
+    const newIndex = index + 1;
+    await updateProject(activeProjectId, {
+      sceneGraph: history[newIndex],
+      sceneHistoryIndex: newIndex
+    });
+  },
 
   loadProjects: async () => {
     try {
@@ -135,7 +192,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         const querySnapshot = await getDocs(q);
         const fbProjects: Project[] = [];
         querySnapshot.forEach((docSnap) => {
-          fbProjects.push(docSnap.data() as Project);
+          fbProjects.push(loadFromFirestore(docSnap.data()));
         });
         const sorted = fbProjects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         setStore({ projects: sorted, settings: storedSettings, isHydrated: true });
@@ -209,7 +266,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
           for (const p of unsyncedProjects) {
             const syncedProject = { ...p, ownerId: user.uid, updatedAt: Date.now() };
             try {
-              await setDoc(doc(db, 'projects', p.id), syncedProject);
+              await setDoc(doc(db, 'projects', p.id), prepareForFirestore(syncedProject));
               // Avoid duplicates
               if (!fbProjects.some(existing => existing.id === p.id)) {
                 fbProjects.push(syncedProject);
@@ -221,8 +278,16 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         }
 
         const sorted = fbProjects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        setStore({ projects: sorted });
-        await set('projects', sorted);
+        const initializedProjects = sorted.map(p => ({
+            ...p,
+            sceneHistory: (Array.isArray(p.sceneHistory) && p.sceneHistory.length > 0 && typeof (p.sceneHistory[0] as any).nodes !== 'undefined')
+                ? p.sceneHistory
+                : [{ nodes: p.sceneGraph || [] }],
+            sceneHistoryIndex: typeof p.sceneHistoryIndex === 'number' ? p.sceneHistoryIndex : 0,
+            sceneGraph: p.sceneGraph || []
+        }));
+        setStore({ projects: initializedProjects });
+        await set('projects', initializedProjects);
       } catch (err) {
         handleFirestoreError(err, OperationType.LIST, 'projects');
       }
@@ -263,6 +328,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       competitorAnalysis: null,
       ecosystemAssets: [],
       sceneGraph: [],
+      sceneHistory: [{ nodes: [] }],
+      sceneHistoryIndex: 0,
       comments: [],
       mockups: [],
       logoHistory: [],
@@ -272,7 +339,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     
     if (user) {
       try {
-        await setDoc(doc(db, 'projects', newProject.id), newProject);
+        await setDoc(doc(db, 'projects', newProject.id), prepareForFirestore(newProject));
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `projects/${newProject.id}`);
       }
@@ -297,12 +364,13 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       name: `Copy of ${projectToClone.name}`,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      archived: false
+      archived: false,
+      sceneHistory: projectToClone.sceneHistory || [{ nodes: projectToClone.sceneGraph || [] }]
     };
 
     if (user) {
       try {
-        await setDoc(doc(db, 'projects', newProject.id), newProject);
+        await setDoc(doc(db, 'projects', newProject.id), prepareForFirestore(newProject));
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `projects/${newProject.id}`);
       }
@@ -327,7 +395,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       const updatedProject = updatedProjects.find(p => p.id === id);
       if (updatedProject) {
         try {
-          await setDoc(doc(db, 'projects', id), updatedProject);
+          console.log('Updating project in Firestore:', id, updatedProject);
+          await setDoc(doc(db, 'projects', id), prepareForFirestore(updatedProject));
         } catch (err) {
           handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
         }
@@ -350,7 +419,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         const updatedProject = updatedProjects.find(p => p.id === id);
         if (updatedProject) {
           try {
-            await setDoc(doc(db, 'projects', id), updatedProject);
+            await setDoc(doc(db, 'projects', id), prepareForFirestore(updatedProject));
           } catch (err) {
             handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
           }
@@ -427,6 +496,19 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     const project = projects.find(p => p.id === activeProjectId);
     if (!project) return;
     const updatedNodes = [...(project.sceneGraph || []), node];
-    await updateProject(activeProjectId, { sceneGraph: updatedNodes });
+    
+    // Ensure history exists
+    const history = project.sceneHistory || [{ nodes: project.sceneGraph || [] }];
+    const index = typeof project.sceneHistoryIndex === 'number' ? project.sceneHistoryIndex : 0;
+    
+    // Maintain history: Remove redo history if we are in the middle of the stack
+    const newHistory = history.slice(0, index + 1);
+    newHistory.push({ nodes: updatedNodes });
+    
+    await updateProject(activeProjectId, { 
+      sceneGraph: updatedNodes,
+      sceneHistory: newHistory,
+      sceneHistoryIndex: newHistory.length - 1
+    });
   }
 }));

@@ -1018,6 +1018,7 @@ export default function App() {
   const [selectedStickyColor, setSelectedStickyColor] = useState('#FDE047'); // Yellow default
 
   // Mobile drawer state
+  const [fullscreen, setFullscreen] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     // Check user preference or system preference
@@ -3015,7 +3016,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
           </Sheet>
 
           {/* Studio Control Panel (Desktop Sidebar) */}
-          <div className={`hidden md:flex w-80 lg:w-[400px] h-full bg-white dark:bg-zinc-900 border-r border-neutral-300 dark:border-zinc-800 p-8 flex-col shrink-0 z-10 overflow-y-auto`}>
+          <div className={`${fullscreen ? 'hidden' : 'hidden md:flex'} w-80 lg:w-[400px] h-full bg-white dark:bg-zinc-900 border-r border-neutral-300 dark:border-zinc-800 p-8 flex-col shrink-0 z-10 overflow-y-auto`}>
             <div className="mb-8">
               <h1 className="text-2xl font-display font-bold tracking-tight mb-1 text-black dark:text-white">{t('refinement_studio')}</h1>
               <p className="text-xs font-medium text-neutral-500 dark:text-zinc-400 uppercase tracking-widest">{activeProject?.name || 'No Project Selected'}</p>
@@ -3970,7 +3971,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-neutral-200 dark:border-zinc-800">
                       {/* WhiteboardCanvas */}
                       {activeProject ? (
-                        <WhiteboardCanvas />
+                        <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} />
                       ) : (
                         <div className="p-4 text-center">Please select a project to start drawing.</div>
                       )}

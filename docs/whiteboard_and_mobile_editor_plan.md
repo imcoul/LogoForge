@@ -31,7 +31,18 @@
 ## 4. Phase 4: AI Integration & Imports
 *   [x] **Task 4.1: AI Interpreter** — Implement server-side Gemini API (via `gemini-api` skill) to map text/voice commands to `Command` deltas.
     *   *Finding:* Created `/api/interpreter` route using `@google/genai` to parse natural language commands into `Command` objects.
-*   [ ] **Task 4.2: Imports** — File upload handler for SVG, PNG, etc., converting to `Node` objects.
+*   [x] **Task 4.2: Imports** — File upload handler for SVG, PNG, etc., converting to `Node` objects.
+    *   *Finding:* Implemented `FileUploader` component and integrated it into the toolbar. PNG/JPG files are added as `image` nodes.
+
+## 5. Phase 5: Refinement
+*   [x] **Task 5.1: Boundless Fullscreen** — Optimize fullscreen mode to hide UI elements and provide a minimal exit control for true boundless space.
+    *   *Finding:* Implemented.
+*   [x] **Task 5.2: Undo/Redo & History** — Implement state history stack in `store.ts` and add undo/redo buttons to `WhiteboardToolbar`.
+    *   *Finding:* Implemented history management in `AppStore` and added undo/redo functionality to the toolbar.
+*   [x] **Task 5.3: Eraser Fixes** — Update eraser tools to operate on `sceneGraph` nodes, not just path sketches.
+    *   *Finding:* Updated `WhiteboardCanvas` to handle `sceneGraph` removal for both sweeping and duster erasers.
+*   [x] **Task 5.4: Import Fixes** — Debug `FileUploader` integration.
+    *   *Finding:* Verified `FileUploader` integration; confirmed `addNodeToScene` is correctly updating the scene graph.
 
 ---
 
