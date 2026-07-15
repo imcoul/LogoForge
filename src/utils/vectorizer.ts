@@ -1,4 +1,4 @@
-export function vectorizeImage(imageSrc: string): Promise<{ svg: string; nodes: any[] }> {
+export function vectorizeImage(imageSrc: string, tolerance: number = 1.2): Promise<{ svg: string; nodes: any[] }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -174,7 +174,7 @@ export function vectorizeImage(imageSrc: string): Promise<{ svg: string; nodes: 
         const nodes: any[] = [];
         
         contours.forEach((c, index) => {
-          const simplified = simplifyContour(c.points, 1.2);
+          const simplified = simplifyContour(c.points, tolerance);
           if (simplified.length < 3) return;
           
           let dAttr = `M ${simplified[0][0]},${simplified[0][1]}`;
@@ -185,6 +185,7 @@ export function vectorizeImage(imageSrc: string): Promise<{ svg: string; nodes: 
           
           svgPaths += `  <path d="${dAttr}" fill="${c.color}" stroke="none" />\n`;
           
+          const rollbackToken = `r2v-rollback-${Date.now()}`;
           const newNode = {
             id: `trace-${Date.now()}-${index}`,
             type: 'path',
@@ -199,7 +200,12 @@ export function vectorizeImage(imageSrc: string): Promise<{ svg: string; nodes: 
             },
             meta: {
               createdBy: 'AI Vectorizer',
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
+              provenance: {
+                traceParams: { tolerance },
+                sourceBitmapUrl: imageSrc,
+                rollbackToken
+              }
             }
           };
           nodes.push(newNode);

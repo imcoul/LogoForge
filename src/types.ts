@@ -12,7 +12,7 @@ export type Node = {
     blendMode?: string;
   };
   props?: Record<string, any>; // e.g., pathData, rx, ry, textContent
-  meta?: { createdBy: string; timestamp: string };
+  meta?: { createdBy: string; timestamp: string; [key: string]: any };
 };
 
 export type Command =

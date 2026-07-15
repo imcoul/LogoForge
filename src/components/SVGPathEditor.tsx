@@ -138,6 +138,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Magnifier Loupe state for Precision node dragging
   const [draggedNode, setDraggedNode] = useState<{ nodeId: number; valIdx: number } | null>(null);
+  const [selectedNode, setSelectedNode] = useState<{ nodeId: number; valIdx: number } | null>(null);
+  const [precisionStep, setPrecisionStep] = useState<number>(1);
   const [loupeCoords, setLoupeCoords] = useState<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
   
   // Precision Mode UI controls
@@ -858,6 +860,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   ) => {
     e.stopPropagation();
     setDraggedNode({ nodeId, valIdx });
+    setSelectedNode({ nodeId, valIdx });
     triggerHaptic(20);
   };
 
@@ -1900,19 +1903,104 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               
               {/* Precision Mode UI Controls Overlay */}
               {isPrecisionMode && (
-                <div className="absolute inset-4 z-40 bg-white/50 dark:bg-zinc-900/50 backdrop-blur-sm rounded-2xl p-4 flex flex-col justify-end">
-                   <div className="flex gap-2">
-                     {['X', 'Y'].map(coord => (
-                       <div key={coord} className="flex-1 bg-white dark:bg-zinc-800 p-3 rounded-xl border border-neutral-200 dark:border-zinc-700 shadow-sm text-center">
-                          <span className="text-[10px] font-bold text-neutral-400">{coord}</span>
-                          <div className="flex justify-center items-center gap-2 mt-2">
-                             <button onClick={() => { /* nudge */ triggerHaptic(10); }} className="p-2 bg-neutral-100 rounded-lg">-</button>
-                             <span className="font-mono text-xs">0.0</span>
-                             <button onClick={() => { /* nudge */ triggerHaptic(10); }} className="p-2 bg-neutral-100 rounded-lg">+</button>
-                          </div>
+                <div className="absolute inset-4 z-40 bg-zinc-950/80 dark:bg-zinc-950/90 backdrop-blur-md rounded-2xl p-4 flex flex-col justify-end pointer-events-auto">
+                   {(() => {
+                     const selNodeObj = selectedNode ? nodes.find(n => n.id === selectedNode.nodeId) : null;
+                     if (!selNodeObj) {
+                       return (
+                         <div className="text-center py-6 px-4 bg-zinc-900 border border-zinc-800 rounded-xl" id="precision-empty-state">
+                           <Sliders size={18} className="mx-auto mb-2 text-indigo-400" />
+                           <p className="text-xs font-semibold text-zinc-300">No Coordinate Selected</p>
+                           <p className="text-[10px] text-zinc-500 mt-1 max-w-xs mx-auto">
+                             Touch any node or anchor point on the canvas above to enable sub-pixel coordinate micro-tuning.
+                           </p>
+                         </div>
+                       );
+                     }
+
+                     const xIdx = selectedNode ? (selectedNode.valIdx % 2 === 0 ? selectedNode.valIdx : selectedNode.valIdx - 1) : 0;
+                     const yIdx = xIdx + 1;
+                     const xVal = selNodeObj.values[xIdx] !== undefined ? selNodeObj.values[xIdx] : 0;
+                     const yVal = selNodeObj.values[yIdx] !== undefined ? selNodeObj.values[yIdx] : 0;
+
+                     return (
+                       <div className="flex flex-col gap-3 bg-zinc-900 border border-zinc-800 p-4 rounded-xl shadow-xl text-left" id="precision-controls-container">
+                         {/* Header Stats */}
+                         <div className="flex items-center justify-between text-[11px] border-b border-zinc-800 pb-2">
+                           <span className="font-bold text-zinc-300 flex items-center gap-1.5">
+                             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                             Segment #{selNodeObj.id} ({selNodeObj.type.toUpperCase()})
+                           </span>
+                           <span className="text-zinc-500 text-[10px]">
+                             Val Offset: {selectedNode?.valIdx}
+                           </span>
+                         </div>
+
+                         {/* Step Size Selector */}
+                         <div className="flex items-center justify-between gap-3 bg-zinc-950 p-2 rounded-lg border border-zinc-800">
+                           <span className="text-[10px] text-zinc-400 font-medium">Increment Step:</span>
+                           <div className="flex gap-1">
+                             {[0.1, 0.5, 1.0, 5.0, 10.0].map((step) => (
+                               <button
+                                 key={step}
+                                 onClick={() => { setPrecisionStep(step); triggerHaptic(8); }}
+                                 className={`px-2 py-0.5 text-[9px] font-mono rounded transition-colors ${
+                                   precisionStep === step
+                                     ? 'bg-indigo-500 text-white'
+                                     : 'bg-zinc-900 hover:bg-zinc-850 text-zinc-400'
+                                 }`}
+                               >
+                                 {step.toFixed(1)}px
+                               </button>
+                             ))}
+                           </div>
+                         </div>
+
+                         {/* XY Controls Grid */}
+                         <div className="grid grid-cols-2 gap-3">
+                           {/* X Coord Box */}
+                           <div className="bg-zinc-950 p-2.5 rounded-lg border border-zinc-800/60 text-center">
+                             <span className="text-[9px] font-bold text-zinc-500 block uppercase mb-1">X Coordinate</span>
+                             <div className="flex justify-between items-center gap-2 mt-1 bg-zinc-900/50 p-1.5 rounded-md border border-zinc-800/40">
+                               <button 
+                                 onClick={() => { handleValueChange(selNodeObj.id, xIdx, xVal - precisionStep); triggerHaptic(10); }} 
+                                 className="w-8 h-8 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 text-zinc-200 active:scale-90 font-bold rounded-md border border-zinc-700 transition-all cursor-pointer text-sm"
+                               >
+                                 -
+                               </button>
+                               <span className="font-mono text-xs font-semibold text-zinc-100">{xVal.toFixed(1)}</span>
+                               <button 
+                                 onClick={() => { handleValueChange(selNodeObj.id, xIdx, xVal + precisionStep); triggerHaptic(10); }} 
+                                 className="w-8 h-8 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 text-zinc-200 active:scale-90 font-bold rounded-md border border-zinc-700 transition-all cursor-pointer text-sm"
+                               >
+                                 +
+                               </button>
+                             </div>
+                           </div>
+
+                           {/* Y Coord Box */}
+                           <div className="bg-zinc-950 p-2.5 rounded-lg border border-zinc-800/60 text-center">
+                             <span className="text-[9px] font-bold text-zinc-500 block uppercase mb-1">Y Coordinate</span>
+                             <div className="flex justify-between items-center gap-2 mt-1 bg-zinc-900/50 p-1.5 rounded-md border border-zinc-800/40">
+                               <button 
+                                 onClick={() => { handleValueChange(selNodeObj.id, yIdx, yVal - precisionStep); triggerHaptic(10); }} 
+                                 className="w-8 h-8 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 text-zinc-200 active:scale-90 font-bold rounded-md border border-zinc-700 transition-all cursor-pointer text-sm"
+                               >
+                                 -
+                               </button>
+                               <span className="font-mono text-xs font-semibold text-zinc-100">{yVal.toFixed(1)}</span>
+                               <button 
+                                 onClick={() => { handleValueChange(selNodeObj.id, yIdx, yVal + precisionStep); triggerHaptic(10); }} 
+                                 className="w-8 h-8 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 text-zinc-200 active:scale-90 font-bold rounded-md border border-zinc-700 transition-all cursor-pointer text-sm"
+                               >
+                                 +
+                               </button>
+                             </div>
+                           </div>
+                         </div>
                        </div>
-                     ))}
-                   </div>
+                     );
+                   })()}
                 </div>
               )}
 

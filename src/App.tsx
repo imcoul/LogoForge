@@ -22,6 +22,7 @@ import { Whacanudo } from './components/Whacanudo';
 import { GoogleDriveIntegration } from './components/GoogleDriveIntegration';
 import { useToast } from './components/Toast';
 import { InteractiveMockupViewer } from './components/InteractiveMockupViewer';
+import { VectorizePreviewModal } from './components/VectorizePreviewModal';
 import DOMPurify from 'dompurify';
 
 const sanitizeSVG = (svg: string | null): string => {
@@ -1020,6 +1021,7 @@ export default function App() {
   const [rationale, setRationale] = useState<string | null>(null);
   const [isGeneratingRationale, setIsGeneratingRationale] = useState(false);
   const [isVectorizing, setIsVectorizing] = useState(false);
+  const [isR2VModalOpen, setIsR2VModalOpen] = useState(false);
   
   // Acoustic Synthesizer states
   const [synthWaveType, setSynthWaveType] = useState<OscillatorType>('sine');
@@ -1994,30 +1996,12 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
     }
   };
 
-  const handleVectorizeLogo = async () => {
+  const handleVectorizeLogo = () => {
     if (!activeProject?.logoUrl || !activeProjectId) {
       toast('Please generate or upload a logo first.', 'error');
       return;
     }
-    try {
-      setIsVectorizing(true);
-      toast('Running automated Raster-to-Vector (R2V) tracing...', 'info');
-      
-      const { svg, nodes } = await vectorizeImage(activeProject.logoUrl);
-      
-      await updateProject(activeProjectId, {
-        svgSource: svg,
-        sceneGraph: nodes
-      });
-      
-      toast('Raster logo successfully vectorized into SVG path components! Switching to Vector Workbench...', 'success');
-      setActiveWorkspace('workbench');
-    } catch (err: any) {
-      console.error(err);
-      toast(err.message || 'Failed to vectorize logo.', 'error');
-    } finally {
-      setIsVectorizing(false);
-    }
+    setIsR2VModalOpen(true);
   };
 
   const getAudioContext = (): AudioContext | null => {
@@ -3207,6 +3191,28 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       ) : view === 'studio' ? (
         <div className="flex-1 flex flex-col md:flex-row relative overflow-hidden">
           <TouchGesturesHelp />
+          {activeProject?.logoUrl && (
+            <VectorizePreviewModal
+              isOpen={isR2VModalOpen}
+              imageSrc={activeProject.logoUrl}
+              onClose={() => setIsR2VModalOpen(false)}
+              onAccept={async (svg, nodes) => {
+                setIsR2VModalOpen(false);
+                if (activeProjectId) {
+                  try {
+                    await updateProject(activeProjectId, {
+                      svgSource: svg,
+                      sceneGraph: nodes
+                    });
+                    toast('Raster logo successfully vectorized into SVG path components! Switching to Vector Workbench...', 'success');
+                    setActiveWorkspace('workbench');
+                  } catch (err: any) {
+                    toast(err.message || 'Failed to update vectorized project.', 'error');
+                  }
+                }
+              }}
+            />
+          )}
           {/* Mobile drawer backdrop */}
           {isMobileDrawerOpen && (
             <div 
