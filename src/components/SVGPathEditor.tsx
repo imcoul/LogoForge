@@ -4,10 +4,12 @@ import {
   Eye, Edit2, Sliders, ChevronRight, Zap, Trash2, 
   Plus, MousePointer, Paintbrush, Circle, Palette, 
   Sparkles, Check, RotateCcw, Move, LayoutGrid,
-  ZoomIn, ZoomOut, Maximize2, Undo2, Redo2, HelpCircle
+  ZoomIn, ZoomOut, Maximize2, Minimize2, Undo2, Redo2, HelpCircle, BookOpen
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { useToast } from './Toast';
+import { useAppStore } from '../store';
+import { ForgeAcademy } from './ForgeAcademy';
 
 const sanitizeSVG = (svg: string | null): string => {
   if (!svg) return '';
@@ -22,6 +24,8 @@ interface SVGPathEditorProps {
   svgContent?: string | null;
   onUpdateSvg?: (newSvg: string) => void;
   onChange?: (newSvg: string) => void;
+  fullscreen?: boolean;
+  setFullscreen?: (f: boolean) => void;
 }
 
 interface ParsedPath {
@@ -43,8 +47,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   svgSource,
   svgContent,
   onUpdateSvg,
-  onChange
+  onChange,
+  fullscreen,
+  setFullscreen
 }) => {
+  // Store integration
+  const { activeProjectId, projects, updateProject } = useAppStore();
+  const activeProject = projects.find(p => p.id === activeProjectId) || null;
+
   // Map compatible props safely
   const actualSvgSource = svgSource !== undefined ? svgSource : (svgContent || null);
   const actualOnUpdateSvg = onUpdateSvg || onChange;
@@ -52,6 +62,38 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Editor Mode: 'draw' (manual draw pad) | 'coordinate' (coordinate tuning)
   const [editorMode, setEditorMode] = useState<'draw' | 'coordinate'>('draw');
   const [gestureToast, setGestureToast] = useState<string | null>(null);
+
+  // Layout parameters
+  const [gridSize, setGridSize] = useState<number>(200);
+  const [localFullscreen, setLocalFullscreen] = useState<boolean>(false);
+  const isFullscreen = fullscreen !== undefined ? fullscreen : localFullscreen;
+  const [academyOpen, setAcademyOpen] = useState(false);
+
+  const toggleFullscreen = () => {
+    if (setFullscreen) {
+      setFullscreen(!isFullscreen);
+    } else {
+      setLocalFullscreen(!localFullscreen);
+    }
+    triggerHaptic(15);
+  };
+
+  const handleSendPathToWhiteboard = async (pathItem: ParsedPath) => {
+    if (!activeProjectId || !activeProject) return;
+    const currentSketches = activeProject.whiteboardSketches || [];
+    const newSketch = {
+      id: Date.now().toString(),
+      name: `Imported Path ${currentSketches.length + 1}`,
+      path: pathItem.d,
+      color: pathItem.stroke || '#6366f1',
+      strokeWidth: pathItem.strokeWidth || 3,
+      fillColor: pathItem.fill || 'none',
+      type: 'path' as const
+    };
+    const updated = [...currentSketches, newSketch];
+    await updateProject(activeProjectId, { whiteboardSketches: updated });
+    toast("⚡ Layer Sent to Whiteboard Canvas!", "info");
+  };
   
   // Drawing sub-tool: 'brush' (freehand) | 'bezier' (cubic Bezier curves) | 'pen' (vector dots) | 'shapes' (injection)
   const [drawTool, setDrawTool] = useState<'brush' | 'bezier' | 'pen' | 'shapes'>('brush');
@@ -424,20 +466,20 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     const relX = clientX - rect.left;
     const relY = clientY - rect.top;
 
-    // Inverse pan and zoom formulas to find coordinate on the 200x200 SVG canvas
-    // Canvas is centered inside the rect. Width of 200 matches the visual bounds.
+    // Inverse pan and zoom formulas to find coordinate on the dynamic SVG canvas
+    // Canvas is centered inside the rect. Width of gridSize matches the visual bounds.
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
 
     const canvasX = ((relX - centerX - panOffset.x) / zoom) + centerX;
     const canvasY = ((relY - centerY - panOffset.y) / zoom) + centerY;
 
-    const x = Math.round((canvasX / rect.width) * 200);
-    const y = Math.round((canvasY / rect.height) * 200);
+    const x = Math.round((canvasX / rect.width) * gridSize);
+    const y = Math.round((canvasY / rect.height) * gridSize);
 
     return {
-      x: Math.max(0, Math.min(200, x)),
-      y: Math.max(0, Math.min(200, y)),
+      x: Math.max(0, Math.min(gridSize, x)),
+      y: Math.max(0, Math.min(gridSize, y)),
       clientX,
       clientY
     };
@@ -849,18 +891,18 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       const canvasX = ((relX - centerX - panOffset.x) / zoom) + centerX;
       const canvasY = ((relY - centerY - panOffset.y) / zoom) + centerY;
 
-      const rawX = Math.round((canvasX / rect.width) * 200);
-      const rawY = Math.round((canvasY / rect.height) * 200);
+      const rawX = Math.round((canvasX / rect.width) * gridSize);
+      const rawY = Math.round((canvasY / rect.height) * gridSize);
 
       // Now apply Snapping!
-      let snapThreshold = 4;
-      let finalX = Math.max(0, Math.min(200, rawX));
-      let finalY = Math.max(0, Math.min(200, rawY));
+      let snapThreshold = Math.max(2, Math.round(gridSize * 0.02));
+      let finalX = Math.max(0, Math.min(gridSize, rawX));
+      let finalY = Math.max(0, Math.min(gridSize, rawY));
       let isSnappedX = false;
       let isSnappedY = false;
 
-      // Snapping guide list
-      const snapGridPoints = [0, 25, 50, 75, 100, 125, 150, 175, 200];
+      // Snapping guide list calculated dynamically
+      const snapGridPoints = Array.from({ length: 9 }).map((_, i) => Math.round((i * gridSize) / 8));
 
       // 1. Grid snap check
       for (const gp of snapGridPoints) {
@@ -888,7 +930,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 finalX = otherVal;
                 isSnappedX = true;
               }
-              const symX = 200 - otherVal;
+              const symX = gridSize - otherVal;
               if (Math.abs(finalX - symX) <= snapThreshold) {
                 finalX = symX;
                 isSnappedX = true;
@@ -898,7 +940,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 finalY = otherVal;
                 isSnappedY = true;
               }
-              const symY = 200 - otherVal;
+              const symY = gridSize - otherVal;
               if (Math.abs(finalY - symY) <= snapThreshold) {
                 finalY = symY;
                 isSnappedY = true;
@@ -1230,7 +1272,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   }
 
   return (
-    <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-5 md:p-6 space-y-6 shadow-xs relative">
+    <div className={`bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 relative transition-all ${isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen rounded-none p-8 overflow-y-auto bg-white dark:bg-zinc-900' : 'rounded-3xl p-5 md:p-6 space-y-6 shadow-xs'}`}>
       
       {/* Floating Two-Finger Gesture Toast Indicator */}
       {gestureToast && (
@@ -1242,12 +1284,23 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
       {/* Header controls with tabs */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-neutral-100 dark:border-zinc-855">
-        <div>
-          <h3 className="text-sm font-black tracking-widest uppercase text-neutral-800 dark:text-zinc-200 flex items-center gap-2">
-            <Sliders className="text-indigo-500" size={16} />
-            Creative Touch Sketchpad
-          </h3>
-          <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider mt-0.5">Pinch Zoom • Multi-Touch Draw • Auto-Bezier Curves</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h3 className="text-sm font-black tracking-widest uppercase text-neutral-800 dark:text-zinc-200 flex items-center gap-2">
+              <Sliders className="text-indigo-500" size={16} />
+              Creative Touch Sketchpad
+            </h3>
+            <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider mt-0.5">Pinch Zoom • Multi-Touch Draw • Auto-Bezier Curves</p>
+          </div>
+          
+          {/* Academy Guide toggle */}
+          <button
+            onClick={() => setAcademyOpen(true)}
+            className="p-1.5 hover:bg-neutral-100 dark:hover:bg-zinc-850 text-indigo-500 hover:text-indigo-600 rounded-lg flex items-center gap-1 text-[10px] font-bold uppercase border border-indigo-100 dark:border-zinc-800 cursor-pointer"
+            title="Open Design Academy"
+          >
+            <BookOpen size={12} /> Tutorial
+          </button>
         </div>
 
         {/* Tab Selection */}
@@ -1314,6 +1367,28 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 >
                   <LayoutGrid size={12} />
                 </button>
+
+                {/* Expanded Grid size selector */}
+                <select
+                  value={gridSize}
+                  onChange={(e) => { setGridSize(Number(e.target.value)); triggerHaptic(15); }}
+                  className="text-[10px] font-bold bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-lg text-neutral-700 dark:text-zinc-300 py-1 px-1.5 focus:outline-none cursor-pointer animate-pulse"
+                  title="Change grid viewBox scale size"
+                >
+                  <option value={200}>200x200 Grid</option>
+                  <option value={400}>400x400 Grid</option>
+                  <option value={800}>800x800 Grid</option>
+                </select>
+
+                {/* Immersive Fullscreen toggle */}
+                <button
+                  onClick={toggleFullscreen}
+                  className={`p-1.5 rounded-lg border cursor-pointer transition-colors ${isFullscreen ? 'bg-indigo-500 border-indigo-400 text-white' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-200 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400'}`}
+                  title="Toggle Fullscreen"
+                >
+                  {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                </button>
+
                 <button
                   onClick={handleClearAllPaths}
                   className="px-2 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 text-red-600 dark:text-red-400 text-[9px] font-bold uppercase rounded-lg transition-colors cursor-pointer"
@@ -1368,7 +1443,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* Brush Drawing Preview Line */}
                 {isDrawing && brushPoints.length > 1 && (
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-20" viewBox="0 0 200 200">
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-20" viewBox={`0 0 ${gridSize} ${gridSize}`}>
                     <path 
                       d={buildPathD(brushPoints)} 
                       fill="none" 
@@ -1386,13 +1461,13 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                   <div
                     key={pIdx}
                     className="absolute w-3 h-3 rounded-full bg-indigo-600 border border-white -translate-x-1/2 -translate-y-1/2 shadow pointer-events-none z-30 animate-pulse"
-                    style={{ left: `${(pt.x / 200) * 100}%`, top: `${(pt.y / 200) * 100}%` }}
+                    style={{ left: `${(pt.x / gridSize) * 100}%`, top: `${(pt.y / gridSize) * 100}%` }}
                   />
                 ))}
 
                 {/* Auto Cubic Bezier Curve Points overlay */}
                 {drawTool === 'bezier' && bezierPoints.map((pt, pIdx) => (
-                  <div key={pIdx} className="absolute -translate-x-1/2 -translate-y-1/2 z-40" style={{ left: `${(pt.x / 200) * 100}%`, top: `${(pt.y / 200) * 100}%` }}>
+                  <div key={pIdx} className="absolute -translate-x-1/2 -translate-y-1/2 z-40" style={{ left: `${(pt.x / gridSize) * 100}%`, top: `${(pt.y / gridSize) * 100}%` }}>
                     {/* Visual anchor node with index label */}
                     <div className="w-5 h-5 rounded-full bg-emerald-500 border-2 border-white shadow flex items-center justify-center text-[8px] font-black text-white">
                       {pIdx + 1}
@@ -1719,6 +1794,16 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          handleSendPathToWhiteboard(pathItem);
+                        }}
+                        className="p-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg transition-colors cursor-pointer"
+                        title="Send back to Whiteboard Canvas"
+                      >
+                        <Sparkles size={12} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
                           handleDeletePath(idx);
                         }}
                         className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 text-red-600 rounded-lg transition-colors cursor-pointer"
@@ -1841,12 +1926,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               >
                 {/* Visual coordinate Grid Overlay */}
                 <div className="absolute inset-0 pointer-events-none opacity-20 dark:opacity-10 flex flex-col justify-between p-0 z-0">
-                  {[25, 50, 75, 100, 125, 150, 175].map((pos) => (
-                    <div key={`h-grid-${pos}`} className="w-full h-[1px] bg-neutral-400 dark:bg-zinc-600" style={{ marginTop: `${pos / 2}%` }} />
+                  {Array.from({ length: 7 }).map((_, i) => Math.round(((i + 1) * gridSize) / 8)).map((pos) => (
+                    <div key={`h-grid-${pos}`} className="w-full h-[1px] bg-neutral-400 dark:bg-zinc-600 absolute" style={{ top: `${(pos / gridSize) * 100}%` }} />
                   ))}
                   <div className="absolute inset-0 flex justify-between p-0">
-                    {[25, 50, 75, 100, 125, 150, 175].map((pos) => (
-                      <div key={`v-grid-${pos}`} className="w-[1px] h-full bg-neutral-400 dark:bg-zinc-600" style={{ marginLeft: `${pos / 2}%` }} />
+                    {Array.from({ length: 7 }).map((_, i) => Math.round(((i + 1) * gridSize) / 8)).map((pos) => (
+                      <div key={`v-grid-${pos}`} className="w-[1px] h-full bg-neutral-400 dark:bg-zinc-600 absolute" style={{ left: `${(pos / gridSize) * 100}%` }} />
                     ))}
                   </div>
                 </div>
@@ -1859,14 +1944,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* Snapping Grid Helper Lines */}
                 {draggedNode !== null && snappingLines && (
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-30" viewBox="0 0 200 200">
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-30" viewBox={`0 0 ${gridSize} ${gridSize}`}>
                     {snappingLines.x !== undefined && (
                       <g>
                         <line 
                           x1={snappingLines.x} 
                           y1="0" 
                           x2={snappingLines.x} 
-                          y2="200" 
+                          y2={gridSize} 
                           stroke="#10B981" 
                           strokeWidth="1.5" 
                           strokeDasharray="3 3" 
@@ -1879,7 +1964,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                         <line 
                           x1="0" 
                           y1={snappingLines.y} 
-                          x2="200" 
+                          x2={gridSize} 
                           y2={snappingLines.y} 
                           stroke="#10B981" 
                           strokeWidth="1.5" 
@@ -1893,7 +1978,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* Draggable Anchor Nodes & Control lines */}
                 {nodes.length > 0 && (
-                  <svg className="absolute inset-0 w-full h-full z-40" viewBox="0 0 200 200">
+                  <svg className="absolute inset-0 w-full h-full z-40" viewBox={`0 0 ${gridSize} ${gridSize}`}>
                     {renderPrecisionNodes()}
                   </svg>
                 )}
@@ -1967,7 +2052,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                               <input
                                 type="range"
                                 min="0"
-                                max="200"
+                                max={gridSize}
                                 value={val}
                                 onChange={(e) => handleValueChange(node.id, vIdx, Number(e.target.value))}
                                 className="w-12 accent-indigo-500 h-1 bg-neutral-200 dark:bg-zinc-800 rounded-lg cursor-pointer"
@@ -2089,6 +2174,9 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           </div>
         </div>
       )}
+
+      {/* Forge Academy Modal */}
+      <ForgeAcademy isOpen={academyOpen} onClose={() => setAcademyOpen(false)} />
 
     </div>
   );

@@ -4,6 +4,7 @@ import { User } from 'firebase/auth';
 import { collection, query, where, getDocs, getDoc, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './services/firebase';
 import { BrandGuide, RefinementSuggestion } from './services/geminiService';
+import { syncProjectToPostgres, syncProjectToSupabase } from './utils/dbBackupClient';
 import { Node } from './types';
 
 export type ProjectStage = 'discovery' | 'ideation' | 'drafting' | 'refinement' | 'delivery';
@@ -132,6 +133,23 @@ function loadFromFirestore(data: any): Project {
     sceneGraph: typeof data.sceneGraph === 'string' ? JSON.parse(data.sceneGraph) : (data.sceneGraph || []),
     sceneHistory: typeof data.sceneHistory === 'string' ? JSON.parse(data.sceneHistory) : (data.sceneHistory || [{ nodes: [] }]),
   };
+}
+
+async function triggerBackupMirror(project: Project, settings: AppSettings) {
+  if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
+    syncProjectToPostgres(project, settings.postgresConnectionString).then((res) => {
+      if (!res.success) {
+        console.warn('Auto PostgreSQL Backup failed:', res.message);
+      }
+    });
+  }
+  if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
+    syncProjectToSupabase(project, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+      if (!res.success) {
+        console.warn('Auto Supabase Backup failed:', res.message);
+      }
+    });
+  }
 }
 
 export const useAppStore = create<AppState>((setStore, getStore) => ({
@@ -270,6 +288,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
             const syncedProject = { ...p, ownerId: user.uid, updatedAt: Date.now() };
             try {
               await setDoc(doc(db, 'projects', p.id), prepareForFirestore(syncedProject));
+              // Mirror to cloud backup
+              triggerBackupMirror(syncedProject, userSettings);
               // Avoid duplicates
               if (!fbProjects.some(existing => existing.id === p.id)) {
                 fbProjects.push(syncedProject);
@@ -344,6 +364,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     if (user) {
       try {
         await setDoc(doc(db, 'projects', newProject.id), prepareForFirestore(newProject));
+        // Mirror to cloud backup
+        triggerBackupMirror(newProject, getStore().settings);
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `projects/${newProject.id}`);
       }
@@ -375,6 +397,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     if (user) {
       try {
         await setDoc(doc(db, 'projects', newProject.id), prepareForFirestore(newProject));
+        // Mirror to cloud backup
+        triggerBackupMirror(newProject, getStore().settings);
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, `projects/${newProject.id}`);
       }
@@ -409,6 +433,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         try {
           console.log('Updating project in Firestore:', id, updatedProject);
           await setDoc(doc(db, 'projects', id), prepareForFirestore(updatedProject));
+          // Mirror to cloud backup
+          triggerBackupMirror(updatedProject, getStore().settings);
         } catch (err) {
           handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
         }
@@ -440,6 +466,8 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         if (updatedProject) {
           try {
             await setDoc(doc(db, 'projects', id), prepareForFirestore(updatedProject));
+            // Mirror to cloud backup
+            triggerBackupMirror(updatedProject, getStore().settings);
           } catch (err) {
             handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
           }

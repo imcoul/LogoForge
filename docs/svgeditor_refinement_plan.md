@@ -1,10 +1,10 @@
 # SVG Editor Refinement Plan: Immersive Vector Controls & Onboarding
 
-This document outlines the master engineering and UX design roadmap to refine Forgel's SVG Path Editor (Creative Touch Sketchpad). The objective is to make the precision vector canvas highly intuitive, expandable, and immersive.
+This document outlines the detailed roadmap, technical architecture, and UX specification to refine Forgel's SVG Path Editor (Creative Touch Sketchpad). The core objectives are to make the precision vector canvas highly intuitive, expandable, fully immersive, and integrated with the whiteboard.
 
 ---
 
-## 1. Feature 1: Expandable Canvas & Coordinates Grid (NxN Grid Scale)
+## 1. Feature 1: Expandable Canvas & NxN Grid Scale
 To enable detailed and complex brand icon designs, we will upgrade the SVG editor's internal canvas from a hardcoded 200x200 grid to an expandable, scalable grid system (e.g., 200x200, 400x400, 800x800).
 
 ### Implementation Specification:

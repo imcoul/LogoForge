@@ -13,6 +13,7 @@ function formatProjectData(p: any) {
     p.name || "Untitled Brand",
     p.createdAt || Date.now(),
     p.updatedAt || Date.now(),
+    p.archived || false,
     p.stage || "discovery",
     p.logoUrl || null,
     p.logoMimeType || "image/png",
@@ -22,10 +23,20 @@ function formatProjectData(p: any) {
     p.sonicPhilosophy || null,
     p.competitorAnalysis || null,
     p.ecosystemAssets ? JSON.stringify(p.ecosystemAssets) : "[]",
+    p.sceneGraph ? (typeof p.sceneGraph === 'string' ? p.sceneGraph : JSON.stringify(p.sceneGraph)) : "[]",
+    p.sceneHistory ? (typeof p.sceneHistory === 'string' ? p.sceneHistory : JSON.stringify(p.sceneHistory)) : "[]",
+    typeof p.sceneHistoryIndex === 'number' ? p.sceneHistoryIndex : 0,
     p.comments ? JSON.stringify(p.comments) : "[]",
     p.mockups ? JSON.stringify(p.mockups) : "[]",
+    p.logoHistory ? JSON.stringify(p.logoHistory) : "[]",
     p.snapshots ? JSON.stringify(p.snapshots) : "[]",
     p.stickyNotes ? JSON.stringify(p.stickyNotes) : "[]",
+    p.whiteboardSketches ? JSON.stringify(p.whiteboardSketches) : "[]",
+    p.driveFileId || null,
+    p.tags ? JSON.stringify(p.tags) : "[]",
+    p.sonicAssets ? JSON.stringify(p.sonicAssets) : "[]",
+    p.refinementFiles ? JSON.stringify(p.refinementFiles) : "[]",
+    p.refinementSuggestions ? JSON.stringify(p.refinementSuggestions) : null,
   ];
 }
 
@@ -63,6 +74,7 @@ router.post("/postgres", async (req: Request, res: Response) => {
           name VARCHAR(255) NOT NULL,
           created_at BIGINT,
           updated_at BIGINT,
+          archived BOOLEAN DEFAULT FALSE,
           stage VARCHAR(50),
           logo_url TEXT,
           logo_mime_type VARCHAR(50),
@@ -72,10 +84,20 @@ router.post("/postgres", async (req: Request, res: Response) => {
           sonic_philosophy TEXT,
           competitor_analysis TEXT,
           ecosystem_assets TEXT,
+          scene_graph TEXT,
+          scene_history TEXT,
+          scene_history_index INTEGER,
           comments TEXT,
           mockups TEXT,
+          logo_history TEXT,
           snapshots TEXT,
-          sticky_notes TEXT
+          sticky_notes TEXT,
+          whiteboard_sketches TEXT,
+          drive_file_id VARCHAR(128),
+          tags TEXT,
+          sonic_assets TEXT,
+          refinement_files TEXT,
+          refinement_suggestions TEXT
         );
       `);
 
@@ -83,12 +105,13 @@ router.post("/postgres", async (req: Request, res: Response) => {
       const values = formatProjectData(project);
       await client.query(`
         INSERT INTO projects (
-          id, owner_id, name, created_at, updated_at, stage, logo_url, logo_mime_type, svg_source, description, brand_guide, sonic_philosophy, competitor_analysis, ecosystem_assets, comments, mockups, snapshots, sticky_notes
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+          id, owner_id, name, created_at, updated_at, archived, stage, logo_url, logo_mime_type, svg_source, description, brand_guide, sonic_philosophy, competitor_analysis, ecosystem_assets, scene_graph, scene_history, scene_history_index, comments, mockups, logo_history, snapshots, sticky_notes, whiteboard_sketches, drive_file_id, tags, sonic_assets, refinement_files, refinement_suggestions
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
         ON CONFLICT (id) DO UPDATE SET
           owner_id = EXCLUDED.owner_id,
           name = EXCLUDED.name,
           updated_at = EXCLUDED.updated_at,
+          archived = EXCLUDED.archived,
           stage = EXCLUDED.stage,
           logo_url = EXCLUDED.logo_url,
           logo_mime_type = EXCLUDED.logo_mime_type,
@@ -98,10 +121,20 @@ router.post("/postgres", async (req: Request, res: Response) => {
           sonic_philosophy = EXCLUDED.sonic_philosophy,
           competitor_analysis = EXCLUDED.competitor_analysis,
           ecosystem_assets = EXCLUDED.ecosystem_assets,
+          scene_graph = EXCLUDED.scene_graph,
+          scene_history = EXCLUDED.scene_history,
+          scene_history_index = EXCLUDED.scene_history_index,
           comments = EXCLUDED.comments,
           mockups = EXCLUDED.mockups,
+          logo_history = EXCLUDED.logo_history,
           snapshots = EXCLUDED.snapshots,
-          sticky_notes = EXCLUDED.sticky_notes;
+          sticky_notes = EXCLUDED.sticky_notes,
+          whiteboard_sketches = EXCLUDED.whiteboard_sketches,
+          drive_file_id = EXCLUDED.drive_file_id,
+          tags = EXCLUDED.tags,
+          sonic_assets = EXCLUDED.sonic_assets,
+          refinement_files = EXCLUDED.refinement_files,
+          refinement_suggestions = EXCLUDED.refinement_suggestions;
       `, values);
 
       res.json({ success: true, message: "Successfully synced project to PostgreSQL backup!" });
@@ -145,6 +178,7 @@ router.post("/supabase", async (req: Request, res: Response) => {
         name: project.name || "Untitled Brand",
         created_at: project.createdAt || Date.now(),
         updated_at: project.updatedAt || Date.now(),
+        archived: project.archived || false,
         stage: project.stage || "discovery",
         logo_url: project.logoUrl || null,
         logo_mime_type: project.logoMimeType || "image/png",
@@ -154,17 +188,27 @@ router.post("/supabase", async (req: Request, res: Response) => {
         sonic_philosophy: project.sonicPhilosophy || null,
         competitor_analysis: project.competitorAnalysis || null,
         ecosystem_assets: project.ecosystemAssets ? JSON.stringify(project.ecosystemAssets) : "[]",
+        scene_graph: project.sceneGraph ? (typeof project.sceneGraph === 'string' ? project.sceneGraph : JSON.stringify(project.sceneGraph)) : "[]",
+        scene_history: project.sceneHistory ? (typeof project.sceneHistory === 'string' ? project.sceneHistory : JSON.stringify(project.sceneHistory)) : "[]",
+        scene_history_index: typeof project.sceneHistoryIndex === 'number' ? project.sceneHistoryIndex : 0,
         comments: project.comments ? JSON.stringify(project.comments) : "[]",
         mockups: project.mockups ? JSON.stringify(project.mockups) : "[]",
+        logo_history: project.logoHistory ? JSON.stringify(project.logoHistory) : "[]",
         snapshots: project.snapshots ? JSON.stringify(project.snapshots) : "[]",
-        sticky_notes: project.stickyNotes ? JSON.stringify(project.stickyNotes) : "[]"
+        sticky_notes: project.stickyNotes ? JSON.stringify(project.stickyNotes) : "[]",
+        whiteboard_sketches: project.whiteboardSketches ? JSON.stringify(project.whiteboardSketches) : "[]",
+        drive_file_id: project.driveFileId || null,
+        tags: project.tags ? JSON.stringify(project.tags) : "[]",
+        sonic_assets: project.sonicAssets ? JSON.stringify(project.sonicAssets) : "[]",
+        refinement_files: project.refinementFiles ? JSON.stringify(project.refinementFiles) : "[]",
+        refinement_suggestions: project.refinementSuggestions ? JSON.stringify(project.refinementSuggestions) : null
       }, { onConflict: "id" });
 
     if (error) {
       // If table projects doesn't exist, Supabase might fail. We should notify.
       if (error.code === "PGRST116" || error.message.includes("does not exist")) {
         throw new Error(
-          "Table 'projects' does not exist in your Supabase database. Please create it with columns: id (text PRIMARY KEY), owner_id (text), name (text), created_at (int8), updated_at (int8), stage (text), logo_url (text), logo_mime_type (text), svg_source (text), description (text), brand_guide (text), sonic_philosophy (text), competitor_analysis (text), ecosystem_assets (text), comments (text), mockups (text), snapshots (text), sticky_notes (text)."
+          "Table 'projects' does not exist in your Supabase database. Please create it with columns: id (text PRIMARY KEY), owner_id (text), name (text), created_at (int8), updated_at (int8), archived (bool), stage (text), logo_url (text), logo_mime_type (text), svg_source (text), description (text), brand_guide (text), sonic_philosophy (text), competitor_analysis (text), ecosystem_assets (text), scene_graph (text), scene_history (text), scene_history_index (int4), comments (text), mockups (text), logo_history (text), snapshots (text), sticky_notes (text), whiteboard_sketches (text), drive_file_id (text), tags (text), sonic_assets (text), refinement_files (text), refinement_suggestions (text)."
         );
       }
       throw error;

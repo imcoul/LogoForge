@@ -3677,10 +3677,12 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     {activeWorkspace === 'workbench' && (
                       <div className="flex-1 flex flex-col w-full h-full relative">
                         {/* Vector Workbench View */}
-                        <div className="absolute top-4 left-4 z-50 flex gap-4 p-2 rounded-2xl bg-white/80 dark:bg-zinc-900/80 backdrop-blur shadow-sm border border-neutral-200 dark:border-zinc-800">
-                          <button onClick={() => setWorkbenchSubTab('sketch')} className={`px-4 py-2 text-xs font-bold rounded-xl ${workbenchSubTab === 'sketch' ? 'bg-brand-lead text-white' : 'bg-transparent text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100 dark:hover:bg-zinc-800'}`}>Freeform Sketching</button>
-                          <button onClick={() => setWorkbenchSubTab('precision')} className={`px-4 py-2 text-xs font-bold rounded-xl ${workbenchSubTab === 'precision' ? 'bg-brand-lead text-white' : 'bg-transparent text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100 dark:hover:bg-zinc-800'}`}>Precision Nodes</button>
-                        </div>
+                        {!fullscreen && (
+                          <div className="absolute top-4 left-4 z-50 flex gap-4 p-2 rounded-2xl bg-white/80 dark:bg-zinc-900/80 backdrop-blur shadow-sm border border-neutral-200 dark:border-zinc-800">
+                            <button onClick={() => setWorkbenchSubTab('sketch')} className={`px-4 py-2 text-xs font-bold rounded-xl ${workbenchSubTab === 'sketch' ? 'bg-brand-lead text-white' : 'bg-transparent text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100 dark:hover:bg-zinc-800'}`}>Freeform Sketching</button>
+                            <button onClick={() => setWorkbenchSubTab('precision')} className={`px-4 py-2 text-xs font-bold rounded-xl ${workbenchSubTab === 'precision' ? 'bg-brand-lead text-white' : 'bg-transparent text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100 dark:hover:bg-zinc-800'}`}>Precision Nodes</button>
+                          </div>
+                        )}
                         
                         <div className="flex-1 relative w-full h-full">
                           {workbenchSubTab === 'sketch' ? (
@@ -3702,7 +3704,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
 
                           ) : (
                             
-<motion.div key="precision" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-6xl mx-auto w-full h-full flex flex-col gap-6">
+<motion.div key="precision-workbench" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-6xl mx-auto w-full h-full flex flex-col gap-6">
                     <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                       <div>
                         <h2 className="text-3xl font-display font-bold tracking-tight text-neutral-900 dark:text-white">Precision Studio</h2>
@@ -3855,6 +3857,8 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                         <SVGPathEditor 
                           svgContent={activeProject.svgSource || ''} 
                           onChange={(newSvg) => handleUpdateAndSync({ svgSource: newSvg })} 
+                          fullscreen={fullscreen} 
+                          setFullscreen={setFullscreen} 
                         />
 
                         {/* Raw SVG XML input editor */}
@@ -4996,7 +5000,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     <DesignChecklist />
                   </motion.div>
                 ) : activeTab === 'precision' ? (
-                  <motion.div key="precision" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-6xl mx-auto w-full h-full flex flex-col gap-6">
+                  <motion.div key="precision-sandbox" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 p-4 md:p-12 pb-24 md:pb-12 max-w-6xl mx-auto w-full h-full flex flex-col gap-6">
                     <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                       <div>
                         <h2 className="text-3xl font-display font-bold tracking-tight text-neutral-900 dark:text-white">Precision Studio</h2>
@@ -5149,6 +5153,8 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                         <SVGPathEditor 
                           svgContent={activeProject.svgSource || ''} 
                           onChange={(newSvg) => handleUpdateAndSync({ svgSource: newSvg })} 
+                          fullscreen={fullscreen} 
+                          setFullscreen={setFullscreen} 
                         />
 
                         {/* Raw SVG XML input editor */}
