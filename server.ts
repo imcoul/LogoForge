@@ -448,7 +448,20 @@ async function startServer() {
   }> = {};
 
   const { WebSocketServer } = await import("ws");
-  const wss = new WebSocketServer({ server, path: "/ws-collab" });
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on("upgrade", (request, socket, head) => {
+    try {
+      const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
+      if (url.pathname === "/ws-collab" || url.pathname === "/ws-collab/") {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          wss.emit("connection", ws, request);
+        });
+      }
+    } catch (e) {
+      console.error("[Collab Server] Error during upgrade handler:", e);
+    }
+  });
 
   wss.on("connection", (ws: any) => {
     let currentRoomId: string | null = null;

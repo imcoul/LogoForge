@@ -7,6 +7,7 @@ import {
   ZoomIn, ZoomOut, Maximize2, Undo2, Redo2, HelpCircle
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
+import { useToast } from './Toast';
 
 const sanitizeSVG = (svg: string | null): string => {
   if (!svg) return '';
@@ -50,6 +51,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Editor Mode: 'draw' (manual draw pad) | 'coordinate' (coordinate tuning)
   const [editorMode, setEditorMode] = useState<'draw' | 'coordinate'>('draw');
+  const [gestureToast, setGestureToast] = useState<string | null>(null);
   
   // Drawing sub-tool: 'brush' (freehand) | 'bezier' (cubic Bezier curves) | 'pen' (vector dots) | 'shapes' (injection)
   const [drawTool, setDrawTool] = useState<'brush' | 'bezier' | 'pen' | 'shapes'>('brush');
@@ -65,7 +67,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const [initialZoom, setInitialZoom] = useState<number>(1);
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
   const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
-  const [gestureToast, setGestureToast] = useState<string | null>(null);
+  
+  const { toast } = useToast();
 
   // Active styling state for new elements
   const [activeStrokeColor, setActiveStrokeColor] = useState<string>('#6366F1');
@@ -247,8 +250,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     setRedoStack((prev) => [...prev, actualSvgSource]);
     actualOnUpdateSvg(prevSvg);
 
-    setGestureToast('🔄 Undo Action');
-    setTimeout(() => setGestureToast(null), 1200);
+    toast('Undo Action', 'info');
   };
 
   // Redo manual design actions (Triggered via toolbar or two-finger swipe)
@@ -263,8 +265,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     setUndoStack((prev) => [...prev, actualSvgSource]);
     actualOnUpdateSvg(nextSvg);
 
-    setGestureToast('➡️ Redo Action');
-    setTimeout(() => setGestureToast(null), 1200);
+    toast('Redo Action', 'info');
   };
 
   // Handle manual coordinate changes via sliders/inputs
@@ -536,15 +537,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       const deltaX = midX - swipeStartX;
       const deltaY = midY - (swipeStartY || midY);
 
-      if (Math.abs(deltaX) > 50 && Math.abs(deltaY) < 40) {
-        if (deltaX > 50) {
+      if (Math.abs(deltaX) > 40 && Math.abs(deltaY) < 40) {
+        if (deltaX > 40) {
           handleUndo();
-          setGestureToast("↩️ Undo");
+          toast("Undo", "info");
         } else {
           handleRedo();
-          setGestureToast("↪️ Redo");
+          toast("Redo", "info");
         }
-        setTimeout(() => setGestureToast(null), 1000);
         setSwipeStartX(null);
       }
       return;
@@ -574,15 +574,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
         const deltaX = midX - swipeStartX;
         const deltaY = midY - (swipeStartY || midY);
         // Ensure swipe is mostly horizontal
-        if (Math.abs(deltaX) > 70 && Math.abs(deltaY) < 40) {
-          if (deltaX > 70) {
+        if (Math.abs(deltaX) > 60 && Math.abs(deltaY) < 40) {
+          if (deltaX > 60) {
             handleUndo();
-            setGestureToast("↩️ Undo");
+            toast("Undo", "info");
           } else {
             handleRedo();
-            setGestureToast("↪️ Redo");
+            toast("Redo", "info");
           }
-          setTimeout(() => setGestureToast(null), 1000);
           // Reset swipeStartX so it doesn't double trigger in the same swipe gesture
           setSwipeStartX(null);
         }
@@ -1091,8 +1090,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     setNodes(cleanedNodes);
     updatePathAtIndex(selectedPathIndex, { d: newPathString });
 
-    setGestureToast(`✨ Cleaned: ${redundantRemoved} redundant points, simplified ${curvesSimplified} curves!`);
-    setTimeout(() => setGestureToast(null), 3000);
+    toast(`✨ Cleaned: ${redundantRemoved} redundant points, simplified ${curvesSimplified} curves!`, 'success');
   };
 
   const renderPrecisionNodes = () => {
@@ -2092,13 +2090,6 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
         </div>
       )}
 
-      {/* Floating Dynamic Gesture/Status Notification Toast */}
-      {gestureToast && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 bg-neutral-900/90 dark:bg-white/90 text-white dark:text-neutral-900 text-[11px] font-black tracking-wide uppercase px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-white/10 dark:border-neutral-200 animate-slideUp">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>{gestureToast}</span>
-        </div>
-      )}
     </div>
   );
 };

@@ -460,8 +460,97 @@ export const exportBrandGuidePDF = (project: Project) => {
   doc.text('SECTION 03: ENVIRONMENTAL  |  PAGE 4', pageWidth / 2, pageHeight - 12, { align: 'center' });
   
   // ==========================================
+  // PAGE 5: PROJECT ANALYTICS SUMMARY
+  // ==========================================
+  doc.addPage();
+  
+  // Clean header line
+  doc.setFillColor(245, 245, 247);
+  doc.rect(0, 0, pageWidth, 28, 'F');
+  
+  doc.setTextColor(100, 100, 110);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text('SECTION 04: PROJECT ANALYTICS', 20, 12);
+  
+  doc.setTextColor(20, 20, 24);
+  doc.setFontSize(14);
+  doc.text('USAGE & DEVELOPMENT DATA', 20, 20);
+  
+  doc.setDrawColor(rgbPrimary.r, rgbPrimary.g, rgbPrimary.b);
+  doc.setLineWidth(1);
+  doc.line(20, 28, 40, 28);
+  
+  // Analytics Cards
+  const metrics = [
+    { label: 'Scene Nodes', value: (project.sceneGraph?.length || 0).toString() },
+    { label: 'Total Mockups', value: (project.mockups?.length || 0).toString() },
+    { label: 'User Comments', value: (project.comments?.length || 0).toString() },
+    { label: 'Version Snapshots', value: (project.snapshots?.length || 0).toString() }
+  ];
+  
+  let metricX = 20;
+  metrics.forEach(m => {
+    doc.setFillColor(250, 251, 253);
+    doc.rect(metricX, 40, (pageWidth - 80) / 4, 30, 'F');
+    doc.setDrawColor(225, 226, 232);
+    doc.rect(metricX, 40, (pageWidth - 80) / 4, 30, 'D');
+    
+    doc.setTextColor(100, 100, 110);
+    doc.setFontSize(7);
+    doc.text(m.label.toUpperCase(), metricX + 5, 50);
+    
+    doc.setTextColor(rgbPrimary.r, rgbPrimary.g, rgbPrimary.b);
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text(m.value, metricX + 5, 62);
+    
+    metricX += (pageWidth - 80) / 4 + 10;
+  });
+  
+  // ==========================================
+  // PAGE 6: MOCKUP GALLERY
+  // ==========================================
+  if (project.mockups && project.mockups.length > 0) {
+    doc.addPage();
+    doc.setFillColor(245, 245, 247);
+    doc.rect(0, 0, pageWidth, 28, 'F');
+    doc.setTextColor(100, 100, 110);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text('SECTION 05: MOCKUP GALLERY', 20, 12);
+    doc.setTextColor(20, 20, 24);
+    doc.setFontSize(14);
+    doc.text('VISUAL COMPOSITIONS', 20, 20);
+    doc.setDrawColor(rgbPrimary.r, rgbPrimary.g, rgbPrimary.b);
+    doc.setLineWidth(1);
+    doc.line(20, 28, 40, 28);
+    
+    let imgY = 40;
+    project.mockups.forEach((mock, idx) => {
+        if (imgY > pageHeight - 60) {
+            doc.addPage();
+            imgY = 20;
+        }
+        
+        doc.setFontSize(9);
+        doc.setTextColor(50, 50, 60);
+        doc.text(`MOCKUP ${idx + 1}: ${mock.name}`, 20, imgY);
+        
+        try {
+            doc.addImage(mock.base64Data, mock.mimeType.split('/')[1] || 'PNG', 20, imgY + 5, 120, 80);
+        } catch(e) {
+            console.error('Failed to add mockup image', e);
+        }
+        
+        imgY += 95;
+    });
+  }
+
+  // ==========================================
   // SAVE & EXPORT
   // ==========================================
   const sanitizedName = brandName.replace(/\s+/g, '-').toLowerCase();
   doc.save(`${sanitizedName}-brand-guidelines.pdf`);
 };
+

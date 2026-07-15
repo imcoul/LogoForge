@@ -65,7 +65,7 @@ export type Project = {
   logoHistory?: string[]; // Stack of logo history
   snapshots?: Snapshot[]; // List of version snapshots
   stickyNotes?: StickyNote[]; // Interactive sticky notes anchored to canvas
-  whiteboardSketches?: { id: string; name: string; path: string }[];
+  whiteboardSketches?: { id: string; name: string; path?: string; color?: string; strokeWidth?: number; type?: 'path' | 'rectangle' | 'circle' | 'line'; props?: any }[];
   driveFileId?: string; // Linked Google Drive file identifier
   tags?: string[]; // Bulk tags for organization
 };
@@ -387,11 +387,19 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
 
   updateProject: async (id, updates) => {
     const { user, projects } = getStore();
-    const updatedProjects = projects.map(p => 
-      p.id === id 
-        ? { ...p, ...updates, updatedAt: Date.now() } 
-        : p
-    );
+    const updatedProjects = projects.map(p => {
+      if (p.id !== id) return p;
+      const finalUpdates = { ...updates };
+      if (updates.stage) {
+        const stages = ['discovery', 'ideation', 'drafting', 'refinement', 'delivery'];
+        const currentIdx = stages.indexOf(p.stage);
+        const nextIdx = stages.indexOf(updates.stage);
+        if (nextIdx < currentIdx) {
+          delete finalUpdates.stage;
+        }
+      }
+      return { ...p, ...finalUpdates, updatedAt: Date.now() };
+    });
     setStore({ projects: updatedProjects });
     await set('projects', updatedProjects);
 
@@ -410,11 +418,19 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
 
   bulkUpdateProjects: async (ids, updates) => {
     const { user, projects } = getStore();
-    const updatedProjects = projects.map(p => 
-      ids.includes(p.id) 
-        ? { ...p, ...updates, updatedAt: Date.now() } 
-        : p
-    );
+    const updatedProjects = projects.map(p => {
+      if (!ids.includes(p.id)) return p;
+      const finalUpdates = { ...updates };
+      if (updates.stage) {
+        const stages = ['discovery', 'ideation', 'drafting', 'refinement', 'delivery'];
+        const currentIdx = stages.indexOf(p.stage);
+        const nextIdx = stages.indexOf(updates.stage);
+        if (nextIdx < currentIdx) {
+          delete finalUpdates.stage;
+        }
+      }
+      return { ...p, ...finalUpdates, updatedAt: Date.now() };
+    });
     setStore({ projects: updatedProjects });
     await set('projects', updatedProjects);
 

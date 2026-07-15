@@ -1087,6 +1087,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const refineInputRef = useRef<HTMLInputElement>(null);
   const sonicInputRef = useRef<HTMLInputElement>(null);
+  const cursorRafRef = useRef<number | null>(null);
   const [commentText, setCommentText] = useState('');
 
   // New Interactive states
@@ -3738,13 +3739,16 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                             const rect = e.currentTarget.getBoundingClientRect();
                             const x = ((e.clientX - rect.left) / rect.width) * 100;
                             const y = ((e.clientY - rect.top) / rect.height) * 100;
-                            socket.send(JSON.stringify({
-                              type: 'cursor',
-                              username,
-                              color: '#6366F1',
-                              x,
-                              y
-                            }));
+                            if (cursorRafRef.current) cancelAnimationFrame(cursorRafRef.current);
+                            cursorRafRef.current = requestAnimationFrame(() => {
+                              socket.send(JSON.stringify({
+                                type: 'cursor',
+                                username,
+                                color: '#6366F1',
+                                x,
+                                y
+                              }));
+                            });
                           }}
                           onClick={(e) => {
                             if (!isAddingSticky) return;
@@ -5029,13 +5033,16 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                             const rect = e.currentTarget.getBoundingClientRect();
                             const x = ((e.clientX - rect.left) / rect.width) * 100;
                             const y = ((e.clientY - rect.top) / rect.height) * 100;
-                            socket.send(JSON.stringify({
-                              type: 'cursor',
-                              username,
-                              color: '#6366F1',
-                              x,
-                              y
-                            }));
+                            if (cursorRafRef.current) cancelAnimationFrame(cursorRafRef.current);
+                            cursorRafRef.current = requestAnimationFrame(() => {
+                              socket.send(JSON.stringify({
+                                type: 'cursor',
+                                username,
+                                color: '#6366F1',
+                                x,
+                                y
+                              }));
+                            });
                           }}
                           onClick={(e) => {
                             if (!isAddingSticky) return;

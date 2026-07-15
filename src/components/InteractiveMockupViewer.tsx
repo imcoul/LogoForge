@@ -167,6 +167,9 @@ export const InteractiveMockupViewer: React.FC<InteractiveMockupViewerProps> = (
                 {/* Textured effect */}
                 <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '12px 12px' }}></div>
                 
+                {/* Subtle lighting overlay for depth */}
+                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none"></div>
+                
                 <div className="flex justify-between items-start z-10">
                   <div className="w-12 h-12 bg-white/10 rounded-xl p-1.5 flex items-center justify-center backdrop-blur-sm border border-white/20">
                     {activeProject.logoUrl ? (

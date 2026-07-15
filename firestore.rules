@@ -17,7 +17,7 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-@\\.\\|:]+$');
     }
 
     // Helper to check if current user is a Server
@@ -31,7 +31,7 @@ service cloud.firestore {
     function isValidProject(data) {
       return data.id is string && data.id.size() <= 128 &&
              data.name is string && data.name.size() <= 500 &&
-             data.createdAt is int &&
+             (data.createdAt is int || data.createdAt is float) &&
              data.ownerId is string && data.ownerId.size() <= 128 &&
              data.stage is string && (
                data.stage == 'discovery' ||
@@ -83,21 +83,21 @@ service cloud.firestore {
       allow get: if isSignedIn() && isValidId(userId);
       allow list: if isSignedIn();
 
-      // Create profile: owner only, and can only self-assign Server if they are lcoulagency@gmail.com
+      // Create profile: owner only, and can only self-assign Server if they are lcoulagency@gmail.com or ibrahimmamadoucoulibaly@gmail.com
       allow create: if isSignedIn() && 
                     isValidId(userId) && 
                     userId == request.auth.uid && 
                     isValidUser(request.resource.data) &&
                     request.resource.data.uid == userId &&
-                    request.resource.data.role == (request.auth.token.email == 'lcoulagency@gmail.com' ? 'Server' : 'Designer');
+                    request.resource.data.role == (('email' in request.auth.token && (request.auth.token.email == 'lcoulagency@gmail.com' || request.auth.token.email == 'ibrahimmamadoucoulibaly@gmail.com')) ? 'Server' : 'Designer');
 
-      // Update profile: Owner can update their settings, but not their role. Server can update everything.
+      // Update profile: Owner can update their settings, but not their role (unless they are authorized superusers). Server can update everything.
       allow update: if isSignedIn() && 
                     isValidId(userId) && 
                     isValidUser(request.resource.data) &&
                     (
-                      // Case A: Owner updates settings, keeping their role intact
-                      (userId == request.auth.uid && request.resource.data.role == resource.data.role) ||
+                      // Case A: Owner updates settings, keeping their role intact (or superusers updating their own role)
+                      (userId == request.auth.uid && (request.resource.data.role == resource.data.role || ('email' in request.auth.token && (request.auth.token.email == 'lcoulagency@gmail.com' || request.auth.token.email == 'ibrahimmamadoucoulibaly@gmail.com')))) ||
                       // Case B: A Server updates any user profile (e.g. promoting/demoting)
                       isServerUser()
                     );
