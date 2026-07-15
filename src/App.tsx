@@ -2,13 +2,14 @@ import Markdown from 'react-markdown';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud, Copy, Target, Users, ShieldAlert, ArrowRight, X, Loader2, Send } from 'lucide-react';
+import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud, Copy, Target, Users, ShieldAlert, ArrowRight, X, Loader2, Send, Zap } from 'lucide-react';
 import { generateLogoImage, generateBrandGuide, analyzeRefinementContext, generateSonicPhilosophy, generateDesignRationale, generateAICriticComment, analyzeCompetitor, generateEcosystemAsset } from './services/geminiService';
 import { useAppStore, Project, Mockup } from './store';
 import { auth, signInWithGoogle, logout, db } from './services/firebase';
 import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { syncProjectToPostgres, syncProjectToSupabase } from './utils/dbBackupClient';
 import { KeyboardManager } from './components/KeyboardManager';
+import { vectorizeImage } from './utils/vectorizer';
 import { TouchGesturesHelp } from './components/TouchGesturesHelp';
 import { Sheet } from './components/Sheet';
 import { StudioControls } from './components/StudioControls';
@@ -20,6 +21,7 @@ import { ProjectAnalytics } from './components/ProjectAnalytics';
 import { Whacanudo } from './components/Whacanudo';
 import { GoogleDriveIntegration } from './components/GoogleDriveIntegration';
 import { useToast } from './components/Toast';
+import { InteractiveMockupViewer } from './components/InteractiveMockupViewer';
 import DOMPurify from 'dompurify';
 
 const sanitizeSVG = (svg: string | null): string => {
@@ -1017,7 +1019,20 @@ export default function App() {
   const [isGeneratingSonic, setIsGeneratingSonic] = useState(false);
   const [rationale, setRationale] = useState<string | null>(null);
   const [isGeneratingRationale, setIsGeneratingRationale] = useState(false);
+  const [isVectorizing, setIsVectorizing] = useState(false);
   
+  // Acoustic Synthesizer states
+  const [synthWaveType, setSynthWaveType] = useState<OscillatorType>('sine');
+  const [synthADSR, setSynthADSR] = useState({
+    attack: 0.1,
+    decay: 0.3,
+    sustain: 0.5,
+    release: 0.8
+  });
+  const [isSynthPlaying, setIsSynthPlaying] = useState(false);
+  const [synthRippleIntensity, setSynthRippleIntensity] = useState(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+
   const [activeAnimation, setActiveAnimation] = useState<AnimationType>('float');
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceType>('sandbox');
   const [sandboxSubTab, setSandboxSubTab] = useState<SandboxSubTab>('preview');
@@ -1080,6 +1095,12 @@ export default function App() {
   const [mockupTab, setMockupTab] = useState<'templates' | 'uploaded'>('templates');
   const [selectedTemplate, setSelectedTemplate] = useState<'card' | 'splash' | 'billboard'>('card');
   const [cardBg, setCardBg] = useState<'cream' | 'charcoal' | 'forest'>('cream');
+  const [mockupRotateX, setMockupRotateX] = useState<number>(15);
+  const [mockupRotateY, setMockupRotateY] = useState<number>(-20);
+  const [mockupRotateZ, setMockupRotateZ] = useState<number>(5);
+  const [mockupScale, setMockupScale] = useState<number>(1.0);
+  const [mockupPerspective, setMockupPerspective] = useState<number>(1200);
+  const [mockupBlendMode, setMockupBlendMode] = useState<'normal' | 'multiply' | 'screen' | 'overlay' | 'difference' | 'color-dodge'>('normal');
   const [copiedColorHex, setCopiedColorHex] = useState<string | null>(null);
   const [criticRole, setCriticRole] = useState<string>('Senior Art Director 🎨');
   const [isCriticLoading, setIsCriticLoading] = useState(false);
@@ -1970,6 +1991,146 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleVectorizeLogo = async () => {
+    if (!activeProject?.logoUrl || !activeProjectId) {
+      toast('Please generate or upload a logo first.', 'error');
+      return;
+    }
+    try {
+      setIsVectorizing(true);
+      toast('Running automated Raster-to-Vector (R2V) tracing...', 'info');
+      
+      const { svg, nodes } = await vectorizeImage(activeProject.logoUrl);
+      
+      await updateProject(activeProjectId, {
+        svgSource: svg,
+        sceneGraph: nodes
+      });
+      
+      toast('Raster logo successfully vectorized into SVG path components! Switching to Vector Workbench...', 'success');
+      setActiveWorkspace('workbench');
+    } catch (err: any) {
+      console.error(err);
+      toast(err.message || 'Failed to vectorize logo.', 'error');
+    } finally {
+      setIsVectorizing(false);
+    }
+  };
+
+  const getAudioContext = (): AudioContext | null => {
+    if (typeof window === 'undefined') return null;
+    if (!audioContextRef.current) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        audioContextRef.current = new AudioContextClass();
+      }
+    }
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+    return audioContextRef.current;
+  };
+
+  const triggerVoice = (frequency: number, duration: number = 0.5) => {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    try {
+      const osc = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      const filterNode = ctx.createBiquadFilter();
+
+      osc.type = synthWaveType;
+      osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+
+      // Simple but high-fidelity low-pass dynamic biquad filter
+      filterNode.type = 'lowpass';
+      if (synthWaveType === 'sine') {
+        filterNode.frequency.setValueAtTime(1200, ctx.currentTime);
+      } else if (synthWaveType === 'triangle') {
+        filterNode.frequency.setValueAtTime(1400, ctx.currentTime);
+      } else if (synthWaveType === 'sawtooth') {
+        filterNode.frequency.setValueAtTime(1000, ctx.currentTime);
+      } else {
+        filterNode.frequency.setValueAtTime(800, ctx.currentTime);
+      }
+
+      // ADSR Envelope Phase Calculations
+      const now = ctx.currentTime;
+      gainNode.gain.setValueAtTime(0, now);
+      
+      // Attack: Linear ramp to max volume
+      gainNode.gain.linearRampToValueAtTime(0.4, now + synthADSR.attack);
+      
+      // Decay: Exponential ramp down to Sustain level
+      const sustainLevel = Math.max(synthADSR.sustain * 0.4, 0.001);
+      gainNode.gain.setValueAtTime(0.4, now + synthADSR.attack);
+      gainNode.gain.exponentialRampToValueAtTime(sustainLevel, now + synthADSR.attack + synthADSR.decay);
+
+      osc.connect(filterNode);
+      filterNode.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      osc.start(now);
+
+      // Release: Trigger ramp down to zero after note duration
+      const releaseStart = now + synthADSR.attack + synthADSR.decay + duration;
+      gainNode.gain.setValueAtTime(sustainLevel, releaseStart);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, releaseStart + synthADSR.release);
+
+      // Stop oscillator cleanly once release completes
+      osc.stop(releaseStart + synthADSR.release);
+
+      // Visual feedback ripple animation trigger
+      setSynthRippleIntensity(prev => Math.min(prev + 1, 5));
+      setTimeout(() => {
+        setSynthRippleIntensity(prev => Math.max(prev - 1, 0));
+      }, (synthADSR.attack + synthADSR.decay + duration + synthADSR.release) * 1000);
+
+    } catch (err) {
+      console.error('Synthesizer Voice allocation error:', err);
+    }
+  };
+
+  const playBrandMelody = () => {
+    if (isSynthPlaying) return;
+    setIsSynthPlaying(true);
+    
+    // Play a corporate chord arpeggio progression (Major 9th / Sparkle sound)
+    const notes = [
+      { freq: 261.63, delay: 0.0, dur: 0.8 }, // C4
+      { freq: 329.63, delay: 0.15, dur: 0.8 }, // E4
+      { freq: 392.00, delay: 0.3, dur: 0.8 }, // G4
+      { freq: 523.25, delay: 0.45, dur: 1.2 }, // C5
+      { freq: 659.25, delay: 0.6, dur: 1.2 }  // E5
+    ];
+
+    notes.forEach((note) => {
+      setTimeout(() => {
+        triggerVoice(note.freq, note.dur);
+      }, note.delay * 1000);
+    });
+
+    const totalDur = (0.6 + 1.2 + synthADSR.release) * 1000;
+    setTimeout(() => {
+      setIsSynthPlaying(false);
+    }, totalDur);
+  };
+
+  const applySynthPreset = (presetName: 'bell' | 'pad' | 'retro') => {
+    if (presetName === 'bell') {
+      setSynthWaveType('sine');
+      setSynthADSR({ attack: 0.01, decay: 0.4, sustain: 0.1, release: 0.5 });
+    } else if (presetName === 'pad') {
+      setSynthWaveType('triangle');
+      setSynthADSR({ attack: 0.6, decay: 0.8, sustain: 0.7, release: 1.5 });
+    } else if (presetName === 'retro') {
+      setSynthWaveType('square');
+      setSynthADSR({ attack: 0.02, decay: 0.1, sustain: 0.4, release: 0.2 });
+    }
+    toast(`Applied acoustic preset: ${presetName.toUpperCase()}`, 'success');
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3492,11 +3653,20 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                            
                            {/* Quick Actions overlay */}
                            {activeProject?.logoUrl && (
-                             <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-white/20 dark:border-zinc-800">
-                                <button onClick={handleExportSVG} className="px-4 py-2 hover:bg-neutral-100 dark:hover:bg-zinc-800 rounded-xl transition-colors font-bold text-sm flex items-center gap-2"><Download size={16} /> SVG</button>
-                                <button onClick={handleExportPNG} className="px-4 py-2 hover:bg-neutral-100 dark:hover:bg-zinc-800 rounded-xl transition-colors font-bold text-sm flex items-center gap-2"><Download size={16} /> PNG</button>
-                                <div className="w-px h-6 bg-neutral-200 dark:bg-zinc-800 mx-1"></div>
-                                <button onClick={() => setActiveWorkspace('workbench')} className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-xl transition-colors font-bold text-sm flex items-center gap-2">Edit Vector <ArrowRight size={16} /></button>
+                             <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-white/20 dark:border-zinc-800 max-w-[95vw] overflow-x-auto">
+                                <button onClick={handleExportSVG} className="px-4 py-2 hover:bg-neutral-100 dark:hover:bg-zinc-800 rounded-xl transition-colors font-bold text-sm flex items-center gap-2 shrink-0"><Download size={16} /> SVG</button>
+                                <button onClick={handleExportPNG} className="px-4 py-2 hover:bg-neutral-100 dark:hover:bg-zinc-800 rounded-xl transition-colors font-bold text-sm flex items-center gap-2 shrink-0"><Download size={16} /> PNG</button>
+                                <div className="w-px h-6 bg-neutral-200 dark:bg-zinc-800 mx-1 shrink-0"></div>
+                                <button 
+                                  onClick={handleVectorizeLogo} 
+                                  disabled={isVectorizing}
+                                  className="px-4 py-2 bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/60 rounded-xl transition-colors font-bold text-sm flex items-center gap-2 disabled:opacity-50 shrink-0"
+                                >
+                                  {isVectorizing ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+                                  {isVectorizing ? 'Tracing...' : 'Vectorize Logo'}
+                                </button>
+                                <div className="w-px h-6 bg-neutral-200 dark:bg-zinc-800 mx-1 shrink-0"></div>
+                                <button onClick={() => setActiveWorkspace('workbench')} className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-xl transition-colors font-bold text-sm flex items-center gap-2 shrink-0">Edit Vector <ArrowRight size={16} /></button>
                              </div>
                            )}
                         </div>
@@ -4012,6 +4182,26 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     </div>
 
                     {mockupTab === 'templates' ? (
+                      <InteractiveMockupViewer
+                        activeProject={activeProject}
+                        selectedTemplate={selectedTemplate}
+                        setSelectedTemplate={setSelectedTemplate}
+                        cardBg={cardBg}
+                        setCardBg={setCardBg}
+                        mockupRotateX={mockupRotateX}
+                        setMockupRotateX={setMockupRotateX}
+                        mockupRotateY={mockupRotateY}
+                        setMockupRotateY={setMockupRotateY}
+                        mockupRotateZ={mockupRotateZ}
+                        setMockupRotateZ={setMockupRotateZ}
+                        mockupScale={mockupScale}
+                        setMockupScale={setMockupScale}
+                        mockupPerspective={mockupPerspective}
+                        setMockupPerspective={setMockupPerspective}
+                        mockupBlendMode={mockupBlendMode}
+                        setMockupBlendMode={setMockupBlendMode}
+                      />
+                    ) : false ? (
                       <div className="space-y-8">
                         {/* Selector for default templates */}
                         <div className="flex gap-2">
@@ -4022,7 +4212,23 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                           ].map(t => (
                             <button
                               key={t.id}
-                              onClick={() => setSelectedTemplate(t.id as any)}
+                              onClick={() => {
+                                const id = t.id as 'card' | 'splash' | 'billboard';
+                                setSelectedTemplate(id);
+                                if (id === 'card') {
+                                  setMockupRotateX(15);
+                                  setMockupRotateY(-20);
+                                  setMockupRotateZ(5);
+                                } else if (id === 'splash') {
+                                  setMockupRotateX(5);
+                                  setMockupRotateY(15);
+                                  setMockupRotateZ(-2);
+                                } else if (id === 'billboard') {
+                                  setMockupRotateX(5);
+                                  setMockupRotateY(-10);
+                                  setMockupRotateZ(0);
+                                }
+                              }}
                               className={`px-4 py-2 text-xs font-bold rounded-full border transition-all cursor-pointer ${selectedTemplate === t.id ? 'bg-black text-white dark:bg-white dark:text-black border-transparent shadow-sm' : 'bg-white dark:bg-zinc-900 text-neutral-600 dark:text-zinc-400 border-neutral-200 dark:border-zinc-800 hover:bg-neutral-50'}`}
                             >
                               {t.name}
@@ -4322,7 +4528,273 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                   </motion.div>
 )}
                            {strategySubTab === 'sonic' && (
-                             <div className="text-sm">Sonic audio synth...</div>
+                             <motion.div key="sonic" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative z-10 max-w-4xl mx-auto w-full">
+                               <h2 className="text-3xl font-bold mb-6">Organic Sonic Branding</h2>
+                               
+                               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                 {/* Left: Uploads */}
+                                 <div className="col-span-1 space-y-6">
+                                   <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800">
+                                     <p className="text-neutral-600 dark:text-zinc-400 mb-6 text-sm">Upload environmental or animal sounds. Instruments are strictly prohibited. The AI will mix these organic sounds into a cohesive auditory identity.</p>
+                                     
+                                     <div className="space-y-4 mb-6">
+                                       {(activeProject.sonicAssets || []).map((asset, i) => (
+                                         <CustomWaveformPlayer key={i} base64Data={asset.base64Data} name={asset.name} />
+                                       ))}
+                                     </div>
+
+                                     <input type="file" ref={sonicInputRef} className="hidden" onChange={handleSonicUpload} accept="audio/*" />
+                                     <button
+                                       onClick={() => sonicInputRef.current?.click()}
+                                       disabled={isGeneratingSonic}
+                                       className="w-full h-32 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-xl bg-neutral-50 dark:bg-zinc-900 hover:bg-indigo-50 hover:border-indigo-300 text-neutral-500 dark:text-zinc-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+                                     >
+                                       {isGeneratingSonic ? <RefreshCw className="animate-spin w-8 h-8" /> : <Music className="w-8 h-8" />}
+                                       <span className="font-semibold text-sm">Upload organic sound</span>
+                                     </button>
+                                   </div>
+                                 </div>
+
+                                 {/* Right: Sonic Philosophy */}
+                                 <div className="col-span-1">
+                                   {!activeProject.sonicPhilosophy ? (
+                                     <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-8 text-indigo-900 flex flex-col items-center justify-center text-center h-full">
+                                       <Music className="w-12 h-12 mb-4 text-indigo-400" />
+                                       <h3 className="text-xl font-bold mb-2">Sonic Philosophy</h3>
+                                        <p className="text-indigo-700">Upload organic sounds to generate the brand's auditory philosophy.</p>
+                                     </div>
+                                   ) : (
+                                     <div className="bg-neutral-900 text-neutral-100 p-8 rounded-3xl shadow-xl h-full flex flex-col relative overflow-hidden">
+                                       <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+                                         <Music className="w-48 h-48" />
+                                       </div>
+                                       <h3 className="text-xl font-bold text-white mb-6 uppercase tracking-widest relative z-10 border-b border-neutral-800 pb-4">Sonic Philosophy</h3>
+                                       <div className="prose prose-invert prose-sm relative z-10 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                                         <p className="whitespace-pre-wrap leading-relaxed text-neutral-300 font-serif">
+                                           {activeProject.sonicPhilosophy}
+                                         </p>
+                                       </div>
+                                     </div>
+                                   )}
+                                 </div>
+                               </div>
+
+                               {/* Polyphonic Synthesizer Workshop */}
+                               <div className="mt-12 bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 p-8 rounded-3xl shadow-sm space-y-8">
+                                 <div>
+                                   <div className="flex items-center gap-3 mb-2">
+                                     <div className="p-2 bg-purple-100 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-xl">
+                                       <Music size={20} />
+                                     </div>
+                                     <h3 className="text-xl font-bold">Acoustic Signature Studio</h3>
+                                   </div>
+                                   <p className="text-sm text-neutral-500 dark:text-zinc-400">
+                                     Calibrate your brand's auditory imprint with an advanced client-side polyphonic synthesizer featuring a custom ADSR envelope, filter shaping, and instrument wave presets.
+                                   </p>
+                                 </div>
+
+                                 {/* Interactive Grid */}
+                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4 border-t border-neutral-100 dark:border-zinc-800">
+                                   
+                                   {/* Left: Wave type and ADSR sliders */}
+                                   <div className="space-y-6">
+                                     <div className="space-y-3">
+                                       <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Acoustic Wave Presets</h4>
+                                       <div className="flex gap-2">
+                                         <button 
+                                           onClick={() => applySynthPreset('bell')} 
+                                           className="px-3 py-1.5 text-xs font-bold bg-neutral-100 dark:bg-zinc-800 text-neutral-800 dark:text-zinc-200 rounded-lg hover:bg-neutral-200 dark:hover:bg-zinc-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                         >
+                                           🔔 Sine Bell
+                                         </button>
+                                         <button 
+                                           onClick={() => applySynthPreset('pad')} 
+                                           className="px-3 py-1.5 text-xs font-bold bg-neutral-100 dark:bg-zinc-800 text-neutral-800 dark:text-zinc-200 rounded-lg hover:bg-neutral-200 dark:hover:bg-zinc-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                         >
+                                           🎻 Triangle Pad
+                                         </button>
+                                         <button 
+                                           onClick={() => applySynthPreset('retro')} 
+                                           className="px-3 py-1.5 text-xs font-bold bg-neutral-100 dark:bg-zinc-800 text-neutral-800 dark:text-zinc-200 rounded-lg hover:bg-neutral-200 dark:hover:bg-zinc-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                         >
+                                           🕹️ Square Retro
+                                         </button>
+                                       </div>
+                                     </div>
+
+                                     <div className="space-y-3">
+                                       <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Oscillator Waveform</h4>
+                                       <div className="grid grid-cols-4 gap-2">
+                                         {(['sine', 'triangle', 'square', 'sawtooth'] as OscillatorType[]).map((wave) => (
+                                           <button
+                                             key={wave}
+                                             onClick={() => setSynthWaveType(wave)}
+                                             className={`px-3 py-2 text-xs font-bold rounded-lg capitalize border transition-all cursor-pointer ${
+                                               synthWaveType === wave 
+                                                 ? 'bg-purple-600 border-purple-600 text-white shadow-sm' 
+                                                 : 'bg-neutral-50 dark:bg-zinc-900 border-neutral-200 dark:border-zinc-800 hover:bg-neutral-100'
+                                             }`}
+                                           >
+                                             {wave}
+                                           </button>
+                                         ))}
+                                       </div>
+                                     </div>
+
+                                     <div className="space-y-4">
+                                       <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400">ADSR Envelope Shaping</h4>
+                                       
+                                       <div className="space-y-2">
+                                         <div className="flex justify-between text-xs">
+                                           <span className="font-medium text-neutral-600 dark:text-zinc-400">Attack (Rise Time)</span>
+                                           <span className="font-mono text-purple-600 dark:text-purple-400 font-bold">{synthADSR.attack}s</span>
+                                         </div>
+                                         <input 
+                                           type="range" 
+                                           min="0.01" 
+                                           max="2.0" 
+                                           step="0.05"
+                                           value={synthADSR.attack} 
+                                           onChange={(e) => setSynthADSR(prev => ({ ...prev, attack: parseFloat(e.target.value) }))}
+                                           className="w-full h-1 bg-neutral-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                         />
+                                       </div>
+
+                                       <div className="space-y-2">
+                                         <div className="flex justify-between text-xs">
+                                           <span className="font-medium text-neutral-600 dark:text-zinc-400">Decay (Settle Time)</span>
+                                           <span className="font-mono text-purple-600 dark:text-purple-400 font-bold">{synthADSR.decay}s</span>
+                                         </div>
+                                         <input 
+                                           type="range" 
+                                           min="0.01" 
+                                           max="2.0" 
+                                           step="0.05"
+                                           value={synthADSR.decay} 
+                                           onChange={(e) => setSynthADSR(prev => ({ ...prev, decay: parseFloat(e.target.value) }))}
+                                           className="w-full h-1 bg-neutral-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                         />
+                                       </div>
+
+                                       <div className="space-y-2">
+                                         <div className="flex justify-between text-xs">
+                                           <span className="font-medium text-neutral-600 dark:text-zinc-400">Sustain (Hold Volume)</span>
+                                           <span className="font-mono text-purple-600 dark:text-purple-400 font-bold">{Math.round(synthADSR.sustain * 100)}%</span>
+                                         </div>
+                                         <input 
+                                           type="range" 
+                                           min="0.0" 
+                                           max="1.0" 
+                                           step="0.05"
+                                           value={synthADSR.sustain} 
+                                           onChange={(e) => setSynthADSR(prev => ({ ...prev, sustain: parseFloat(e.target.value) }))}
+                                           className="w-full h-1 bg-neutral-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                         />
+                                       </div>
+
+                                       <div className="space-y-2">
+                                         <div className="flex justify-between text-xs">
+                                           <span className="font-medium text-neutral-600 dark:text-zinc-400">Release (Fade Time)</span>
+                                           <span className="font-mono text-purple-600 dark:text-purple-400 font-bold">{synthADSR.release}s</span>
+                                         </div>
+                                         <input 
+                                           type="range" 
+                                           min="0.01" 
+                                           max="3.0" 
+                                           step="0.05"
+                                           value={synthADSR.release} 
+                                           onChange={(e) => setSynthADSR(prev => ({ ...prev, release: parseFloat(e.target.value) }))}
+                                           className="w-full h-1 bg-neutral-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                         />
+                                       </div>
+                                     </div>
+                                   </div>
+
+                                   {/* Right: Sound Trigger, Keyboard, Live Waveform Visualizer */}
+                                   <div className="flex flex-col justify-between space-y-6">
+                                     <div className="space-y-4">
+                                       <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Play Acoustic Signature</h4>
+                                       <button 
+                                         onClick={playBrandMelody}
+                                         disabled={isSynthPlaying}
+                                         className="w-full py-4 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-900 disabled:opacity-60 text-white font-bold rounded-2xl flex items-center justify-center gap-3 shadow-md transition-all cursor-pointer select-none active:scale-95"
+                                       >
+                                         {isSynthPlaying ? (
+                                           <>
+                                             <div className="flex gap-1">
+                                               <div className="w-1 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                                               <div className="w-1 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                                               <div className="w-1 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
+                                             </div>
+                                             <span>Synthesizing Brand Motif...</span>
+                                           </>
+                                         ) : (
+                                           <>
+                                             <Zap size={18} />
+                                             <span>Trigger Sound Signature Chord</span>
+                                           </>
+                                         )}
+                                       </button>
+                                     </div>
+
+                                     {/* Soundboard / Keyboard Keys */}
+                                     <div className="space-y-3">
+                                       <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Interactive Acoustic Soundboard</h4>
+                                       <div className="flex gap-1 bg-neutral-100 dark:bg-zinc-950 p-2 rounded-2xl border border-neutral-200 dark:border-zinc-800/80 overflow-x-auto justify-center">
+                                         {[
+                                           { key: 'C4', freq: 261.63, note: 'C' },
+                                           { key: 'D4', freq: 293.66, note: 'D' },
+                                           { key: 'E4', freq: 329.63, note: 'E' },
+                                           { key: 'F4', freq: 349.23, note: 'F' },
+                                           { key: 'G4', freq: 392.00, note: 'G' },
+                                           { key: 'A4', freq: 440.00, note: 'A' },
+                                           { key: 'B4', freq: 493.88, note: 'B' },
+                                           { key: 'C5', freq: 523.25, note: 'C+' }
+                                         ].map((item) => (
+                                           <button
+                                             key={item.key}
+                                             onClick={() => triggerVoice(item.freq, 0.4)}
+                                             className="flex-1 min-w-[36px] h-20 bg-white dark:bg-zinc-800 hover:bg-neutral-100 dark:hover:bg-zinc-700 active:bg-purple-100 dark:active:bg-purple-950 text-neutral-800 dark:text-zinc-200 rounded-xl flex flex-col justify-end items-center pb-2 border border-neutral-200 dark:border-zinc-800 shadow-sm transition-all text-xs font-mono select-none cursor-pointer"
+                                           >
+                                             <span className="text-[10px] font-bold opacity-60">{item.key}</span>
+                                             <span className="font-bold">{item.note}</span>
+                                           </button>
+                                         ))}
+                                       </div>
+                                     </div>
+
+                                     {/* Live Waveform Visualizer */}
+                                     <div className="space-y-2">
+                                       <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Live Waveform Visualizer</h4>
+                                       <div className="h-20 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-800 flex items-center justify-center overflow-hidden relative">
+                                         <svg className="w-full h-full" viewBox="0 0 400 100" preserveAspectRatio="none">
+                                           <path 
+                                             d={synthRippleIntensity > 0 
+                                               ? `M 0,50 Q 50,${50 - synthRippleIntensity * 12} 100,50 T 200,50 T 300,50 T 400,50` 
+                                               : "M 0,50 L 400,50"
+                                             } 
+                                             fill="none" 
+                                             stroke={synthRippleIntensity > 0 ? "rgb(147, 51, 234)" : "rgb(163, 163, 163)"} 
+                                             strokeWidth={synthRippleIntensity > 0 ? "3" : "1"} 
+                                             className={`transition-all duration-300 ${synthRippleIntensity > 0 ? 'animate-pulse' : ''}`}
+                                           />
+                                           {synthRippleIntensity > 0 && (
+                                             <path 
+                                               d={`M 0,50 Q 50,${50 + synthRippleIntensity * 8} 100,50 T 200,50 T 300,50 T 400,50`} 
+                                               fill="none" 
+                                               stroke="rgba(147, 51, 234, 0.4)" 
+                                               strokeWidth="1.5" 
+                                               className="transition-all duration-300 animate-pulse"
+                                             />
+                                           )}
+                                         </svg>
+                                       </div>
+                                     </div>
+
+                                   </div>
+                                 </div>
+                               </div>
+                             </motion.div>
                            )}
                         </div>
                       </div>
@@ -4815,6 +5287,26 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     </div>
 
                     {mockupTab === 'templates' ? (
+                      <InteractiveMockupViewer
+                        activeProject={activeProject}
+                        selectedTemplate={selectedTemplate}
+                        setSelectedTemplate={setSelectedTemplate}
+                        cardBg={cardBg}
+                        setCardBg={setCardBg}
+                        mockupRotateX={mockupRotateX}
+                        setMockupRotateX={setMockupRotateX}
+                        mockupRotateY={mockupRotateY}
+                        setMockupRotateY={setMockupRotateY}
+                        mockupRotateZ={mockupRotateZ}
+                        setMockupRotateZ={setMockupRotateZ}
+                        mockupScale={mockupScale}
+                        setMockupScale={setMockupScale}
+                        mockupPerspective={mockupPerspective}
+                        setMockupPerspective={setMockupPerspective}
+                        mockupBlendMode={mockupBlendMode}
+                        setMockupBlendMode={setMockupBlendMode}
+                      />
+                    ) : false ? (
                       <div className="space-y-8">
                         {/* Selector for default templates */}
                         <div className="flex gap-2">
@@ -4825,7 +5317,23 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                           ].map(t => (
                             <button
                               key={t.id}
-                              onClick={() => setSelectedTemplate(t.id as any)}
+                              onClick={() => {
+                                const id = t.id as 'card' | 'splash' | 'billboard';
+                                setSelectedTemplate(id);
+                                if (id === 'card') {
+                                  setMockupRotateX(15);
+                                  setMockupRotateY(-20);
+                                  setMockupRotateZ(5);
+                                } else if (id === 'splash') {
+                                  setMockupRotateX(5);
+                                  setMockupRotateY(15);
+                                  setMockupRotateZ(-2);
+                                } else if (id === 'billboard') {
+                                  setMockupRotateX(5);
+                                  setMockupRotateY(-10);
+                                  setMockupRotateZ(0);
+                                }
+                              }}
                               className={`px-4 py-2 text-xs font-bold rounded-full border transition-all cursor-pointer ${selectedTemplate === t.id ? 'bg-black text-white dark:bg-white dark:text-black border-transparent shadow-sm' : 'bg-white dark:bg-zinc-900 text-neutral-600 dark:text-zinc-400 border-neutral-200 dark:border-zinc-800 hover:bg-neutral-50'}`}
                             >
                               {t.name}

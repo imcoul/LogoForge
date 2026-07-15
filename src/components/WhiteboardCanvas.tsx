@@ -100,7 +100,18 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
     } else if (tool === 'sweeping-eraser') {
       // Find a sketch to delete
       const deletedSketch = sketches.find(s => {
-        const coords = s.path.replace('M ', '').split(' ').map(p => p.split(',').map(Number));
+        if (!s.path) return false;
+        const cleanPath = s.path.replace('M ', '').trim();
+        if (!cleanPath) return false;
+        const coords = cleanPath.split(' ')
+          .map(p => {
+            const parts = p.split(',');
+            if (parts.length < 2) return null;
+            const x = Number(parts[0]);
+            const y = Number(parts[1]);
+            return isNaN(x) || isNaN(y) ? null : [x, y];
+          })
+          .filter((coord): coord is [number, number] => coord !== null);
         return coords.some(([x, y]) => Math.sqrt((x - point.x)**2 + (y - point.y)**2) < 20);
       });
       if (deletedSketch) {
@@ -129,26 +140,37 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
     setIsDrawing(false);
     
     if (tool === 'line' && startPoint && currentPoints) {
-        const points = currentPoints.split(' ');
-        const endPoint = points[1].split(',').map(Number);
-        const newNode: Node = {
-            id: Date.now().toString(),
-            type: 'line',
-            transform: { x: startPoint.x, y: startPoint.y, scaleX: 1, scaleY: 1, rotate: 0 },
-            props: { x2: endPoint[0] - startPoint.x, y2: endPoint[1] - startPoint.y },
-            meta: { createdBy: 'user', timestamp: new Date().toISOString() }
-        };
-        if (activeProjectId) {
-            const updatedNodes = [...(activeProject?.sceneGraph || []), newNode];
-            await updateProject(activeProjectId, { sceneGraph: updatedNodes });
+        if (currentPoints.includes(' ')) {
+            const points = currentPoints.split(' ');
+            if (points.length >= 2 && points[1]) {
+                const parts = points[1].split(',');
+                if (parts.length >= 2) {
+                    const endPointX = Number(parts[0]);
+                    const endPointY = Number(parts[1]);
+                    if (!isNaN(endPointX) && !isNaN(endPointY)) {
+                        const newNode: Node = {
+                            id: Date.now().toString(),
+                            type: 'line',
+                            transform: { x: startPoint.x, y: startPoint.y, scaleX: 1, scaleY: 1, rotate: 0 },
+                            props: { x2: endPointX - startPoint.x, y2: endPointY - startPoint.y },
+                            meta: { createdBy: 'user', timestamp: new Date().toISOString() }
+                        };
+                        if (activeProjectId) {
+                            const updatedNodes = [...(activeProject?.sceneGraph || []), newNode];
+                            await updateProject(activeProjectId, { sceneGraph: updatedNodes });
+                        }
+                    }
+                }
+            }
         }
         setCurrentPoints('');
         setStartPoint(null);
     } else if (tool === 'pencil' && currentPoints) {
+        const smoothedPath = smoothPointsToPath(currentPoints);
         const newSketch = {
             id: Date.now().toString(),
             name: `Sketch ${sketches.length + 1}`,
-            path: `M ${currentPoints}`
+            path: smoothedPath || `M ${currentPoints}`
         };
         const updatedSketches = [...sketches, newSketch];
         setSketches(updatedSketches);
@@ -218,12 +240,12 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
                 />
             ))}
             {tool === 'pencil' && <path key="current-sketch" d={currentPoints ? `M ${currentPoints}` : ''} fill="none" stroke="currentColor" strokeWidth="2" />}
-            {tool === 'line' && startPoint && currentPoints && (
+            {tool === 'line' && startPoint && currentPoints && currentPoints.includes(' ') && (
                 <line
                     x1={startPoint.x}
                     y1={startPoint.y}
-                    x2={currentPoints.split(' ')[1].split(',')[0]}
-                    y2={currentPoints.split(' ')[1].split(',')[1]}
+                    x2={Number(currentPoints.split(' ')[1]?.split(',')[0] || startPoint.x)}
+                    y2={Number(currentPoints.split(' ')[1]?.split(',')[1] || startPoint.y)}
                     stroke="currentColor"
                     strokeWidth="2"
                     strokeDasharray="4 4"
@@ -266,3 +288,92 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
     </div>
   );
 };
+
+function simplifyPoints(points: [number, number][], tolerance: number): [number, number][] {
+  if (points.length <= 2) return points;
+
+  let maxSqDist = 0;
+  let index = 0;
+  const end = points.length - 1;
+
+  for (let i = 1; i < end; i++) {
+    const sqDist = getSqSegDist(points[i], points[0], points[end]);
+    if (sqDist > maxSqDist) {
+      index = i;
+      maxSqDist = sqDist;
+    }
+  }
+
+  if (maxSqDist > tolerance * tolerance) {
+    const results1 = simplifyPoints(points.slice(0, index + 1), tolerance);
+    const results2 = simplifyPoints(points.slice(index), tolerance);
+    return results1.slice(0, results1.length - 1).concat(results2);
+  }
+
+  return [points[0], points[end]];
+}
+
+function getSqSegDist(p: [number, number], p1: [number, number], p2: [number, number]): number {
+  let x = p1[0];
+  let y = p1[1];
+  let dx = p2[0] - x;
+  let dy = p2[1] - y;
+
+  if (dx !== 0 || dy !== 0) {
+    const t = ((p[0] - x) * dx + (p[1] - y) * dy) / (dx * dx + dy * dy);
+    if (t > 1) {
+      x = p2[0];
+      y = p2[1];
+    } else if (t > 0) {
+      x += dx * t;
+      y += dy * t;
+    }
+  }
+
+  dx = p[0] - x;
+  dy = p[1] - y;
+  return dx * dx + dy * dy;
+}
+
+export function smoothPointsToPath(pointsStr: string): string {
+  if (!pointsStr) return '';
+  const points: [number, number][] = pointsStr.trim().split(' ')
+    .map(p => {
+      const parts = p.split(',');
+      return [Number(parts[0]), Number(parts[1])] as [number, number];
+    })
+    .filter(([x, y]) => !isNaN(x) && !isNaN(y));
+
+  if (points.length === 0) return '';
+  
+  // Simplify points using Ramer-Douglas-Peucker (RDP) algorithm to remove noisy jitter
+  const simplified = simplifyPoints(points, 1.2);
+  
+  if (simplified.length < 2) {
+    if (simplified.length === 1) {
+      return `M ${simplified[0][0]},${simplified[0][1]} L ${simplified[0][0]},${simplified[0][1]}`;
+    }
+    return '';
+  }
+  
+  // Interpolate using smooth quadratic Bezier curves (midpoint curve-fitting)
+  let d = `M ${simplified[0][0]},${simplified[0][1]}`;
+  
+  if (simplified.length === 2) {
+    d += ` L ${simplified[1][0]},${simplified[1][1]}`;
+    return d;
+  }
+  
+  for (let i = 1; i < simplified.length - 1; i++) {
+    const xc = (simplified[i][0] + simplified[i + 1][0]) / 2;
+    const yc = (simplified[i][1] + simplified[i + 1][1]) / 2;
+    d += ` Q ${simplified[i][0]},${simplified[i][1]} ${xc},${yc}`;
+  }
+  
+  // Connect cleanly to the last point
+  const last = simplified[simplified.length - 1];
+  const secondLast = simplified[simplified.length - 2];
+  d += ` Q ${secondLast[0]},${secondLast[1]} ${last[0]},${last[1]}`;
+  
+  return d;
+}
