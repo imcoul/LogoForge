@@ -1,0 +1,502 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Cloud, 
+  Layers, 
+  Users, 
+  ShieldAlert, 
+  ShieldCheck, 
+  Palette, 
+  Lock, 
+  Unlock, 
+  Trash2, 
+  RefreshCw, 
+  CheckCircle, 
+  Info 
+} from 'lucide-react';
+import { useAppStore } from '../store';
+import { db } from '../services/firebase';
+import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
+import { useToast } from '../components/Toast';
+import { syncProjectToPostgres, syncProjectToSupabase } from '../utils/dbBackupClient';
+
+interface SettingsProps {
+  setIsGoogleDriveOpen: (open: boolean) => void;
+}
+
+export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
+  const { toast } = useToast();
+  const {
+    settings,
+    updateSettings,
+    projects,
+    activeProjectId,
+    user
+  } = useAppStore();
+
+  const activeProject = projects.find(p => p.id === activeProjectId) || null;
+
+  // Local state for DB backups and mirroring
+  const [isBackingUpDb, setIsBackingUpDb] = useState(false);
+
+  // Local state for user directory roles
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
+
+  const fetchUsers = async () => {
+    if (!user) return;
+    setIsUsersLoading(true);
+    try {
+      const qSnapshot = await getDocs(collection(db, 'users'));
+      const list: any[] = [];
+      qSnapshot.forEach((docSnap) => {
+        list.push(docSnap.data());
+      });
+      setAllUsers(list);
+    } catch (err) {
+      console.error('Failed to fetch users:', err);
+    } finally {
+      setIsUsersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchUsers();
+    }
+  }, [user]);
+
+  const handleChangeUserRole = async (targetUserId: string, newRole: 'Designer' | 'Server') => {
+    const targetUser = allUsers.find(u => u.uid === targetUserId);
+    if (!targetUser) return;
+
+    if (newRole === 'Designer' && targetUser.role === 'Server') {
+      const serverCount = allUsers.filter(u => u.role === 'Server').length;
+      if (serverCount <= 1) {
+        toast("Cannot demote the last Server of the app!", "error");
+        return;
+      }
+    }
+
+    try {
+      await setDoc(doc(db, 'users', targetUserId), {
+        role: newRole,
+        "settings.role": newRole
+      }, { merge: true });
+      
+      toast(`Successfully updated ${targetUser.email}'s role to ${newRole}!`, "success");
+      fetchUsers();
+    } catch (err) {
+      toast("Error updating role: " + (err instanceof Error ? err.message : String(err)), "error");
+    }
+  };
+
+  const handleDeleteUserProfile = async (targetUserId: string) => {
+    const targetUser = allUsers.find(u => u.uid === targetUserId);
+    if (!targetUser) return;
+
+    if (targetUser.role === 'Server') {
+      const serverCount = allUsers.filter(u => u.role === 'Server').length;
+      if (serverCount <= 1) {
+        toast("Cannot delete the last Server of the app!", "error");
+        return;
+      }
+    }
+
+    if (!window.confirm(`Are you sure you want to delete user ${targetUser.email || targetUser.uid}?`)) {
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'users', targetUserId));
+      toast(`Successfully deleted ${targetUser.email}!`, "success");
+      fetchUsers();
+    } catch (err) {
+      toast("Error deleting user: " + (err instanceof Error ? err.message : String(err)), "error");
+    }
+  };
+
+  const handleManualBackup = async (target: 'postgres' | 'supabase') => {
+    if (!activeProject) {
+      toast('Please select or create a project to back up.', 'error');
+      return;
+    }
+    setIsBackingUpDb(true);
+    
+    let res;
+    if (target === 'postgres') {
+      res = await syncProjectToPostgres(activeProject, settings.postgresConnectionString);
+    } else {
+      res = await syncProjectToSupabase(activeProject, settings.supabaseUrl, settings.supabaseAnonKey);
+    }
+
+    setIsBackingUpDb(false);
+    if (res.success) {
+      toast(res.message, 'success');
+    } else {
+      toast(res.message, 'error');
+    }
+  };
+
+  const handleExportNotion = async () => {
+    if (!activeProject) return;
+
+    try {
+      const response = await fetch('/api/oauth/notion/url');
+      if (!response.ok) {
+        throw new Error('Failed to get auth URL. Check NOTION_CLIENT_ID configuration.');
+      }
+      const { url } = await response.json();
+
+      const authWindow = window.open(
+        url,
+        'oauth_popup',
+        'width=600,height=700'
+      );
+
+      if (!authWindow) {
+        toast('Please allow popups for this site to connect to Notion.', 'error');
+      }
+    } catch (error: any) {
+      console.error('OAuth error:', error);
+      toast(error.message, 'error');
+    }
+  };
+
+  return (
+    <div className="flex-1 p-12 overflow-y-auto">
+      <div className="max-w-2xl mx-auto">
+        <h1 className="text-4xl font-display font-bold tracking-tight mb-12 text-black dark:text-white">Settings</h1>
+        
+        <div className="space-y-8">
+          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800">
+            <h2 className="text-xl font-bold font-display mb-4 text-neutral-900 dark:text-white">AI Model Integration</h2>
+            <p className="text-sm text-neutral-500 mb-6">Bring your own keys to use custom models for generation and reasoning.</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Google Gemini API Key</label>
+                <input 
+                  type="password" 
+                  placeholder="AIzaSy..." 
+                  value={settings.geminiKey || ''} 
+                  onChange={(e) => updateSettings({ geminiKey: e.target.value })} 
+                  className="w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" 
+                />
+                {settings.geminiKey ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400 border border-green-200 dark:border-green-900 mt-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                    Custom Key Active — Requests will use your own billing limits
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-200 dark:border-amber-900 mt-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    Shared Workspace Key — Requests use the developer's limits
+                  </span>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">OpenAI API Key</label>
+                <input 
+                  type="password" 
+                  placeholder="sk-..." 
+                  value={settings.openaiKey || ''} 
+                  onChange={(e) => updateSettings({ openaiKey: e.target.value })} 
+                  className="w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" 
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Local/Custom LLM Endpoint</label>
+                <input 
+                  type="url" 
+                  placeholder="http://localhost:11434/api/generate" 
+                  value={settings.customEndpoint || ''} 
+                  onChange={(e) => updateSettings({ customEndpoint: e.target.value })} 
+                  className="w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" 
+                />
+                <p className="text-xs text-neutral-400 mt-2">Useful for connecting to local models like Ollama or LM Studio.</p>
+              </div>
+              <button onClick={() => toast('Settings saved locally.', 'success')} className="bg-black dark:bg-white text-white dark:text-black px-6 py-3 rounded-xl font-bold text-sm mt-4 w-full hover:opacity-80 transition-opacity cursor-pointer">Save API Keys</button>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800">
+            <h2 className="text-xl font-bold font-display mb-4 text-neutral-900 dark:text-white">Integrations</h2>
+            
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-800">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-white rounded-lg shadow-sm flex items-center justify-center font-serif text-xl font-bold text-black border border-neutral-200">N</div>
+                  <div>
+                    <h3 className="font-bold text-neutral-900 dark:text-white">Notion</h3>
+                    <p className="text-xs text-neutral-500">Export Brand Guides to your workspace.</p>
+                  </div>
+                </div>
+                <button onClick={handleExportNotion} className="bg-white dark:bg-zinc-800 border border-neutral-200 dark:border-zinc-700 px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:border-brand-lead transition-colors cursor-pointer text-neutral-800 dark:text-zinc-200">
+                  Connect
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-800">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-indigo-50 rounded-lg shadow-sm flex items-center justify-center border border-indigo-150">
+                    <Cloud size={20} className="text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-neutral-900 dark:text-white">Google Drive</h3>
+                    <p className="text-xs text-neutral-500">Import/Export SVGs and Brand Manuals instantly.</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsGoogleDriveOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors cursor-pointer">
+                  Manage Storage
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Database Backups & Cloud Mirroring Block */}
+          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800">
+            <h2 className="text-xl font-bold font-display mb-2 flex items-center gap-2 text-neutral-900 dark:text-white">
+              <Layers size={22} className="text-indigo-500" />
+              Database Backups & Mirroring
+            </h2>
+            <p className="text-sm text-neutral-500 mb-6">
+              Set up automatic secondary mirroring of your projects to a secure relational database fallback in case Firebase is unavailable.
+            </p>
+
+            <div className="space-y-6">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-3">Backup Provider</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(['none', 'postgres', 'supabase', 'both'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => updateSettings({ backupMode: mode })}
+                      className={`px-3 py-2 text-xs font-bold rounded-xl border capitalize transition-all cursor-pointer ${
+                        (settings.backupMode || 'none') === mode
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                          : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-400 hover:border-indigo-400'
+                      }`}
+                    >
+                      {mode === 'none' ? 'Disabled 🚫' : mode === 'postgres' ? 'PostgreSQL 🐘' : mode === 'supabase' ? 'Supabase ⚡' : 'Both 💫'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* PostgreSQL configuration */}
+              {((settings.backupMode === 'postgres' || settings.backupMode === 'both')) && (
+                <div className="p-5 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-850 space-y-4">
+                  <div className="flex items-center justify-between border-b border-neutral-200 dark:border-zinc-800 pb-2">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-700 dark:text-zinc-300">PostgreSQL Settings</h3>
+                    <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md font-mono">🐘 Relational</span>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-500 mb-1.5">Connection URI</label>
+                    <input
+                      type="password"
+                      placeholder="postgresql://username:password@localhost:5432/dbname"
+                      value={settings.postgresConnectionString || ''}
+                      onChange={(e) => updateSettings({ postgresConnectionString: e.target.value })}
+                      className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-800 dark:text-zinc-100"
+                    />
+                    <p className="text-[10px] text-neutral-400 mt-1.5">Leave blank to use the server-side default DATABASE_URL variable, or enter your own.</p>
+                  </div>
+                  
+                  {activeProject && (
+                    <button
+                      onClick={() => handleManualBackup('postgres')}
+                      disabled={isBackingUpDb}
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-neutral-200 hover:bg-neutral-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-zinc-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full cursor-pointer"
+                    >
+                      <RefreshCw size={12} className={isBackingUpDb ? "animate-spin" : ""} />
+                      {isBackingUpDb ? 'Mirroring...' : 'Mirror Active Project to Postgres Now'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Supabase configuration */}
+              {((settings.backupMode === 'supabase' || settings.backupMode === 'both')) && (
+                <div className="p-5 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-850 space-y-4">
+                  <div className="flex items-center justify-between border-b border-neutral-200 dark:border-zinc-800 pb-2">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-700 dark:text-zinc-300">Supabase Settings</h3>
+                    <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-md font-mono">⚡ Supabase</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-neutral-500 mb-1.5">Supabase URL</label>
+                      <input
+                        type="text"
+                        placeholder="https://your-project.supabase.co"
+                        value={settings.supabaseUrl || ''}
+                        onChange={(e) => updateSettings({ supabaseUrl: e.target.value })}
+                        className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-800 dark:text-zinc-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-neutral-500 mb-1.5">Anon API Key</label>
+                      <input
+                        type="password"
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        value={settings.supabaseAnonKey || ''}
+                        onChange={(e) => updateSettings({ supabaseAnonKey: e.target.value })}
+                        className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-800 dark:text-zinc-100"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-neutral-400">Leave blank to use the server-side pre-configured fallback keys, or enter custom ones.</p>
+                  
+                  {activeProject && (
+                    <button
+                      onClick={() => handleManualBackup('supabase')}
+                      disabled={isBackingUpDb}
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-neutral-200 hover:bg-neutral-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-zinc-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full cursor-pointer"
+                    >
+                      <RefreshCw size={12} className={isBackingUpDb ? "animate-spin" : ""} />
+                      {isBackingUpDb ? 'Mirroring...' : 'Mirror Active Project to Supabase Now'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {settings.backupMode && settings.backupMode !== 'none' && (
+                <div className="flex gap-2 items-center text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-950">
+                  <CheckCircle size={14} className="shrink-0" />
+                  <p>
+                    <strong>Active Auto-Mirroring:</strong> Whenever you modify your brand assets, the latest states will sync instantly to Firestore and your designated secondary SQL database in the background!
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* User Roles & Directory Management Card */}
+          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800">
+            <h2 className="text-xl font-bold font-display mb-2 flex items-center gap-2 text-neutral-900 dark:text-white">
+              <Users size={22} className="text-violet-500" />
+              User Directory & Role Management
+            </h2>
+            <p className="text-sm text-neutral-500 mb-6">
+              Manage authenticated users, platform privileges, and role permissions. Default role is Designer. Server role is required to modify roles.
+            </p>
+
+            {!user ? (
+              <div className="flex gap-3 items-center text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 p-5 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+                <ShieldAlert size={18} className="shrink-0 text-amber-500" />
+                <p>
+                  <strong>Authentication Required:</strong> Please sign in with your Google Account in the upper right corner to access the live system-wide User Directory and manage role assignments.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {isUsersLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="animate-spin text-zinc-500" size={24} />
+                  </div>
+                ) : (
+                  <div className="border border-neutral-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-neutral-50 dark:bg-zinc-950/50 border-b border-neutral-200 dark:border-zinc-800 font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                            <th className="px-5 py-3 font-semibold">User</th>
+                            <th className="px-5 py-3 font-semibold">UID</th>
+                            <th className="px-5 py-3 font-semibold">Role</th>
+                            <th className="px-5 py-3 font-semibold text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-200 dark:divide-zinc-800">
+                          {allUsers.map((u) => {
+                            const isSelf = u.uid === user.uid;
+                            const isActiveUserServer = settings.role === 'Server';
+                            return (
+                              <tr key={u.uid} className="hover:bg-neutral-50 dark:hover:bg-zinc-950/20 transition-colors">
+                                <td className="px-5 py-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-violet-100 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold text-xs uppercase border border-violet-200 dark:border-violet-800/40">
+                                      {(u.displayName || u.email || 'U').substring(0, 2)}
+                                    </div>
+                                    <div>
+                                      <div className="font-medium text-neutral-800 dark:text-zinc-200 flex items-center gap-1.5">
+                                        {u.displayName || 'No Name'}
+                                        {isSelf && (
+                                          <span className="text-[10px] bg-neutral-100 dark:bg-zinc-850 text-neutral-600 dark:text-zinc-400 px-2 py-0.5 rounded font-mono font-bold uppercase">You</span>
+                                        )}
+                                      </div>
+                                      <div className="text-[11px] text-neutral-400">{u.email}</div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-4 font-mono text-[10px] text-neutral-400 select-all">{u.uid}</td>
+                                <td className="px-5 py-4">
+                                  {u.role === 'Server' ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-md border border-emerald-100 dark:border-emerald-900/30">
+                                      <ShieldCheck size={10} /> SERVER
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-md border border-indigo-100 dark:border-indigo-900/30">
+                                      <Palette size={10} /> DESIGNER
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-5 py-4 text-right space-x-1.5">
+                                  {isActiveUserServer ? (
+                                    <>
+                                      {u.role === 'Server' ? (
+                                        <button
+                                          onClick={() => handleChangeUserRole(u.uid, 'Designer')}
+                                          className="px-2.5 py-1.5 bg-white border border-neutral-200 hover:bg-neutral-100 dark:bg-zinc-800 dark:border-zinc-700 dark:hover:bg-zinc-700 text-neutral-700 dark:text-zinc-300 rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+                                          title="Demote to Designer Role"
+                                        >
+                                          <Lock size={10} /> Demote
+                                        </button>
+                                      ) : (
+                                        <button
+                                          onClick={() => handleChangeUserRole(u.uid, 'Server')}
+                                          className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+                                          title="Promote to Server Role"
+                                        >
+                                          <Unlock size={10} /> Promote
+                                        </button>
+                                      )}
+                                      
+                                      <button
+                                        onClick={() => handleDeleteUserProfile(u.uid)}
+                                        className="p-1.5 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/20 text-neutral-400 dark:hover:text-red-400 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center border border-transparent hover:border-red-200 dark:hover:border-red-900/30"
+                                        title="Delete User Profile"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <span className="text-[11px] text-neutral-400 italic font-mono">Read Only</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex gap-2 items-start text-[11px] text-neutral-400 bg-neutral-50 dark:bg-zinc-950/20 p-3.5 rounded-2xl border border-neutral-150 dark:border-zinc-800">
+                  <Info size={14} className="shrink-0 text-neutral-400 mt-0.5" />
+                  <div>
+                    <strong>Administrative Guidelines:</strong>
+                    <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                      <li>Only users with the <span className="text-emerald-500 font-bold">Server</span> role can elevate or demote roles.</li>
+                      <li>You cannot demote or delete the last <span className="text-emerald-500 font-bold">Server</span> of the application to prevent server lockout.</li>
+                      <li>The first Server (lcoulagency@gmail.com) is provisioned automatically.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

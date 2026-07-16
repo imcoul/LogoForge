@@ -124,12 +124,13 @@ router.post("/analyze-refinement", async (req, res) => {
 
 router.post("/generate-brand-guide", async (req, res) => {
   try {
-    const { base64Data, mimeType, context } = req.body;
+    const { base64Data, mimeType, context, generationMode = 'complete' } = req.body;
     const client = getClient(req);
-    const prompt = `Analyze this logo and generate a comprehensive, professional brand guideline document. ${context ? `The company context is: "${context}".` : "Infer the brand's industry and vibe from the logo itself."} Return the results in the requested JSON structure. Ensure colors match the primary features in the uploaded image accurately.`;
+    const prompt = `Analyze this logo and generate a comprehensive, professional brand guideline document. ${context ? `The company context is: "${context}".` : "Infer the brand's industry and vibe from the logo itself."} Return the results in the requested JSON structure. Ensure colors match the primary features in the uploaded image accurately.${generationMode === 'compact' ? ' Keep descriptions short and concise.' : ''}`;
     
+    const modelToUse = generationMode === 'compact' ? 'gemini-2.5-flash' : 'gemini-3.1-pro-preview';
     const response = await client.models.generateContent({
-      model: 'gemini-3.1-pro-preview',
+      model: modelToUse,
       contents: {
         parts: [
           { text: prompt },

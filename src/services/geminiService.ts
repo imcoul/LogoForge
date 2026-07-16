@@ -96,12 +96,13 @@ export const analyzeRefinementContext = async (
 export const generateBrandGuide = async (
   base64Data: string,
   mimeType: string,
-  context?: string
+  context?: string,
+  generationMode?: 'compact' | 'complete'
 ): Promise<BrandGuide> => {
   const res = await fetchWithRetry('/api/gemini/generate-brand-guide', {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ base64Data, mimeType, context })
+    body: JSON.stringify({ base64Data, mimeType, context, generationMode })
   });
   if (!res.ok) {
     const error = await res.json();

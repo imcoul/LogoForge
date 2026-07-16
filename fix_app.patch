@@ -1,0 +1,56 @@
+--- src/App.tsx
++++ src/App.tsx
+@@ -2463,45 +2463,38 @@
+       </div>
+ 
+       {view === 'dashboard' ? (
+-        <Dashboard
+-          t={t}
+-          user={user}
+-          logout={logout}
+-          signInWithGoogle={signInWithGoogle}
+-        />
+-      ) : (
+-        <div className="flex flex-col gap-4">
+-          <div className="flex flex-wrap items-center gap-4">
+-            {/* Google Drive Button */}
++        <div className="flex-1 p-6 md:p-12 overflow-y-auto relative">
++          <div className="max-w-6xl mx-auto">
++            {/* Dashboard Header */}
++            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
++              <div>
++                <h1 className="text-4xl font-display font-bold tracking-tight mb-2 text-black dark:text-white">{t('app_title')}</h1>
++                <p className="text-neutral-500 dark:text-zinc-400">{t('app_description')}</p>
++              </div>
++              <div className="flex flex-wrap items-center gap-4">
++                {/* Google Auth Integration Button */}
++                {user ? (
++                  <div className="flex items-center gap-2 bg-neutral-100 dark:bg-zinc-800 px-3.5 py-1.5 rounded-xl border border-neutral-200 dark:border-zinc-750">
++                    {user.photoURL ? (
++                      <img src={user.photoURL} alt={user.displayName || 'User'} className="w-5 h-5 rounded-full object-cover" referrerPolicy="no-referrer" />
++                    ) : (
++                      <div className="w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center text-white text-[10px] font-bold">
++                        {user.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
++                      </div>
++                    )}
++                    <span className="text-xs font-bold text-neutral-800 dark:text-zinc-200">
++                      {user.displayName || user.email?.split('@')[0]}
++                    </span>
++                    <button
++                      onClick={() => logout()}
++                      className="ml-2 text-xs text-red-500 hover:text-red-600 font-bold transition-colors cursor-pointer"
++                    >
++                      Sign Out
++                    </button>
++                  </div>
++                ) : (
++                  <button
++                    onClick={() => signInWithGoogle()}
++                    className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all cursor-pointer shadow-sm"
++                    title="Sign In with Google to Sync to Cloud"
++                  >
++                    <Lock size={14} className="text-white" /> Sign In
++                  </button>
++                )}
++
++                {/* Google Drive Button */}

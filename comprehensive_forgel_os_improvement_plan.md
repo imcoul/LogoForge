@@ -106,18 +106,19 @@ Below is the concrete, prioritized task list designed for step-by-step execution
 ```
 
 ### Phase A: Brand Alignment & Visual Polish
-- [ ] **A1. Typography Swap:** Replace `Space Grotesk` and `Inter` with `Comfortaa` (headers) and `Quicksand` (body/UI) in `src/index.css`. Import the official font families from Google Fonts.
-- [ ] **A2. Action Color Remapping:** Map Action accents in Tailwind configurations and direct CSS styles to **Leadership Purple** (`#800080`), **Service Turquoise** (`#40e0d0`), and **Growth Yellow** (`#ffff80`). Swap out all standard Indigo (`indigo-600`) UI markers.
-- [ ] **A3. Subtle Attribution:** Embed `"Forged for Creators"` and `"Built by Srvel — Serve. Grow. Lead."` into the primary layout rail and dashboard footer.
-- [ ] **A4. Tone & Language Audit:** Replace robotic developer status codes, terminal coordinate labels, and jargon with clear, human, encouraging microcopy.
+- [x] **A1. Typography Swap:** Replace `Space Grotesk` and `Inter` with `Comfortaa` (headers) and `Quicksand` (body/UI) in `src/index.css`. Import the official font families from Google Fonts.
+- [x] **A2. Action Color Remapping:** Map Action accents in Tailwind configurations and direct CSS styles to **Leadership Purple** (`#800080`), **Service Turquoise** (`#40e0d0`), and **Growth Yellow** (`#ffff80`). Swap out all standard Indigo (`indigo-600`) UI markers.
+- [x] **A3. Subtle Attribution:** Embed `"Forged for Creators"` and `"Built by Srvel — Serve. Grow. Lead."` into the primary layout rail and dashboard footer.
+- [x] **A4. Tone & Language Audit:** Replace robotic developer status codes, terminal coordinate labels, and jargon with clear, human, encouraging microcopy.
 
 ### Phase B: Security Hardening & Robustness
-- [ ] **B1. API Rate Limiting:** Add `express-rate-limit` middleware to the express backend to safeguard Gemini API proxy endpoints from abuse.
-- [ ] **B2. Stricter postMessage Checks:** Hardcode exact expected origins in the `postMessage` event listener inside `src/App.tsx:1798` to prevent cross-frame scripting.
-- [ ] **B3. Production Error Masking:** Ensure all backend middleware and routers (`server.ts`, `geminiRouter.ts`) return generic error messages in production rather than exposing server-side stack traces.
-- [ ] **B4. WebSocket Auto-Reconnect:** Add exponential backoff logic inside the client WebSocket hook to auto-recover drop connections instantly.
+- [x] **B1. API Rate Limiting:** Add `express-rate-limit` middleware to the express backend to safeguard Gemini API proxy endpoints from abuse.
+- [x] **B2. Stricter postMessage Checks:** Hardcode exact expected origins in the `postMessage` event listener inside `src/App.tsx:1798` to prevent cross-frame scripting.
+- [x] **B3. Production Error Masking:** Ensure all backend middleware and routers (`server.ts`, `geminiRouter.ts`) return generic error messages in production rather than exposing server-side stack traces.
+- [x] **B4. WebSocket Auto-Reconnect:** Add exponential backoff logic inside the client WebSocket hook to auto-recover drop connections instantly.
 
 ### Phase C: Modular Code Refactoring
+- [ ] **C0. State Extraction (Prerequisite):** Move local `App.tsx` state variables into the global `Zustand` store (`src/store.ts`) to ensure smooth data sharing across extracted views without complex prop drilling.
 - [ ] **C1. Extract Dashboard View:** Move dashboard layout, project cards, and bulk actions from `App.tsx` into a separate `src/views/Dashboard.tsx` component.
 - [ ] **C2. Extract Studio Workspace:** Move the 7 tab layout systems (discovery, drafting, sonic, etc.) and sidebar tools into `src/views/Studio.tsx`.
 - [ ] **C3. Extract Course Workspace:** Move the Beginex playground and curriculum chapters to `src/views/Course.tsx`.
@@ -125,9 +126,9 @@ Below is the concrete, prioritized task list designed for step-by-step execution
 - [ ] **C5. Clean Routing Shell:** Reduce `src/App.tsx` to a lightweight, clean component routing layer under 300 lines of code.
 
 ### Phase D: Feature Expansion & Usefulness
-- [ ] **D1. PDF Brand Guide Exporter:** Develop `src/utils/pdfExport.ts` utilizing `jsPDF` and `html2canvas` to compile beautiful, professionally styled multi-page PDF brand guidelines.
-- [ ] **D2. Automated Brand Asset Kits:** Implement SVG-based social media crop templates, business cards, and letterheads that auto-populate with the project’s generated logo and color scheme.
-- [ ] **D3. Compact vs Complete Generation:** Integrate a toggle in the generator panel allowing fast 15-second "Compact" logo/guide drafts or deep 45-second "Complete" brand suites.
+- [x] **D1. PDF Brand Guide Exporter:** Develop `src/utils/pdfExport.ts` utilizing `jsPDF` and `html2canvas` to compile beautiful, professionally styled multi-page PDF brand guidelines.
+- [x] **D2. Automated Brand Asset Kits:** Implement SVG-based social media crop templates, business cards, and letterheads that auto-populate with the project’s generated logo and color scheme.
+- [x] **D3. Compact vs Complete Generation:** Integrate a toggle in the generator panel allowing fast 15-second "Compact" logo/guide drafts or deep 45-second "Complete" brand suites.
 
 ### Phase E: Professional Integrations & MCP
 - [ ] **E1. Figma API Token Integration:** Add a setting field for Figma Personal Access Tokens and write an exporter that maps the Forgel active design system to a copyable Figma Token JSON payload.

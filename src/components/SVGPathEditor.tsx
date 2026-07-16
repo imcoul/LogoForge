@@ -10,6 +10,7 @@ import DOMPurify from 'dompurify';
 import { useToast } from './Toast';
 import { useAppStore } from '../store';
 import { ForgeAcademy } from './ForgeAcademy';
+import { PrecisionOverlay } from './PrecisionOverlay';
 
 const sanitizeSVG = (svg: string | null): string => {
   if (!svg) return '';
@@ -135,6 +136,9 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const [penPoints, setPenPoints] = useState<{ x: number; y: number }[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
   const coordCanvasRef = useRef<HTMLDivElement>(null);
+  const pathWorkerRef = useRef<Worker | null>(null);
+  const renderWorkerRef = useRef<Worker | null>(null);
+  const [loupeImageUrl, setLoupeImageUrl] = useState<string | null>(null);
 
   // Magnifier Loupe state for Precision node dragging
   const [draggedNode, setDraggedNode] = useState<{ nodeId: number; valIdx: number } | null>(null);
@@ -149,6 +153,43 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Local undo/redo stacks
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
+
+  useEffect(() => {
+    pathWorkerRef.current = new Worker(new URL('../workers/pathWorker.ts', import.meta.url), { type: 'module' });
+    renderWorkerRef.current = new Worker(new URL('../workers/renderWorker.ts', import.meta.url), { type: 'module' });
+    
+    renderWorkerRef.current.onmessage = (e) => {
+      if (e.data.blob) {
+        const url = URL.createObjectURL(e.data.blob);
+        setLoupeImageUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      }
+    };
+
+    return () => {
+      pathWorkerRef.current?.terminate();
+      renderWorkerRef.current?.terminate();
+    };
+  }, []);
+
+  // Use an effect to trigger render worker when loupeCoords change
+  useEffect(() => {
+    if (loupeCoords && renderWorkerRef.current && typeof OffscreenCanvas !== 'undefined') {
+      renderWorkerRef.current.postMessage({
+        id: 'loupe',
+        type: 'render-loupe',
+        svgString: actualSvgSource,
+        width: 100,
+        height: 100,
+        scale: 4, // 4x magnification
+        options: { clipX: loupeCoords.x, clipY: loupeCoords.y }
+      });
+    } else if (!loupeCoords) {
+      setLoupeImageUrl(null);
+    }
+  }, [loupeCoords, actualSvgSource]);
 
   const colorsList = [
     { name: 'Indigo', hex: '#6366F1' },
@@ -313,6 +354,22 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Handle manual coordinate changes via sliders/inputs
+  const handleValuesChange = (nodeId: number, changes: { valIdx: number; newVal: number }[]) => {
+    const updatedNodes = nodes.map((node) => {
+      if (node.id === nodeId) {
+        const nextVals = [...node.values];
+        changes.forEach(({ valIdx, newVal }) => {
+          nextVals[valIdx] = parseFloat(newVal.toFixed(precision));
+        });
+        return { ...node, values: nextVals };
+      }
+      return node;
+    });
+
+    setNodes(updatedNodes);
+    reconstructSvgFromNodes(updatedNodes);
+  };
+
   const handleValueChange = (nodeId: number, valIdx: number, newVal: number) => {
     const updatedNodes = nodes.map((node) => {
       if (node.id === nodeId) {
@@ -656,6 +713,31 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     }
   };
 
+  const commitBrushPath = () => {
+    if (brushPoints.length > 1) {
+      if (pathWorkerRef.current) {
+        const msgId = Date.now().toString();
+        const handleWorkerMessage = (e: MessageEvent) => {
+          if (e.data.id === msgId) {
+            const simplifiedPoints = e.data.points;
+            const brushD = buildPathD(simplifiedPoints);
+            appendPathToSvgSource(brushD);
+            pathWorkerRef.current?.removeEventListener('message', handleWorkerMessage);
+          }
+        };
+        pathWorkerRef.current.addEventListener('message', handleWorkerMessage);
+        pathWorkerRef.current.postMessage({
+          id: msgId,
+          points: brushPoints,
+          tolerance: 0.8 // Slight simplification via RDP
+        });
+      } else {
+        const brushD = buildPathD(brushPoints);
+        appendPathToSvgSource(brushD);
+      }
+    }
+  };
+
   // Handle Touch ends
   const handleTouchEnd = (e: any) => {
     if (e.touches.length < 2) {
@@ -669,8 +751,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     }
 
     if (drawTool === 'brush' && isDrawing && brushPoints.length > 1) {
-      const brushD = buildPathD(brushPoints);
-      appendPathToSvgSource(brushD);
+      commitBrushPath();
     }
     setIsDrawing(false);
     setBrushPoints([]);
@@ -741,8 +822,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       return;
     }
     if (drawTool === 'brush' && isDrawing && brushPoints.length > 1) {
-      const brushD = buildPathD(brushPoints);
-      appendPathToSvgSource(brushD);
+      commitBrushPath();
     }
     setIsDrawing(false);
     setBrushPoints([]);
@@ -842,6 +922,26 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Interactive coordinate handle drag start (Precision Tab)
+  const handleOverlayNudge = (dx: number, dy: number) => {
+    if (!selectedNode) return;
+    const { nodeId, valIdx } = selectedNode;
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    const xIdx = valIdx % 2 === 0 ? valIdx : valIdx - 1;
+    const yIdx = xIdx + 1;
+
+    if (xIdx < node.values.length && yIdx < node.values.length) {
+      const changes = [];
+      if (dx !== 0) changes.push({ valIdx: xIdx, newVal: node.values[xIdx] + dx });
+      if (dy !== 0) changes.push({ valIdx: yIdx, newVal: node.values[yIdx] + dy });
+      
+      if (changes.length > 0) {
+        handleValuesChange(nodeId, changes);
+      }
+    }
+  };
+
   const handleNodeKeyDown = (e: React.KeyboardEvent, nodeId: number, valIdx: number, val: number) => {
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
@@ -1284,6 +1384,13 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           {gestureToast}
         </div>
       )}
+
+      <PrecisionOverlay 
+        isVisible={isPrecisionMode && !!selectedNode}
+        onNudge={handleOverlayNudge}
+        activeNodeId={selectedNode?.nodeId?.toString()}
+        loupeImageUrl={loupeImageUrl}
+      />
 
       {/* Header controls with tabs */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-neutral-100 dark:border-zinc-855">
