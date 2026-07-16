@@ -96,6 +96,8 @@ export interface AppSettings {
   supabasePublicKey?: string;
   supabaseAnonKey?: string;
   backupMode?: 'none' | 'postgres' | 'supabase' | 'both';
+  figmaToken?: string;
+  figmaFileId?: string;
 }
 
 interface AppState {

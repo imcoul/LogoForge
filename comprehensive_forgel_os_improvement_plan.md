@@ -118,12 +118,12 @@ Below is the concrete, prioritized task list designed for step-by-step execution
 - [x] **B4. WebSocket Auto-Reconnect:** Add exponential backoff logic inside the client WebSocket hook to auto-recover drop connections instantly.
 
 ### Phase C: Modular Code Refactoring
-- [ ] **C0. State Extraction (Prerequisite):** Move local `App.tsx` state variables into the global `Zustand` store (`src/store.ts`) to ensure smooth data sharing across extracted views without complex prop drilling.
-- [ ] **C1. Extract Dashboard View:** Move dashboard layout, project cards, and bulk actions from `App.tsx` into a separate `src/views/Dashboard.tsx` component.
-- [ ] **C2. Extract Studio Workspace:** Move the 7 tab layout systems (discovery, drafting, sonic, etc.) and sidebar tools into `src/views/Studio.tsx`.
-- [ ] **C3. Extract Course Workspace:** Move the Beginex playground and curriculum chapters to `src/views/Course.tsx`.
-- [ ] **C4. Extract Settings Workspace:** Move API key configurations, PostgreSQL / Supabase connection forms, and credentials parameters to `src/views/Settings.tsx`.
-- [ ] **C5. Clean Routing Shell:** Reduce `src/App.tsx` to a lightweight, clean component routing layer under 300 lines of code.
+- [x] **C0. State Extraction (Prerequisite):** Move local `App.tsx` state variables into the global `Zustand` store (`src/store.ts`) to ensure smooth data sharing across extracted views without complex prop drilling. (Completed and Verified)
+- [x] **C1. Extract Dashboard View:** Move dashboard layout, project cards, and bulk actions from `App.tsx` into a separate `src/views/Dashboard.tsx` component. (Completed and Verified)
+- [x] **C2. Extract Studio Workspace:** Move the 7 tab layout systems (discovery, drafting, sonic, etc.) and sidebar tools into `src/views/Studio.tsx`. (Completed and Verified)
+- [x] **C3. Extract Course Workspace:** Move the Beginex playground and curriculum chapters to `src/views/Course.tsx`. (Completed and Verified)
+- [x] **C4. Extract Settings Workspace:** Move API key configurations, PostgreSQL / Supabase connection forms, and credentials parameters to `src/views/Settings.tsx`. (Completed and Verified)
+- [x] **C5. Clean Routing Shell:** Reduce `src/App.tsx` to a lightweight, clean component routing layer. (Completed and Verified)
 
 ### Phase D: Feature Expansion & Usefulness
 - [x] **D1. PDF Brand Guide Exporter:** Develop `src/utils/pdfExport.ts` utilizing `jsPDF` and `html2canvas` to compile beautiful, professionally styled multi-page PDF brand guidelines.
@@ -131,5 +131,5 @@ Below is the concrete, prioritized task list designed for step-by-step execution
 - [x] **D3. Compact vs Complete Generation:** Integrate a toggle in the generator panel allowing fast 15-second "Compact" logo/guide drafts or deep 45-second "Complete" brand suites.
 
 ### Phase E: Professional Integrations & MCP
-- [ ] **E1. Figma API Token Integration:** Add a setting field for Figma Personal Access Tokens and write an exporter that maps the Forgel active design system to a copyable Figma Token JSON payload.
-- [ ] **E2. Forgel MCP Server Implementation:** Setup a Node-based MCP server within the repository exposing `get-brand-guide`, `update-brand-logo`, and `list-active-brands` tools to external LLM clients.
+- [x] **E1. Figma API Token Integration:** Add a setting field for Figma Personal Access Tokens and write an exporter that maps the Forgel active design system to a copyable Figma Token JSON payload. (Completed and Verified)
+- [x] **E2. Forgel MCP Server Implementation:** Setup a Node-based MCP server within the repository exposing `get-brand-guide`, `update-brand-logo`, and `list-active-brands` tools to external LLM clients. (Completed and Verified)

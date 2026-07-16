@@ -18,6 +18,7 @@ import { db } from '../services/firebase';
 import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { useToast } from '../components/Toast';
 import { syncProjectToPostgres, syncProjectToSupabase } from '../utils/dbBackupClient';
+import { FigmaExportModal } from '../components/FigmaExportModal';
 
 interface SettingsProps {
   setIsGoogleDriveOpen: (open: boolean) => void;
@@ -37,6 +38,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
 
   // Local state for DB backups and mirroring
   const [isBackingUpDb, setIsBackingUpDb] = useState(false);
+  const [isFigmaModalOpen, setIsFigmaModalOpen] = useState(false);
 
   // Local state for user directory roles
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -165,6 +167,11 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
   return (
     <div className="flex-1 p-12 overflow-y-auto">
       <div className="max-w-2xl mx-auto">
+        <FigmaExportModal 
+          isOpen={isFigmaModalOpen} 
+          onClose={() => setIsFigmaModalOpen(false)} 
+          project={activeProject} 
+        />
         <h1 className="text-4xl font-display font-bold tracking-tight mb-12 text-black dark:text-white">Settings</h1>
         
         <div className="space-y-8">
@@ -248,6 +255,28 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                 </div>
                 <button onClick={() => setIsGoogleDriveOpen(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors cursor-pointer">
                   Manage Storage
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-800">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-purple-50 dark:bg-purple-950/20 rounded-lg shadow-sm flex items-center justify-center border border-purple-100 dark:border-purple-900/30">
+                    <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" viewBox="0 0 120 180" fill="currentColor">
+                      <path d="M30 45C30 20.1472 50.1472 0 75 0C99.8528 0 120 20.1472 120 45C120 69.8528 99.8528 90 75 90C50.1472 90 30 69.8528 30 45Z" fill="#F24E1E"/>
+                      <path d="M30 135C30 110.147 50.1472 90 75 90C75 90 120 90 120 90V135C120 159.853 99.8528 180 75 180C50.1472 180 30 159.853 30 135Z" fill="#0ACF83"/>
+                      <path d="M0 135C0 110.147 20.1472 90 45 90H75V135C75 159.853 54.8528 180 30 180C13.4315 180 0 166.569 0 150V135Z" fill="#1ABC9C" fillOpacity="0.1"/>
+                      <path d="M0 135C0 110.147 20.1472 90 45 90C45 90 75 90 75 90V135C75 159.853 54.8528 180 30 180C13.4315 180 0 166.569 0 135Z" fill="#1ABC9C"/>
+                      <path d="M0 45C0 20.1472 20.1472 0 45 0H75V90H45C20.1472 90 0 69.8528 0 45Z" fill="#FF7262"/>
+                      <path d="M75 90C75 65.1472 95.1472 45 120 45V90H75Z" fill="#A259FF"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-neutral-900 dark:text-white">Figma Exporter</h3>
+                    <p className="text-xs text-neutral-500">Export active colors, typography and SVGs as tokens.</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsFigmaModalOpen(true)} className="bg-[#800080] hover:opacity-95 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors cursor-pointer">
+                  Export Tokens
                 </button>
               </div>
             </div>
