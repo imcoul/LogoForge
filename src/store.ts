@@ -4,7 +4,7 @@ import { User } from 'firebase/auth';
 import { collection, query, where, getDocs, getDoc, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './services/firebase';
 import { BrandGuide, RefinementSuggestion } from './services/geminiService';
-import { syncProjectToPostgres, syncProjectToSupabase } from './utils/dbBackupClient';
+import { syncProjectToPostgres, syncProjectToSupabase, deleteProjectFromPostgres, deleteProjectFromSupabase } from './utils/dbBackupClient';
 import { Node } from './types';
 
 const cloudSyncTimeouts: Record<string, NodeJS.Timeout | null> = {};
@@ -92,6 +92,13 @@ export interface AppSettings {
   geminiKey?: string;
   openaiKey?: string;
   customEndpoint?: string;
+  activeModel?: string; // 'gemini' | 'stepfun' | 'poolside' | 'tencent'
+  stepfunKey?: string;
+  stepfunEndpoint?: string;
+  poolsideKey?: string;
+  poolsideEndpoint?: string;
+  tencentKey?: string;
+  tencentEndpoint?: string;
   role?: 'Designer' | 'Server';
   keyboardMap?: KeyboardMap;
   postgresConnectionString?: string;
@@ -101,6 +108,9 @@ export interface AppSettings {
   backupMode?: 'none' | 'postgres' | 'supabase' | 'both';
   figmaToken?: string;
   figmaFileId?: string;
+  assistantModel?: string;
+  assistantTemperature?: number;
+  assistantTopK?: number;
 }
 
 interface AppState {
@@ -127,12 +137,239 @@ interface AppState {
   clearEphemeralGhost: (id: string) => void;
 }
 
-function prepareForFirestore(project: Project): any {
-  return {
-    ...project,
-    sceneGraph: JSON.stringify(project.sceneGraph),
-    sceneHistory: JSON.stringify(project.sceneHistory),
+function cleanUndefined(obj: any): any {
+  if (obj === null || obj === undefined) return null;
+  if (Array.isArray(obj)) {
+    return obj.map(cleanUndefined);
+  }
+  if (typeof obj === 'object') {
+    const cleaned: any = {};
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      if (val !== undefined) {
+        cleaned[key] = cleanUndefined(val);
+      }
+    }
+    return cleaned;
+  }
+  return obj;
+}
+
+function restoreOmittedFields(fbProj: Project, localProj?: Project): Project {
+  if (!localProj) return fbProj;
+  
+  const restored = { ...fbProj };
+  
+  if (fbProj.mockups && localProj.mockups) {
+    restored.mockups = fbProj.mockups.map(fbMockup => {
+      if (fbMockup.base64Data && fbMockup.base64Data.includes('omitted for Cloud Sync')) {
+        const localMockup = localProj.mockups.find(m => m.id === fbMockup.id);
+        if (localMockup && localMockup.base64Data && !localMockup.base64Data.includes('omitted for Cloud Sync')) {
+          return { ...fbMockup, base64Data: localMockup.base64Data };
+        }
+      }
+      return fbMockup;
+    });
+  }
+  
+  if (fbProj.sonicAssets && localProj.sonicAssets) {
+    restored.sonicAssets = fbProj.sonicAssets.map(fbSonic => {
+      if (fbSonic.base64Data && fbSonic.base64Data.includes('omitted for Cloud Sync')) {
+        const localSonic = localProj.sonicAssets.find(s => s.name === fbSonic.name);
+        if (localSonic && localSonic.base64Data && !localSonic.base64Data.includes('omitted for Cloud Sync')) {
+          return { ...fbSonic, base64Data: localSonic.base64Data };
+        }
+      }
+      return fbSonic;
+    });
+  }
+  
+  if (fbProj.refinementFiles && localProj.refinementFiles) {
+    restored.refinementFiles = fbProj.refinementFiles.map(fbRef => {
+      if (fbRef.base64Data && fbRef.base64Data.includes('omitted for Cloud Sync')) {
+        const localRef = localProj.refinementFiles.find(r => r.name === fbRef.name);
+        if (localRef && localRef.base64Data && !localRef.base64Data.includes('omitted for Cloud Sync')) {
+          return { ...fbRef, base64Data: localRef.base64Data };
+        }
+      }
+      return fbRef;
+    });
+  }
+  
+  if (fbProj.logoUrl && fbProj.logoUrl.includes('Omitted for cloud space') && localProj.logoUrl && !localProj.logoUrl.includes('Omitted for cloud space')) {
+    restored.logoUrl = localProj.logoUrl;
+  }
+  
+  return restored;
+}
+
+export function prepareForFirestore(project: Project): any {
+  // Work on a shallow copy of the project object so we do not mutate original local store state
+  const p = { ...project };
+
+  // Initial serialization and clean-up
+  let serialized = {
+    ...p,
+    sceneGraph: JSON.stringify(p.sceneGraph || []),
+    sceneHistory: JSON.stringify(p.sceneHistory || []),
   };
+
+  let cleaned = cleanUndefined(serialized);
+  let currentSize = JSON.stringify(cleaned).length;
+
+  const MAX_FIRESTORE_SIZE = 950000; // Leave buffer for metadata
+
+  // --- Progressive Reduction Steps ---
+
+  // Step 1: Prune scene history to last 5 entries
+  if (currentSize > MAX_FIRESTORE_SIZE && p.sceneHistory && p.sceneHistory.length > 5) {
+    const index = typeof p.sceneHistoryIndex === 'number' ? p.sceneHistoryIndex : 0;
+    const startIdx = Math.max(0, p.sceneHistory.length - 5);
+    p.sceneHistory = p.sceneHistory.slice(startIdx);
+    p.sceneHistoryIndex = Math.max(0, index - startIdx);
+    
+    serialized = {
+      ...p,
+      sceneGraph: JSON.stringify(p.sceneGraph || []),
+      sceneHistory: JSON.stringify(p.sceneHistory || []),
+    };
+    cleaned = cleanUndefined(serialized);
+    currentSize = JSON.stringify(cleaned).length;
+  }
+
+  // Step 2: Prune scene history to last 2 entries
+  if (currentSize > MAX_FIRESTORE_SIZE && p.sceneHistory && p.sceneHistory.length > 2) {
+    const index = typeof p.sceneHistoryIndex === 'number' ? p.sceneHistoryIndex : 0;
+    const startIdx = Math.max(0, p.sceneHistory.length - 2);
+    p.sceneHistory = p.sceneHistory.slice(startIdx);
+    p.sceneHistoryIndex = Math.max(0, index - startIdx);
+    
+    serialized = {
+      ...p,
+      sceneGraph: JSON.stringify(p.sceneGraph || []),
+      sceneHistory: JSON.stringify(p.sceneHistory || []),
+    };
+    cleaned = cleanUndefined(serialized);
+    currentSize = JSON.stringify(cleaned).length;
+  }
+
+  // Step 3: Prune scene history to only 1 entry (current state)
+  if (currentSize > MAX_FIRESTORE_SIZE && p.sceneHistory && p.sceneHistory.length > 1) {
+    p.sceneHistory = [{ nodes: p.sceneGraph || [] }];
+    p.sceneHistoryIndex = 0;
+    
+    serialized = {
+      ...p,
+      sceneGraph: JSON.stringify(p.sceneGraph || []),
+      sceneHistory: JSON.stringify(p.sceneHistory || []),
+    };
+    cleaned = cleanUndefined(serialized);
+    currentSize = JSON.stringify(cleaned).length;
+  }
+
+  // Step 4: Prune logoHistory list
+  if (currentSize > MAX_FIRESTORE_SIZE && p.logoHistory && p.logoHistory.length > 2) {
+    p.logoHistory = p.logoHistory.slice(-2);
+    
+    serialized = {
+      ...p,
+      sceneGraph: JSON.stringify(p.sceneGraph || []),
+      sceneHistory: JSON.stringify(p.sceneHistory || []),
+    };
+    cleaned = cleanUndefined(serialized);
+    currentSize = JSON.stringify(cleaned).length;
+  }
+
+  // Step 5: Prune version snapshots list
+  if (currentSize > MAX_FIRESTORE_SIZE && p.snapshots && p.snapshots.length > 1) {
+    p.snapshots = p.snapshots.slice(-1);
+    
+    serialized = {
+      ...p,
+      sceneGraph: JSON.stringify(p.sceneGraph || []),
+      sceneHistory: JSON.stringify(p.sceneHistory || []),
+    };
+    cleaned = cleanUndefined(serialized);
+    currentSize = JSON.stringify(cleaned).length;
+  }
+
+  // Step 6: Truncate large base64 mockups (> 25KB)
+  if (currentSize > MAX_FIRESTORE_SIZE && p.mockups && p.mockups.length > 0) {
+    p.mockups = p.mockups.map(m => {
+      if (m.base64Data && m.base64Data.length > 25000) {
+        return {
+          ...m,
+          base64Data: `[Large mockup asset omitted for Cloud Sync. Size: ${m.base64Data.length} chars. Fully preserved in local browser database.]`
+        };
+      }
+      return m;
+    });
+    
+    serialized = {
+      ...p,
+      sceneGraph: JSON.stringify(p.sceneGraph || []),
+      sceneHistory: JSON.stringify(p.sceneHistory || []),
+    };
+    cleaned = cleanUndefined(serialized);
+    currentSize = JSON.stringify(cleaned).length;
+  }
+
+  // Step 7: Truncate large base64 sonic assets (> 25KB)
+  if (currentSize > MAX_FIRESTORE_SIZE && p.sonicAssets && p.sonicAssets.length > 0) {
+    p.sonicAssets = p.sonicAssets.map(s => {
+      if (s.base64Data && s.base64Data.length > 25000) {
+        return {
+          ...s,
+          base64Data: `[Large sonic asset omitted for Cloud Sync. Size: ${s.base64Data.length} chars. Fully preserved in local browser database.]`
+        };
+      }
+      return s;
+    });
+    
+    serialized = {
+      ...p,
+      sceneGraph: JSON.stringify(p.sceneGraph || []),
+      sceneHistory: JSON.stringify(p.sceneHistory || []),
+    };
+    cleaned = cleanUndefined(serialized);
+    currentSize = JSON.stringify(cleaned).length;
+  }
+
+  // Step 8: Truncate large base64 refinement files (> 25KB)
+  if (currentSize > MAX_FIRESTORE_SIZE && p.refinementFiles && p.refinementFiles.length > 0) {
+    p.refinementFiles = p.refinementFiles.map(r => {
+      if (r.base64Data && r.base64Data.length > 25000) {
+        return {
+          ...r,
+          base64Data: `[Large refinement asset omitted for Cloud Sync. Size: ${r.base64Data.length} chars. Fully preserved in local browser database.]`
+        };
+      }
+      return r;
+    });
+    
+    serialized = {
+      ...p,
+      sceneGraph: JSON.stringify(p.sceneGraph || []),
+      sceneHistory: JSON.stringify(p.sceneHistory || []),
+    };
+    cleaned = cleanUndefined(serialized);
+    currentSize = JSON.stringify(cleaned).length;
+  }
+
+  // Step 9: Truncate large logoUrl if it's base64 data URL
+  if (currentSize > MAX_FIRESTORE_SIZE && p.logoUrl && p.logoUrl.startsWith('data:') && p.logoUrl.length > 50000) {
+    p.logoUrl = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text y="50">Omitted for cloud space</text></svg>`;
+    
+    serialized = {
+      ...p,
+      sceneGraph: JSON.stringify(p.sceneGraph || []),
+      sceneHistory: JSON.stringify(p.sceneHistory || []),
+    };
+    cleaned = cleanUndefined(serialized);
+    currentSize = JSON.stringify(cleaned).length;
+  }
+
+  return cleaned;
 }
 
 function loadFromFirestore(data: any): Project {
@@ -144,17 +381,52 @@ function loadFromFirestore(data: any): Project {
 }
 
 async function triggerBackupMirror(project: Project, settings: AppSettings) {
+  const prepared = prepareForFirestore(project);
+  const payloadStr = JSON.stringify(prepared);
+  
+  // Calculate unique payload hash for idempotency and change tracking
+  let hashVal = 0;
+  for (let i = 0; i < payloadStr.length; i++) {
+    hashVal = (hashVal << 5) - hashVal + payloadStr.charCodeAt(i);
+    hashVal |= 0;
+  }
+  const backupHash = Math.abs(hashVal).toString(16);
+  
+  // Add audit and drift tracking metadata
+  const mirroredProject = {
+    ...prepared,
+    backupHash,
+    schemaVersion: '1.0.0'
+  };
+
   if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
-    syncProjectToPostgres(project, settings.postgresConnectionString).then((res) => {
+    syncProjectToPostgres(mirroredProject, settings.postgresConnectionString).then((res) => {
       if (!res.success) {
         console.warn('Auto PostgreSQL Backup failed:', res.message);
       }
     });
   }
   if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
-    syncProjectToSupabase(project, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+    syncProjectToSupabase(mirroredProject, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
       if (!res.success) {
         console.warn('Auto Supabase Backup failed:', res.message);
+      }
+    });
+  }
+}
+
+async function triggerBackupDelete(id: string, settings: AppSettings) {
+  if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
+    deleteProjectFromPostgres(id, settings.postgresConnectionString).then((res) => {
+      if (!res.success) {
+        console.warn('Auto PostgreSQL Delete failed:', res.message);
+      }
+    });
+  }
+  if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
+    deleteProjectFromSupabase(id, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+      if (!res.success) {
+        console.warn('Auto Supabase Delete failed:', res.message);
       }
     });
   }
@@ -274,7 +546,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
               role: userRole,
               settings: userSettings
             };
-            await setDoc(userDocRef, newProfile);
+            await setDoc(userDocRef, cleanUndefined(newProfile));
           }
         } catch (err) {
           console.error('Failed to load user profile from Firestore, using default', err);
@@ -317,7 +589,12 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
           }
         }
 
-        const sorted = fbProjects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        const restoredFbProjects = fbProjects.map(fbProj => {
+          const matchingLocal = localProjects.find(lp => lp.id === fbProj.id);
+          return restoreOmittedFields(fbProj, matchingLocal);
+        });
+
+        const sorted = restoredFbProjects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         const initializedProjects = sorted.map(p => ({
             ...p,
             sceneHistory: (Array.isArray(p.sceneHistory) && p.sceneHistory.length > 0 && typeof (p.sceneHistory[0] as any).nodes !== 'undefined')
@@ -526,13 +803,16 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   },
 
   deleteProject: async (id) => {
-    const { user, projects, activeProjectId } = getStore();
+    const { user, projects, activeProjectId, settings } = getStore();
     const updatedProjects = projects.filter(p => p.id !== id);
     setStore({ 
       projects: updatedProjects, 
       activeProjectId: activeProjectId === id ? null : activeProjectId 
     });
     await set('projects', updatedProjects);
+
+    // Sync deletion to Postgres/Supabase backups
+    triggerBackupDelete(id, settings);
 
     if (user) {
       try {
@@ -544,13 +824,18 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   },
 
   deleteProjects: async (ids) => {
-    const { user, projects, activeProjectId } = getStore();
+    const { user, projects, activeProjectId, settings } = getStore();
     const updatedProjects = projects.filter(p => !ids.includes(p.id));
     setStore({ 
       projects: updatedProjects, 
       activeProjectId: ids.includes(activeProjectId || '') ? null : activeProjectId 
     });
     await set('projects', updatedProjects);
+
+    // Sync deletions to Postgres/Supabase backups
+    for (const id of ids) {
+      triggerBackupDelete(id, settings);
+    }
 
     if (user) {
       for (const id of ids) {
@@ -575,12 +860,12 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
 
     if (user) {
       try {
-        await setDoc(doc(db, 'users', user.uid), {
+        await setDoc(doc(db, 'users', user.uid), cleanUndefined({
           uid: user.uid,
           email: user.email || '',
           role: newSettings.role || 'Designer',
           settings: newSettings
-        }, { merge: true });
+        }), { merge: true });
       } catch (err) {
         console.error('Failed to sync settings to Firestore', err);
       }

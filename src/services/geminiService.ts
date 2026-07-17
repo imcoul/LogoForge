@@ -32,13 +32,33 @@ export interface BrandGuide {
 }
 
 const getHeaders = () => {
-  const customSettings = useAppStore.getState().settings;
-  const customKey = customSettings?.geminiKey;
+  const settings = useAppStore.getState().settings || {};
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
-  if (customKey) {
-    headers['x-custom-api-key'] = customKey;
+  if (settings.geminiKey) {
+    headers['x-custom-api-key'] = settings.geminiKey;
+  }
+  if (settings.activeModel) {
+    headers['x-active-model'] = settings.activeModel;
+  }
+  if (settings.stepfunKey) {
+    headers['x-stepfun-key'] = settings.stepfunKey;
+  }
+  if (settings.stepfunEndpoint) {
+    headers['x-stepfun-endpoint'] = settings.stepfunEndpoint;
+  }
+  if (settings.poolsideKey) {
+    headers['x-poolside-key'] = settings.poolsideKey;
+  }
+  if (settings.poolsideEndpoint) {
+    headers['x-poolside-endpoint'] = settings.poolsideEndpoint;
+  }
+  if (settings.tencentKey) {
+    headers['x-tencent-key'] = settings.tencentKey;
+  }
+  if (settings.tencentEndpoint) {
+    headers['x-tencent-endpoint'] = settings.tencentEndpoint;
   }
   return headers;
 };

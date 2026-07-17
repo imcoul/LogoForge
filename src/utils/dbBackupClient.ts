@@ -80,3 +80,79 @@ export async function syncProjectToSupabase(
     };
   }
 }
+
+/**
+ * Triggers a server-side delete of a project from PostgreSQL.
+ */
+export async function deleteProjectFromPostgres(
+  id: string,
+  customConnectionString?: string
+): Promise<BackupResult> {
+  try {
+    const response = await fetch('/api/backup/postgres/delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id,
+        customConnectionString,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to delete from PostgreSQL.');
+    }
+
+    return {
+      success: true,
+      message: data.message || 'Successfully deleted project from PostgreSQL backup.',
+    };
+  } catch (error: any) {
+    console.error('PostgreSQL Delete Sync Error:', error);
+    return {
+      success: false,
+      message: error.message || 'Unknown error during PostgreSQL backup deletion.',
+    };
+  }
+}
+
+/**
+ * Triggers a server-side delete of a project from Supabase.
+ */
+export async function deleteProjectFromSupabase(
+  id: string,
+  customUrl?: string,
+  customKey?: string
+): Promise<BackupResult> {
+  try {
+    const response = await fetch('/api/backup/supabase/delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id,
+        customUrl,
+        customKey,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to delete from Supabase.');
+    }
+
+    return {
+      success: true,
+      message: data.message || 'Successfully deleted project from Supabase backup.',
+    };
+  } catch (error: any) {
+    console.error('Supabase Delete Sync Error:', error);
+    return {
+      success: false,
+      message: error.message || 'Unknown error during Supabase backup deletion.',
+    };
+  }
+}

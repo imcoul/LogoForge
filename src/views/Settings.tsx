@@ -11,9 +11,10 @@ import {
   Trash2, 
   RefreshCw, 
   CheckCircle, 
-  Info 
+  Info,
+  Database
 } from 'lucide-react';
-import { useAppStore } from '../store';
+import { useAppStore, prepareForFirestore } from '../store';
 import { db } from '../services/firebase';
 import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { useToast } from '../components/Toast';
@@ -38,6 +39,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
 
   // Local state for DB backups and mirroring
   const [isBackingUpDb, setIsBackingUpDb] = useState(false);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [isFigmaModalOpen, setIsFigmaModalOpen] = useState(false);
 
   // Local state for user directory roles
@@ -139,6 +141,33 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
     }
   };
 
+  const handleSyncAllToDb = async (target: 'postgres' | 'supabase') => {
+    if (projects.length === 0) {
+      toast('No projects found to backup.', 'error');
+      return;
+    }
+    setIsSyncingAll(true);
+    let successCount = 0;
+    let failCount = 0;
+    for (const project of projects) {
+      const prepared = prepareForFirestore(project);
+      const res = target === 'postgres' 
+        ? await syncProjectToPostgres(prepared, settings.postgresConnectionString)
+        : await syncProjectToSupabase(prepared, settings.supabaseUrl, settings.supabaseAnonKey);
+      if (res.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+    }
+    setIsSyncingAll(false);
+    if (failCount === 0) {
+      toast(`Perfect sync! All ${successCount} projects have been fully backed up/synchronized with your ${target === 'postgres' ? 'PostgreSQL' : 'Supabase'} database.`, 'success');
+    } else {
+      toast(`Synchronized: ${successCount} succeeded, ${failCount} failed. Check your DB config.`, 'error');
+    }
+  };
+
   const handleExportNotion = async () => {
     if (!activeProject) return;
 
@@ -201,6 +230,99 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                   </span>
                 )}
               </div>
+               <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Active Generation AI Model</label>
+                <select
+                  value={settings.activeModel || 'gemini'}
+                  onChange={(e) => updateSettings({ activeModel: e.target.value })}
+                  className="w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white text-xs font-bold"
+                >
+                  <option value="gemini">Google Gemini 3.1 Pro (Recommended / Default)</option>
+                  <option value="stepfun">StepFun: Step 3.7 Flash (Free Model Preset)</option>
+                  <option value="poolside">Poolside: Laguna M.1 (Free Model Preset)</option>
+                  <option value="tencent">Tencent: Hy3 (Free Model Preset)</option>
+                </select>
+                <p className="text-[10px] text-neutral-400 mt-1.5">Switching model redirects brand spec rationale & sonic guidelines generation to your chosen AI engine.</p>
+              </div>
+
+              {settings.activeModel === 'stepfun' && (
+                <div className="p-4 bg-indigo-50/50 dark:bg-zinc-950/50 border border-indigo-100 dark:border-zinc-850 rounded-2xl space-y-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">⚡ StepFun Configuration</span>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-neutral-500 mb-1">StepFun API Key</label>
+                    <input 
+                      type="password" 
+                      placeholder="Enter StepFun API Key..." 
+                      value={settings.stepfunKey || ''} 
+                      onChange={(e) => updateSettings({ stepfunKey: e.target.value })} 
+                      className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-neutral-500 mb-1">Custom Endpoint (Optional)</label>
+                    <input 
+                      type="text" 
+                      placeholder="https://api.stepfun.com/v1/chat/completions" 
+                      value={settings.stepfunEndpoint || ''} 
+                      onChange={(e) => updateSettings({ stepfunEndpoint: e.target.value })} 
+                      className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" 
+                    />
+                  </div>
+                </div>
+              )}
+
+              {settings.activeModel === 'poolside' && (
+                <div className="p-4 bg-indigo-50/50 dark:bg-zinc-950/50 border border-indigo-100 dark:border-zinc-850 rounded-2xl space-y-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">⚡ Poolside Configuration</span>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-neutral-500 mb-1">Poolside API Key</label>
+                    <input 
+                      type="password" 
+                      placeholder="Enter Poolside API Key..." 
+                      value={settings.poolsideKey || ''} 
+                      onChange={(e) => updateSettings({ poolsideKey: e.target.value })} 
+                      className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-neutral-500 mb-1">Custom Endpoint (Optional)</label>
+                    <input 
+                      type="text" 
+                      placeholder="https://api.poolside.ai/v1/chat/completions" 
+                      value={settings.poolsideEndpoint || ''} 
+                      onChange={(e) => updateSettings({ poolsideEndpoint: e.target.value })} 
+                      className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" 
+                    />
+                  </div>
+                </div>
+              )}
+
+              {settings.activeModel === 'tencent' && (
+                <div className="p-4 bg-indigo-50/50 dark:bg-zinc-950/50 border border-indigo-100 dark:border-zinc-850 rounded-2xl space-y-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">⚡ Tencent Hy3 Configuration</span>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-neutral-500 mb-1">Tencent API Key</label>
+                    <input 
+                      type="password" 
+                      placeholder="Enter Tencent API Key..." 
+                      value={settings.tencentKey || ''} 
+                      onChange={(e) => updateSettings({ tencentKey: e.target.value })} 
+                      className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-neutral-500 mb-1">Custom Endpoint (Optional)</label>
+                    <input 
+                      type="text" 
+                      placeholder="https://api.hunyuan.tencent.com/v1/chat/completions" 
+                      value={settings.tencentEndpoint || ''} 
+                      onChange={(e) => updateSettings({ tencentEndpoint: e.target.value })} 
+                      className="w-full bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white" 
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">OpenAI API Key</label>
                 <input 
@@ -223,6 +345,66 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                 <p className="text-xs text-neutral-400 mt-2">Useful for connecting to local models like Ollama or LM Studio.</p>
               </div>
               <button onClick={() => toast('Settings saved locally.', 'success')} className="bg-black dark:bg-white text-white dark:text-black px-6 py-3 rounded-xl font-bold text-sm mt-4 w-full hover:opacity-80 transition-opacity cursor-pointer">Save API Keys</button>
+            </div>
+          </div>
+
+          {/* AI Assistant Configurations Group */}
+          <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800">
+            <h2 className="text-xl font-bold font-display mb-4 text-neutral-900 dark:text-white">AI Assistant Configurations</h2>
+            <p className="text-sm text-neutral-500 mb-6">Fine-tune the model selection and runtime generation properties for the Canvas AI copilot.</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">Assistant AI Model</label>
+                <select
+                  value={settings.assistantModel || 'gemini-2.5-flash'}
+                  onChange={(e) => updateSettings({ assistantModel: e.target.value })}
+                  className="w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white text-xs font-bold"
+                >
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash (Standard - Instant Generation)</option>
+                  <option value="gemini-2.5-pro">Gemini 2.5 Pro (Premium - Sophisticated Canvas Construction)</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (Legacy - Fast Generation)</option>
+                </select>
+                <p className="text-[10px] text-neutral-400 mt-1.5">Determines the core reasoning and generation engine for whiteboard sketch operations.</p>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">
+                  <span>Temperature</span>
+                  <span className="font-mono text-indigo-500">{settings.assistantTemperature !== undefined ? settings.assistantTemperature : 0.2}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={settings.assistantTemperature !== undefined ? settings.assistantTemperature : 0.2}
+                  onChange={(e) => updateSettings({ assistantTemperature: Number(e.target.value) })}
+                  className="w-full h-1.5 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
+                />
+                <p className="text-[10px] text-neutral-400 mt-1.5">Higher values increase creativity/variety, lower values keep outputs deterministic.</p>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-neutral-500 mb-2">
+                  <span>Top-K Sampling</span>
+                  <span className="font-mono text-indigo-500">{settings.assistantTopK !== undefined ? settings.assistantTopK : 40}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={settings.assistantTopK !== undefined ? settings.assistantTopK : 40}
+                  onChange={(e) => updateSettings({ assistantTopK: Number(e.target.value) })}
+                  className="w-full h-1.5 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
+                />
+                <p className="text-[10px] text-neutral-400 mt-1.5">Limits the token pool to the top-K most probable choices during generation.</p>
+              </div>
+
+              <button onClick={() => toast('AI Assistant configuration updated.', 'success')} className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-bold text-sm mt-4 w-full transition-opacity cursor-pointer shadow-sm">
+                Save Assistant Configurations
+              </button>
             </div>
           </div>
 
@@ -332,14 +514,24 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                   </div>
                   
                   {activeProject && (
-                    <button
-                      onClick={() => handleManualBackup('postgres')}
-                      disabled={isBackingUpDb}
-                      className="flex items-center justify-center gap-2 px-4 py-2 bg-neutral-200 hover:bg-neutral-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-zinc-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full cursor-pointer"
-                    >
-                      <RefreshCw size={12} className={isBackingUpDb ? "animate-spin" : ""} />
-                      {isBackingUpDb ? 'Mirroring...' : 'Mirror Active Project to Postgres Now'}
-                    </button>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => handleManualBackup('postgres')}
+                        disabled={isBackingUpDb || isSyncingAll}
+                        className="flex items-center justify-center gap-2 px-4 py-2 bg-neutral-200 hover:bg-neutral-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-zinc-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full cursor-pointer"
+                      >
+                        <RefreshCw size={12} className={isBackingUpDb ? "animate-spin" : ""} />
+                        {isBackingUpDb ? 'Mirroring...' : 'Mirror Active Project to Postgres Now'}
+                      </button>
+                      <button
+                        onClick={() => handleSyncAllToDb('postgres')}
+                        disabled={isBackingUpDb || isSyncingAll}
+                        className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-900/50 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full cursor-pointer"
+                      >
+                        <Database size={12} className={isSyncingAll ? "animate-spin" : ""} />
+                        {isSyncingAll ? 'Syncing All...' : `Sync All Projects to Postgres (${projects.length})`}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -376,14 +568,24 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                   <p className="text-[10px] text-neutral-400">Leave blank to use the server-side pre-configured fallback keys, or enter custom ones.</p>
                   
                   {activeProject && (
-                    <button
-                      onClick={() => handleManualBackup('supabase')}
-                      disabled={isBackingUpDb}
-                      className="flex items-center justify-center gap-2 px-4 py-2 bg-neutral-200 hover:bg-neutral-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-zinc-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full cursor-pointer"
-                    >
-                      <RefreshCw size={12} className={isBackingUpDb ? "animate-spin" : ""} />
-                      {isBackingUpDb ? 'Mirroring...' : 'Mirror Active Project to Supabase Now'}
-                    </button>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => handleManualBackup('supabase')}
+                        disabled={isBackingUpDb || isSyncingAll}
+                        className="flex items-center justify-center gap-2 px-4 py-2 bg-neutral-200 hover:bg-neutral-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-zinc-200 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full cursor-pointer"
+                      >
+                        <RefreshCw size={12} className={isBackingUpDb ? "animate-spin" : ""} />
+                        {isBackingUpDb ? 'Mirroring...' : 'Mirror Active Project to Supabase Now'}
+                      </button>
+                      <button
+                        onClick={() => handleSyncAllToDb('supabase')}
+                        disabled={isBackingUpDb || isSyncingAll}
+                        className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-900/50 rounded-xl text-xs font-bold transition-all disabled:opacity-50 w-full cursor-pointer"
+                      >
+                        <Database size={12} className={isSyncingAll ? "animate-spin" : ""} />
+                        {isSyncingAll ? 'Syncing All...' : `Sync All Projects to Supabase (${projects.length})`}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

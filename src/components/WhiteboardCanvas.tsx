@@ -9,9 +9,11 @@ import {
   Lock, Unlock
 } from 'lucide-react';
 import { ForgeAcademy } from './ForgeAcademy';
+import { useToast } from './Toast';
 
 export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f: boolean) => void, onUpdateAndSync?: (updates: any, throttleCloud?: boolean) => Promise<void>, onGhostSync?: (ghostData: any) => void }> = ({ fullscreen, setFullscreen, onUpdateAndSync, onGhostSync }) => {
-  const { activeProjectId, projects, updateProject, ephemeralGhosts } = useAppStore();
+  const { activeProjectId, projects, updateProject, ephemeralGhosts, settings } = useAppStore();
+  const { toast } = useToast();
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
   const canvasRef = useRef<SVGSVGElement>(null);
   
@@ -35,6 +37,8 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   const [mode, setMode] = useState<'drawing' | 'gallery'>('drawing');
   const [tool, setTool] = useState<'pencil' | 'sweeping-eraser' | 'duster-eraser' | 'line' | 'rectangle' | 'circle' | 'select'>('select');
   const [selectedSketchId, setSelectedSketchId] = useState<string | null>(null);
+  const [showOptionsPanel, setShowOptionsPanel] = useState<boolean>(false);
+  const [activeHandle, setActiveHandle] = useState<{ sketchId: string; handleId: string } | null>(null);
   const [dragOffset, setDragOffset] = useState<{x: number, y: number} | null>(null);
   const [startPoint, setStartPoint] = useState<{x: number, y: number} | null>(null);
   const [pencilType, setPencilType] = useState<'pen' | 'marker'>('pen');
@@ -49,6 +53,107 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [bridgeNotification, setBridgeNotification] = useState<string | null>(null);
   const [academyOpen, setAcademyOpen] = useState(false);
+
+  // AI Sketch Copilot States
+  const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
+
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setIsAiGenerating(true);
+    try {
+      const activeModel = settings.assistantModel || 'gemini-2.5-flash';
+      const temperature = settings.assistantTemperature !== undefined ? settings.assistantTemperature : 0.2;
+      const topK = settings.assistantTopK !== undefined ? settings.assistantTopK : 40;
+
+      const systemInstruction = `You are an expert design co-pilot that generates whiteboard vector elements.
+You MUST output a raw JSON array of whiteboard sketches representing the user's request.
+Each element in the array MUST match this TypeScript type structure exactly:
+{
+  "id": "string", // unique random id e.g. "ai-sketch-1"
+  "name": "string", // human readable name
+  "type": "rectangle" | "circle" | "line" | "path",
+  "color": "string", // stroke hex color
+  "strokeWidth": 3, // stroke width (1-20)
+  "fillColor": "string", // optional fill color or "none"
+  "fillOpacity": 1, // optional fill opacity (0.0 - 1.0)
+  "strokeDashArray": "string", // optional e.g. "none" or "5,5" or "2,2"
+  "path": "string", // required for 'line' or 'path' e.g. "M 100,100 L 200,200"
+  "props": {
+    "x": 100, // for rectangle
+    "y": 100, // for rectangle
+    "width": 150, // for rectangle
+    "height": 100, // for rectangle
+    "rx": 8, // for rounded rectangle corners
+    "cx": 100, // for circle
+    "cy": 100, // for circle
+    "rx": 50, // for circle radius X
+    "ry": 50, // for circle radius Y
+    "x1": 100, // for line
+    "y1": 100, // for line
+    "x2": 200, // for line
+    "y2": 200, // for line
+    "lineStyle": "straight" | "curved" | "elbow"
+  }
+}
+
+Create a beautifully styled, perfectly structured visual diagram, flowchart, or shape layout on an 800x600 canvas.
+Make sure the shapes have modern, cohesive flat colors (e.g., slate, indigo, emerald) and are properly positioned so they don't overlap awkwardly.
+Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences, and do NOT write any markdown conversational text.`;
+
+      const response = await fetch('/api/gemini/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-custom-api-key': settings.geminiKey || ''
+        },
+        body: JSON.stringify({
+          prompt: aiPrompt,
+          model: activeModel,
+          temperature,
+          topK,
+          systemInstruction,
+          responseMimeType: 'application/json'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate from Gemini server endpoint');
+      }
+
+      const data = await response.json();
+      let generatedSketches = JSON.parse(data.text);
+      if (Array.isArray(generatedSketches)) {
+        // Inject generation metadata
+        generatedSketches = generatedSketches.map((item, idx) => ({
+          ...item,
+          id: item.id || `ai-${Date.now()}-${idx}`,
+          color: item.color || '#6366f1',
+          strokeWidth: item.strokeWidth || 3,
+          props: {
+            ...item.props,
+            generatedBy: activeModel,
+            generationPrompt: aiPrompt,
+            generatedAt: new Date().toISOString()
+          }
+        }));
+
+        const newSketchesList = [...sketches, ...generatedSketches];
+        updateSketchesWithHistory(newSketchesList);
+        toast(`Successfully generated ${generatedSketches.length} AI whiteboard elements!`, 'success');
+        setAiPrompt('');
+        setIsAiPanelOpen(false);
+      } else {
+        throw new Error('Gemini response is not a valid list of whiteboard sketches.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast('AI whiteboarding error: ' + (err.message || String(err)), 'error');
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
 
   // Local History Stack for Undo/Redo
   const [sketchesHistory, setSketchesHistory] = useState<{ 
@@ -70,6 +175,51 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   const tapStartTimeRef = useRef<number>(0);
   const tapMaxFingersRef = useRef<number>(0);
   const tapMovedRef = useRef<boolean>(false);
+
+  const getSketchBoundingBox = (sketch: any) => {
+    if (!sketch) return null;
+    if (sketch.type === 'rectangle' && sketch.props) {
+      const { x, y, width, height } = sketch.props;
+      return { x, y: y - 45, width, height };
+    } else if (sketch.type === 'circle' && sketch.props) {
+      const { cx, cy, rx, ry } = sketch.props;
+      return { x: cx - rx, y: cy - ry - 45, width: rx * 2, height: ry * 2 };
+    } else if (sketch.type === 'line') {
+      let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+      const matchQ = sketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*Q\s*([0-9.-]+),([0-9.-]+)\s*([0-9.-]+),([0-9.-]+)/i);
+      const matchL = sketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*L\s*([0-9.-]+),([0-9.-]+)/i);
+      if (matchQ) {
+        x1 = parseFloat(matchQ[1]);
+        y1 = parseFloat(matchQ[2]);
+        x2 = parseFloat(matchQ[5]);
+        y2 = parseFloat(matchQ[6]);
+      } else if (matchL) {
+        x1 = parseFloat(matchL[1]);
+        y1 = parseFloat(matchL[2]);
+        x2 = parseFloat(matchL[3]);
+        y2 = parseFloat(matchL[4]);
+      }
+      const minX = Math.min(x1, x2);
+      const minY = Math.min(y1, y2);
+      return { x: minX, y: minY - 45, width: Math.abs(x1 - x2), height: Math.abs(y1 - y2) };
+    } else if (sketch.path) {
+      const matches = [...sketch.path.matchAll(/([0-9.-]+),([0-9.-]+)/g)];
+      if (matches.length > 0) {
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        matches.forEach(m => {
+          const px = parseFloat(m[1]);
+          const py = parseFloat(m[2]);
+          if (px < minX) minX = px;
+          if (py < minY) minY = py;
+          if (px > maxX) maxX = px;
+          if (py > maxY) maxY = py;
+        });
+        return { x: minX, y: minY - 45, width: maxX - minX, height: maxY - minY };
+      }
+    }
+    return { x: 100, y: 100, width: 200, height: 100 };
+  };
 
   useEffect(() => {
     if (activeProject?.whiteboardSketches) {
@@ -220,6 +370,16 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
       });
   };
 
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (tool !== 'select') return;
+    const rawPoint = getPoint(e);
+    const hit = getHitSketch(rawPoint);
+    if (hit) {
+      setSelectedSketchId(hit.id);
+      setShowOptionsPanel(true);
+    }
+  };
+
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     if (mode !== 'drawing') return;
 
@@ -252,6 +412,7 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
             setDragOffset({ x: 0, y: 0 });
         } else {
             setSelectedSketchId(null);
+            setShowOptionsPanel(false);
         }
     } else if (tool === 'pencil' || tool === 'line' || tool === 'rectangle' || tool === 'circle') {
         setSelectedSketchId(null);
@@ -281,6 +442,143 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
 
     if (!isDrawing) return;
     const point = snapCoords(rawPoint);
+
+    if (activeHandle) {
+      const sketch = sketches.find(s => s.id === activeHandle.sketchId);
+      if (sketch && !sketch.locked) {
+        let updatedSketches = sketches;
+        if (sketch.type === 'rectangle' && sketch.props) {
+          const props = sketch.props;
+          let newX = props.x;
+          let newY = props.y;
+          let newW = props.width;
+          let newH = props.height;
+          
+          if (activeHandle.handleId === 'br') {
+            newW = Math.max(5, point.x - props.x);
+            newH = Math.max(5, point.y - props.y);
+          } else if (activeHandle.handleId === 'tl') {
+            newX = Math.min(props.x + props.width - 5, point.x);
+            newY = Math.min(props.y + props.height - 5, point.y);
+            newW = props.x + props.width - newX;
+            newH = props.y + props.height - newY;
+          } else if (activeHandle.handleId === 'tr') {
+            newY = Math.min(props.y + props.height - 5, point.y);
+            newW = Math.max(5, point.x - props.x);
+            newH = props.y + props.height - newY;
+          } else if (activeHandle.handleId === 'bl') {
+            newX = Math.min(props.x + props.width - 5, point.x);
+            newW = props.x + props.width - newX;
+            newH = Math.max(5, point.y - props.y);
+          }
+          
+          updatedSketches = sketches.map(s => {
+            if (s.id === sketch.id) {
+              return { ...s, props: { ...s.props, x: newX, y: newY, width: newW, height: newH } };
+            }
+            return s;
+          });
+        } else if (sketch.type === 'circle' && sketch.props) {
+          const props = sketch.props;
+          let newRx = props.rx;
+          let newRy = props.ry;
+          
+          if (activeHandle.handleId === 'top' || activeHandle.handleId === 'bottom') {
+            newRy = Math.max(5, Math.abs(point.y - props.cy));
+          } else if (activeHandle.handleId === 'left' || activeHandle.handleId === 'right') {
+            newRx = Math.max(5, Math.abs(point.x - props.cx));
+          }
+          
+          updatedSketches = sketches.map(s => {
+            if (s.id === sketch.id) {
+              return { ...s, props: { ...s.props, rx: newRx, ry: newRy } };
+            }
+            return s;
+          });
+        } else if (sketch.type === 'line') {
+          let x1 = sketch.props?.x1;
+          let y1 = sketch.props?.y1;
+          let x2 = sketch.props?.x2;
+          let y2 = sketch.props?.y2;
+          let cx = sketch.props?.curveX;
+          let cy = sketch.props?.curveY;
+
+          const lineStyle = sketch.props?.lineStyle || (sketch.path?.includes('Q') ? 'curved' : 'straight');
+
+          if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
+            const matchQ = sketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*Q\s*([0-9.-]+),([0-9.-]+)\s*([0-9.-]+),([0-9.-]+)/i);
+            const matchL = sketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*L\s*([0-9.-]+),([0-9.-]+)/i);
+            if (matchQ) {
+              x1 = parseFloat(matchQ[1]);
+              y1 = parseFloat(matchQ[2]);
+              cx = parseFloat(matchQ[3]);
+              cy = parseFloat(matchQ[4]);
+              x2 = parseFloat(matchQ[5]);
+              y2 = parseFloat(matchQ[6]);
+            } else if (matchL) {
+              x1 = parseFloat(matchL[1]);
+              y1 = parseFloat(matchL[2]);
+              x2 = parseFloat(matchL[3]);
+              y2 = parseFloat(matchL[4]);
+              cx = (x1 + x2) / 2;
+              cy = (y1 + y2) / 2;
+            } else {
+              x1 = 0; y1 = 0; x2 = 100; y2 = 100;
+              cx = 50; cy = 50;
+            }
+          }
+
+          if (cx === undefined || cy === undefined) {
+            cx = (x1 + x2) / 2;
+            cy = (y1 + y2) / 2;
+          }
+
+          if (activeHandle.handleId === 'start') {
+            x1 = point.x;
+            y1 = point.y;
+          } else if (activeHandle.handleId === 'end') {
+            x2 = point.x;
+            y2 = point.y;
+          } else if (activeHandle.handleId === 'curve') {
+            cx = point.x;
+            cy = point.y;
+          }
+
+          let newPath = '';
+          if (lineStyle === 'curved') {
+            newPath = `M ${x1},${y1} Q ${cx},${cy} ${x2},${y2}`;
+          } else if (lineStyle === 'elbow') {
+            newPath = `M ${x1},${y1} L ${x2},${y1} L ${x2},${y2}`;
+          } else {
+            newPath = `M ${x1},${y1} L ${x2},${y2}`;
+          }
+
+          updatedSketches = sketches.map(s => {
+            if (s.id === sketch.id) {
+              return { 
+                ...s, 
+                path: newPath,
+                props: { 
+                  ...s.props,
+                  x1,
+                  y1,
+                  x2,
+                  y2,
+                  curveX: cx,
+                  curveY: cy,
+                  lineStyle
+                } 
+              };
+            }
+            return s;
+          });
+        }
+        
+        setSketches(updatedSketches);
+        saveSketch(updatedSketches, true);
+      }
+      return;
+    }
     
     if (tool === 'select' && selectedSketchId && startPoint) {
       const selectedSketch = sketches.find(s => s.id === selectedSketchId);
@@ -363,6 +661,12 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
 
     if (!isDrawing) return;
     setIsDrawing(false);
+
+    if (activeHandle) {
+      updateSketchesWithHistory(sketches);
+      setActiveHandle(null);
+      return;
+    }
     
     if (tool === 'select' && selectedSketchId && dragOffset) {
         const dx = dragOffset.x;
@@ -659,6 +963,7 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
               ref={canvasRef}
               className={`w-full border border-neutral-300 dark:border-zinc-800 rounded-xl bg-white dark:bg-black touch-none flex-1 min-h-0 ${fullscreen ? 'h-full' : 'h-[400px]'}`}
               onMouseDown={handleMouseDown}
+              onDoubleClick={handleDoubleClick}
               onMouseMove={handleMouseMove}
               onMouseUp={(e) => handleMouseUp(e)}
               onMouseLeave={() => handleMouseUp()}
@@ -1056,10 +1361,281 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
                       strokeDasharray="4 4"
                   />
               )}
+
+              {/* INTERACTIVE RESIZE & RESHAPE HANDLES */}
+              {selectedSketchId && selectedSketch && (
+                <g>
+                  {/* Rectangle Handles */}
+                  {selectedSketch.type === 'rectangle' && selectedSketch.props && (
+                    <>
+                      {/* Bounding outline */}
+                      <rect
+                        x={selectedSketch.props.x}
+                        y={selectedSketch.props.y}
+                        width={selectedSketch.props.width}
+                        height={selectedSketch.props.height}
+                        fill="none"
+                        stroke="#4f46e5"
+                        strokeWidth="1.5"
+                        strokeDasharray="3 3"
+                        className="pointer-events-none"
+                      />
+                      {/* Corner Handles */}
+                      {[
+                        { id: 'tl', x: selectedSketch.props.x, y: selectedSketch.props.y, cursor: 'nwse-resize' },
+                        { id: 'tr', x: selectedSketch.props.x + selectedSketch.props.width, y: selectedSketch.props.y, cursor: 'nesw-resize' },
+                        { id: 'bl', x: selectedSketch.props.x, y: selectedSketch.props.y + selectedSketch.props.height, cursor: 'nesw-resize' },
+                        { id: 'br', x: selectedSketch.props.x + selectedSketch.props.width, y: selectedSketch.props.y + selectedSketch.props.height, cursor: 'nwse-resize' },
+                      ].map(h => (
+                        <rect
+                          key={h.id}
+                          x={h.x - 5}
+                          y={h.y - 5}
+                          width={10}
+                          height={10}
+                          fill="#ffffff"
+                          stroke="#4f46e5"
+                          strokeWidth="2"
+                          style={{ cursor: h.cursor }}
+                          className="hover:scale-125 transition-transform"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDrawing(true);
+                            setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                          }}
+                        />
+                      ))}
+                    </>
+                  )}
+
+                  {/* Circle/Ellipse Handles */}
+                  {selectedSketch.type === 'circle' && selectedSketch.props && (
+                    <>
+                      {/* Bounding outline */}
+                      <rect
+                        x={selectedSketch.props.cx - selectedSketch.props.rx}
+                        y={selectedSketch.props.cy - selectedSketch.props.ry}
+                        width={selectedSketch.props.rx * 2}
+                        height={selectedSketch.props.ry * 2}
+                        fill="none"
+                        stroke="#4f46e5"
+                        strokeWidth="1.5"
+                        strokeDasharray="3 3"
+                        className="pointer-events-none"
+                      />
+                      {/* Axis handles */}
+                      {[
+                        { id: 'top', x: selectedSketch.props.cx, y: selectedSketch.props.cy - selectedSketch.props.ry, cursor: 'ns-resize' },
+                        { id: 'bottom', x: selectedSketch.props.cx, y: selectedSketch.props.cy + selectedSketch.props.ry, cursor: 'ns-resize' },
+                        { id: 'left', x: selectedSketch.props.cx - selectedSketch.props.rx, y: selectedSketch.props.cy, cursor: 'ew-resize' },
+                        { id: 'right', x: selectedSketch.props.cx + selectedSketch.props.rx, y: selectedSketch.props.cy, cursor: 'ew-resize' },
+                      ].map(h => (
+                        <circle
+                          key={h.id}
+                          cx={h.x}
+                          cy={h.y}
+                          r={5}
+                          fill="#ffffff"
+                          stroke="#4f46e5"
+                          strokeWidth="2"
+                          style={{ cursor: h.cursor }}
+                          className="hover:scale-125 transition-transform"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDrawing(true);
+                            setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                          }}
+                        />
+                      ))}
+                    </>
+                  )}
+
+                  {/* Line Handles */}
+                  {selectedSketch.type === 'line' && (
+                    (() => {
+                      let x1 = selectedSketch.props?.x1;
+                      let y1 = selectedSketch.props?.y1;
+                      let x2 = selectedSketch.props?.x2;
+                      let y2 = selectedSketch.props?.y2;
+                      let cx = selectedSketch.props?.curveX;
+                      let cy = selectedSketch.props?.curveY;
+
+                      const isCurved = selectedSketch.path?.includes('Q') || selectedSketch.props?.lineStyle === 'curved';
+
+                      if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
+                        const matchQ = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*Q\s*([0-9.-]+),([0-9.-]+)\s*([0-9.-]+),([0-9.-]+)/i);
+                        const matchL = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*L\s*([0-9.-]+),([0-9.-]+)/i);
+                        if (matchQ) {
+                          x1 = parseFloat(matchQ[1]);
+                          y1 = parseFloat(matchQ[2]);
+                          cx = parseFloat(matchQ[3]);
+                          cy = parseFloat(matchQ[4]);
+                          x2 = parseFloat(matchQ[5]);
+                          y2 = parseFloat(matchQ[6]);
+                        } else if (matchL) {
+                          x1 = parseFloat(matchL[1]);
+                          y1 = parseFloat(matchL[2]);
+                          x2 = parseFloat(matchL[3]);
+                          y2 = parseFloat(matchL[4]);
+                          cx = (x1 + x2) / 2;
+                          cy = (y1 + y2) / 2;
+                        } else {
+                          x1 = 0; y1 = 0; x2 = 100; y2 = 100;
+                          cx = 50; cy = 50;
+                        }
+                      }
+
+                      if (cx === undefined || cy === undefined) {
+                        cx = (x1 + x2) / 2;
+                        cy = (y1 + y2) / 2;
+                      }
+
+                      return (
+                        <>
+                          {/* End 1 handle */}
+                          <circle
+                            cx={x1}
+                            cy={y1}
+                            r={6}
+                            fill="#ffffff"
+                            stroke="#4f46e5"
+                            strokeWidth="2"
+                            style={{ cursor: 'move' }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDrawing(true);
+                              setActiveHandle({ sketchId: selectedSketch.id, handleId: 'start' });
+                            }}
+                          />
+                          {/* End 2 handle */}
+                          <circle
+                            cx={x2}
+                            cy={y2}
+                            r={6}
+                            fill="#ffffff"
+                            stroke="#4f46e5"
+                            strokeWidth="2"
+                            style={{ cursor: 'move' }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDrawing(true);
+                              setActiveHandle({ sketchId: selectedSketch.id, handleId: 'end' });
+                            }}
+                          />
+                          {/* Midpoint Curve control handle */}
+                          {isCurved && (
+                            <>
+                              <line
+                                x1={x1}
+                                y1={y1}
+                                x2={cx}
+                                y2={cy}
+                                stroke="#4f46e5"
+                                strokeWidth="0.8"
+                                strokeDasharray="2 2"
+                                className="pointer-events-none"
+                              />
+                              <line
+                                x1={x2}
+                                y1={y2}
+                                x2={cx}
+                                y2={cy}
+                                stroke="#4f46e5"
+                                strokeWidth="0.8"
+                                strokeDasharray="2 2"
+                                className="pointer-events-none"
+                              />
+                              <circle
+                                cx={cx}
+                                cy={cy}
+                                r={6}
+                                fill="#4f46e5"
+                                stroke="#ffffff"
+                                strokeWidth="2"
+                                style={{ cursor: 'pointer' }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setIsDrawing(true);
+                                  setActiveHandle({ sketchId: selectedSketch.id, handleId: 'curve' });
+                                }}
+                              />
+                            </>
+                          )}
+                        </>
+                      );
+                    })()
+                  )}
+                </g>
+              )}
           </svg>
 
+          {/* COMPACT INLINE MINI-INSPECTOR */}
+          {selectedSketchId && selectedSketch && (!dragOffset || (dragOffset.x === 0 && dragOffset.y === 0)) && (
+            <div 
+              className="absolute bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 rounded-full shadow-xl px-3.5 py-1.5 flex items-center gap-3 z-40 pointer-events-auto transition-all animate-in fade-in zoom-in-95 duration-150"
+              style={{
+                left: `${Math.min(window.innerWidth - 300, Math.max(12, getSketchBoundingBox(selectedSketch)?.x ?? 100))}px`,
+                top: `${Math.max(12, (getSketchBoundingBox(selectedSketch)?.y ?? 100) - 20)}px`,
+              }}
+            >
+              {/* Stroke Color Circles */}
+              <div className="flex items-center gap-1.5 border-r border-neutral-200 dark:border-zinc-800 pr-2.5">
+                {['#6366f1', '#10b981', '#ef4444', '#000000'].map(c => (
+                  <button
+                    key={c}
+                    onClick={() => handleUpdateSelectedSketch({ color: c })}
+                    className={`w-3.5 h-3.5 rounded-full border transition-transform hover:scale-125 cursor-pointer ${selectedSketch.color === c ? 'ring-1 ring-offset-1 ring-indigo-500 scale-110' : 'border-neutral-200 dark:border-zinc-700'}`}
+                    style={{ backgroundColor: c }}
+                    title={`Stroke: ${c}`}
+                  />
+                ))}
+              </div>
+
+              {/* Stroke Width Buttons */}
+              <div className="flex items-center gap-1 border-r border-neutral-200 dark:border-zinc-800 pr-2.5">
+                {[
+                  { label: 'S', value: 2 },
+                  { label: 'M', value: 4 },
+                  { label: 'L', value: 8 },
+                ].map(w => (
+                  <button
+                    key={w.label}
+                    onClick={() => handleUpdateSelectedSketch({ strokeWidth: w.value })}
+                    className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold transition-all cursor-pointer ${selectedSketch.strokeWidth === w.value ? 'bg-indigo-500 text-white' : 'text-neutral-500 dark:text-zinc-400 hover:bg-neutral-100 dark:hover:bg-zinc-800'}`}
+                    title={`Width: ${w.value}px`}
+                  >
+                    {w.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Lock/Unlock Toggle */}
+              <button
+                onClick={() => handleUpdateSelectedSketch({ locked: !selectedSketch.locked })}
+                className={`p-1 rounded-full hover:bg-neutral-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer ${selectedSketch.locked ? 'text-red-500 bg-red-50 dark:bg-red-950/20' : 'text-neutral-500 dark:text-zinc-400'}`}
+                title={selectedSketch.locked ? "Unlock element" : "Lock element"}
+              >
+                {selectedSketch.locked ? <Lock size={12} className="text-red-500" /> : <Unlock size={12} />}
+              </button>
+
+              {/* Delete Button */}
+              <button
+                onClick={() => deleteSketch(selectedSketch.id)}
+                className="p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-950/20 text-neutral-400 hover:text-red-500 transition-colors cursor-pointer"
+                title="Delete element"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          )}
+
           {/* FIGMA-STYLE FLOATING PROPERTY PANEL */}
-          {selectedSketchId && selectedSketch && (
+          {selectedSketchId && selectedSketch && showOptionsPanel && (!dragOffset || (dragOffset.x === 0 && dragOffset.y === 0)) && (
             <div className="absolute right-4 top-4 bottom-16 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border border-neutral-200 dark:border-zinc-800 rounded-2xl w-64 shadow-2xl z-40 p-4 space-y-4 overflow-y-auto animate-in slide-in-from-right-8 duration-200">
               <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-zinc-850">
                 <div className="flex items-center gap-1.5">
@@ -1067,7 +1643,7 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
                   <span className="text-[10px] uppercase font-mono font-black text-neutral-500">Properties</span>
                 </div>
                 <button 
-                  onClick={() => setSelectedSketchId(null)} 
+                  onClick={() => { setSelectedSketchId(null); setShowOptionsPanel(false); }} 
                   className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800 rounded-full text-neutral-400"
                 >
                   <X size={14} />
@@ -1254,6 +1830,128 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
                 </div>
               )}
 
+              {/* Line Style Options */}
+              {selectedSketch.type === 'line' && (
+                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-850/50">
+                  <label className="text-[9px] font-mono font-black text-neutral-400 uppercase block">Line Connection Style</label>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    <button
+                      onClick={() => {
+                        let x1 = selectedSketch.props?.x1;
+                        let y1 = selectedSketch.props?.y1;
+                        let x2 = selectedSketch.props?.x2;
+                        let y2 = selectedSketch.props?.y2;
+                        if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
+                          const matchQ = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*Q\s*([0-9.-]+),([0-9.-]+)\s*([0-9.-]+),([0-9.-]+)/i);
+                          const matchL = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*L\s*([0-9.-]+),([0-9.-]+)/i);
+                          if (matchQ) {
+                            x1 = parseFloat(matchQ[1]);
+                            y1 = parseFloat(matchQ[2]);
+                            x2 = parseFloat(matchQ[5]);
+                            y2 = parseFloat(matchQ[6]);
+                          } else if (matchL) {
+                            x1 = parseFloat(matchL[1]);
+                            y1 = parseFloat(matchL[2]);
+                            x2 = parseFloat(matchL[3]);
+                            y2 = parseFloat(matchL[4]);
+                          } else {
+                            x1 = 0; y1 = 0; x2 = 100; y2 = 100;
+                          }
+                        }
+                        const newPath = `M ${x1},${y1} L ${x2},${y2}`;
+                        handleUpdateSelectedSketch({
+                          path: newPath,
+                          props: { ...selectedSketch.props, x1, y1, x2, y2, lineStyle: 'straight' }
+                        });
+                      }}
+                      className={`py-1.5 px-3 rounded-lg text-[10px] font-bold text-center cursor-pointer transition-colors ${
+                        selectedSketch.props?.lineStyle === 'straight' || (!selectedSketch.props?.lineStyle && !selectedSketch.path?.includes('Q'))
+                          ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/10'
+                          : 'bg-neutral-150 dark:bg-zinc-900 text-neutral-750 dark:text-zinc-350 hover:bg-neutral-200 dark:hover:bg-zinc-800'
+                      }`}
+                    >
+                      Straight Line
+                    </button>
+                    <button
+                      onClick={() => {
+                        let x1 = selectedSketch.props?.x1;
+                        let y1 = selectedSketch.props?.y1;
+                        let x2 = selectedSketch.props?.x2;
+                        let y2 = selectedSketch.props?.y2;
+                        if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
+                          const matchQ = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*Q\s*([0-9.-]+),([0-9.-]+)\s*([0-9.-]+),([0-9.-]+)/i);
+                          const matchL = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*L\s*([0-9.-]+),([0-9.-]+)/i);
+                          if (matchQ) {
+                            x1 = parseFloat(matchQ[1]);
+                            y1 = parseFloat(matchQ[2]);
+                            x2 = parseFloat(matchQ[5]);
+                            y2 = parseFloat(matchQ[6]);
+                          } else if (matchL) {
+                            x1 = parseFloat(matchL[1]);
+                            y1 = parseFloat(matchL[2]);
+                            x2 = parseFloat(matchL[3]);
+                            y2 = parseFloat(matchL[4]);
+                          } else {
+                            x1 = 0; y1 = 0; x2 = 100; y2 = 100;
+                          }
+                        }
+                        const cx = (x1 + x2) / 2;
+                        const cy = (y1 + y2) / 2 - 35;
+                        const newPath = `M ${x1},${y1} Q ${cx},${cy} ${x2},${y2}`;
+                        handleUpdateSelectedSketch({
+                          path: newPath,
+                          props: { ...selectedSketch.props, x1, y1, x2, y2, lineStyle: 'curved', curveX: cx, curveY: cy }
+                        });
+                      }}
+                      className={`py-1.5 px-3 rounded-lg text-[10px] font-bold text-center cursor-pointer transition-colors ${
+                        selectedSketch.props?.lineStyle === 'curved' || (selectedSketch.path?.includes('Q'))
+                          ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/10'
+                          : 'bg-neutral-150 dark:bg-zinc-900 text-neutral-750 dark:text-zinc-350 hover:bg-neutral-200 dark:hover:bg-zinc-800'
+                      }`}
+                    >
+                      Flexible Rope / Curve
+                    </button>
+                    <button
+                      onClick={() => {
+                        let x1 = selectedSketch.props?.x1;
+                        let y1 = selectedSketch.props?.y1;
+                        let x2 = selectedSketch.props?.x2;
+                        let y2 = selectedSketch.props?.y2;
+                        if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
+                          const matchQ = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*Q\s*([0-9.-]+),([0-9.-]+)\s*([0-9.-]+),([0-9.-]+)/i);
+                          const matchL = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*L\s*([0-9.-]+),([0-9.-]+)/i);
+                          if (matchQ) {
+                            x1 = parseFloat(matchQ[1]);
+                            y1 = parseFloat(matchQ[2]);
+                            x2 = parseFloat(matchQ[5]);
+                            y2 = parseFloat(matchQ[6]);
+                          } else if (matchL) {
+                            x1 = parseFloat(matchL[1]);
+                            y1 = parseFloat(matchL[2]);
+                            x2 = parseFloat(matchL[3]);
+                            y2 = parseFloat(matchL[4]);
+                          } else {
+                            x1 = 0; y1 = 0; x2 = 100; y2 = 100;
+                          }
+                        }
+                        const newPath = `M ${x1},${y1} L ${x2},${y1} L ${x2},${y2}`;
+                        handleUpdateSelectedSketch({
+                          path: newPath,
+                          props: { ...selectedSketch.props, x1, y1, x2, y2, lineStyle: 'elbow' }
+                        });
+                      }}
+                      className={`py-1.5 px-3 rounded-lg text-[10px] font-bold text-center cursor-pointer transition-colors ${
+                        selectedSketch.props?.lineStyle === 'elbow'
+                          ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/10'
+                          : 'bg-neutral-150 dark:bg-zinc-900 text-neutral-750 dark:text-zinc-350 hover:bg-neutral-200 dark:hover:bg-zinc-800'
+                      }`}
+                    >
+                      Elbow Connector / Orthogonal
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Duplication, Deletion & Bridges */}
               <div className="pt-3 border-t border-neutral-100 dark:border-zinc-850/60 space-y-2">
                 <button
@@ -1333,6 +2031,72 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
         isOpen={academyOpen} 
         onClose={() => setAcademyOpen(false)} 
       />
+
+      {/* AI Whiteboard Copilot Trigger Button */}
+      <div className="absolute left-4 bottom-4 z-40">
+        <button
+          onClick={() => setIsAiPanelOpen(!isAiPanelOpen)}
+          className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-wider shadow-lg transition-transform active:scale-95 cursor-pointer"
+        >
+          <Sparkles size={14} className={isAiGenerating ? "animate-pulse" : ""} />
+          AI Copilot
+        </button>
+      </div>
+
+      {/* AI WHITEBOARD COPILOT POPUP */}
+      {isAiPanelOpen && (
+        <div className="absolute left-4 bottom-16 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border border-neutral-200 dark:border-zinc-800 rounded-3xl w-72 shadow-2xl z-40 p-5 space-y-4 animate-in slide-in-from-left-8 duration-200">
+          <div className="flex items-center justify-between border-b border-neutral-100 dark:border-zinc-850 pb-2">
+            <div className="flex items-center gap-1.5 text-neutral-850 dark:text-white">
+              <Sparkles size={15} className="text-indigo-500 animate-pulse" />
+              <span className="text-xs font-bold font-display">AI Whiteboard Copilot</span>
+            </div>
+            <button
+              onClick={() => setIsAiPanelOpen(false)}
+              className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800 rounded-full text-neutral-400 cursor-pointer"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          <p className="text-[10px] text-neutral-500 leading-relaxed">
+            Describe a visual diagram, flowchart, mindmap, or custom shapes to have AI construct them automatically on the canvas.
+          </p>
+
+          <div className="space-y-3">
+            <textarea
+              placeholder="Draw a central box labeled 'Design System' and connect it to two other boxes for 'Colors' and 'Typography'..."
+              rows={4}
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              className="w-full text-xs p-3 bg-neutral-50 dark:bg-zinc-900 border border-neutral-250 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-800 dark:text-zinc-100 placeholder-neutral-400"
+            />
+
+            <div className="flex items-center justify-between text-[9px] font-mono font-bold text-neutral-400 uppercase">
+              <span>Model: {settings.assistantModel || 'gemini-2.5-flash'}</span>
+              <span>Temp: {settings.assistantTemperature !== undefined ? settings.assistantTemperature : 0.2}</span>
+            </div>
+
+            <button
+              onClick={handleAiGenerate}
+              disabled={isAiGenerating || !aiPrompt.trim()}
+              className="w-full py-2 bg-indigo-500 hover:bg-indigo-600 disabled:bg-neutral-200 dark:disabled:bg-zinc-800 text-white disabled:text-neutral-400 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md shadow-indigo-500/10"
+            >
+              {isAiGenerating ? (
+                <>
+                  <RefreshCw size={13} className="animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={13} />
+                  Generate Elements
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

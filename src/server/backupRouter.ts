@@ -221,4 +221,65 @@ router.post("/supabase", async (req: Request, res: Response) => {
   }
 });
 
+// Delete from PostgreSQL
+router.post("/postgres/delete", async (req: Request, res: Response) => {
+  const { id, customConnectionString } = req.body;
+  const connectionString = customConnectionString || process.env.DATABASE_URL;
+
+  if (!id) {
+    return res.status(400).json({ error: "Missing valid project id." });
+  }
+
+  if (!connectionString) {
+    return res.status(400).json({ error: "PostgreSQL database connection is not configured." });
+  }
+
+  const pool = new Pool({ connectionString });
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query(`DELETE FROM projects WHERE id = $1;`, [id]);
+      res.json({ success: true, message: "Successfully deleted project from PostgreSQL backup!" });
+    } finally {
+      client.release();
+    }
+  } catch (err: any) {
+    console.error("Postgres delete failure: ", err);
+    res.status(500).json({ error: err.message || "Failed to delete project from PostgreSQL database." });
+  } finally {
+    await pool.end();
+  }
+});
+
+// Delete from Supabase
+router.post("/supabase/delete", async (req: Request, res: Response) => {
+  const { id, customUrl, customKey } = req.body;
+  const url = customUrl || process.env.SUPABASE_URL;
+  const key = customKey || process.env.SUPABASE_PUBLIC_KEY;
+
+  if (!id) {
+    return res.status(400).json({ error: "Missing valid project id." });
+  }
+
+  if (!url || !key) {
+    return res.status(400).json({ error: "Supabase URL or Public Key is not configured." });
+  }
+
+  try {
+    const supabase = createClient(url, key, {
+      auth: { persistSession: false }
+    });
+    const { error } = await supabase
+      .from("projects")
+      .delete()
+      .eq("id", id);
+
+    if (error) throw error;
+    res.json({ success: true, message: "Successfully deleted project from Supabase backup!" });
+  } catch (err: any) {
+    console.error("Supabase delete failure: ", err);
+    res.status(500).json({ error: err.message || "Failed to delete project from Supabase database." });
+  }
+});
+
 export default router;
