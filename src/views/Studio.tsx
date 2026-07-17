@@ -481,16 +481,27 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
             )}
           </div>
           <div className="flex items-center gap-3">
-            {/* Live Collaboration Signal */}
-            {socket && socket.readyState === WebSocket.OPEN && (
+            {/* Live Collaboration Signal & Connection Status Pill */}
+            <div className="flex items-center gap-1.5 bg-neutral-50 dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 p-1 px-2.5 rounded-full select-none">
+              {/* Connection Status Dot */}
+              <div className="flex items-center gap-1.5 border-r border-neutral-200 dark:border-zinc-850 pr-2.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${socket && socket.readyState === WebSocket.OPEN ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`} />
+                <span className="text-[10px] font-mono font-bold text-neutral-500 dark:text-zinc-400 uppercase tracking-wider">
+                  {socket && socket.readyState === WebSocket.OPEN ? 'Live' : 'Cloud'}
+                </span>
+              </div>
+              
+              {/* Co-editors counter */}
               <button
                 onClick={() => setIsCollabDrawerOpen(true)}
-                className="flex items-center gap-2 px-3.5 py-1.5 bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 rounded-xl text-xs font-bold transition-all"
+                className="flex items-center gap-1 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors cursor-pointer text-neutral-600 dark:text-zinc-300"
               >
-                <Users size={14} className="animate-pulse" />
-                <span>{activeUsers.length} Active</span>
+                <Users size={11} />
+                <span className="text-[10px] font-mono font-bold uppercase">
+                  {activeUsers.length > 0 ? `${activeUsers.length} Online` : 'Solo'}
+                </span>
               </button>
-            )}
+            </div>
 
             {/* Autosave Telemetry Display */}
             <div className="text-right shrink-0 hidden sm:block">
@@ -944,7 +955,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                     <div className="space-y-6">
                       <SVGPathEditor
                         svgContent={activeProject.svgSource || ''}
-                        onChange={(newSvg) => handleUpdateAndSync({ svgSource: newSvg })}
+                        onChange={(newSvg, throttleCloud) => handleUpdateAndSync({ svgSource: newSvg }, throttleCloud)}
                         fullscreen={fullscreen}
                         setFullscreen={setFullscreen}
                       />

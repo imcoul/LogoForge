@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ZoomIn, Target } from 'lucide-react';
 
@@ -10,8 +10,32 @@ interface PrecisionOverlayProps {
 }
 
 export function PrecisionOverlay({ onNudge, activeNodeId, loupeImageUrl, isVisible }: PrecisionOverlayProps) {
-  // Only render if a node is selected and we are on mobile (typically handled by parent with media query or we assume it's always useful if requested)
-  
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clear interval helper
+  const clearNudgeInterval = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  };
+
+  // Start continuous nudge repeat when button is held
+  const handlePressStart = (dx: number, dy: number) => {
+    clearNudgeInterval();
+    // Fire immediately
+    onNudge(dx, dy);
+    // Setup interval for repeat
+    intervalRef.current = setInterval(() => {
+      onNudge(dx, dy);
+    }, 120); // 120ms tick rate
+  };
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => clearNudgeInterval();
+  }, []);
+
   if (!isVisible || !activeNodeId) return null;
 
   return (
@@ -35,18 +59,19 @@ export function PrecisionOverlay({ onNudge, activeNodeId, loupeImageUrl, isVisib
         <div className="bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md p-2 rounded-3xl shadow-2xl border border-neutral-200 dark:border-zinc-800 grid grid-cols-3 grid-rows-3 gap-1">
           <div />
           <button 
-            onClick={() => onNudge(0, -1)}
-            onPointerDown={(e) => {
-              // Optionally add long-press repeat logic here
-            }}
-            className="w-12 h-12 flex items-center justify-center bg-neutral-100 dark:bg-zinc-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-neutral-600 dark:text-zinc-300 active:scale-95 transition-transform"
+            onPointerDown={() => handlePressStart(0, -1)}
+            onPointerUp={clearNudgeInterval}
+            onPointerLeave={clearNudgeInterval}
+            className="w-12 h-12 flex items-center justify-center bg-neutral-100 dark:bg-zinc-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-neutral-600 dark:text-zinc-300 active:scale-95 transition-all select-none touch-none cursor-pointer"
           >
             <ArrowUp size={24} />
           </button>
           <div />
           <button 
-            onClick={() => onNudge(-1, 0)}
-            className="w-12 h-12 flex items-center justify-center bg-neutral-100 dark:bg-zinc-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-neutral-600 dark:text-zinc-300 active:scale-95 transition-transform"
+            onPointerDown={() => handlePressStart(-1, 0)}
+            onPointerUp={clearNudgeInterval}
+            onPointerLeave={clearNudgeInterval}
+            className="w-12 h-12 flex items-center justify-center bg-neutral-100 dark:bg-zinc-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-neutral-600 dark:text-zinc-300 active:scale-95 transition-all select-none touch-none cursor-pointer"
           >
             <ArrowLeft size={24} />
           </button>
@@ -54,15 +79,19 @@ export function PrecisionOverlay({ onNudge, activeNodeId, loupeImageUrl, isVisib
             <ZoomIn size={20} />
           </div>
           <button 
-            onClick={() => onNudge(1, 0)}
-            className="w-12 h-12 flex items-center justify-center bg-neutral-100 dark:bg-zinc-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-neutral-600 dark:text-zinc-300 active:scale-95 transition-transform"
+            onPointerDown={() => handlePressStart(1, 0)}
+            onPointerUp={clearNudgeInterval}
+            onPointerLeave={clearNudgeInterval}
+            className="w-12 h-12 flex items-center justify-center bg-neutral-100 dark:bg-zinc-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-neutral-600 dark:text-zinc-300 active:scale-95 transition-all select-none touch-none cursor-pointer"
           >
             <ArrowRight size={24} />
           </button>
           <div />
           <button 
-            onClick={() => onNudge(0, 1)}
-            className="w-12 h-12 flex items-center justify-center bg-neutral-100 dark:bg-zinc-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-neutral-600 dark:text-zinc-300 active:scale-95 transition-transform"
+            onPointerDown={() => handlePressStart(0, 1)}
+            onPointerUp={clearNudgeInterval}
+            onPointerLeave={clearNudgeInterval}
+            className="w-12 h-12 flex items-center justify-center bg-neutral-100 dark:bg-zinc-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-neutral-600 dark:text-zinc-300 active:scale-95 transition-all select-none touch-none cursor-pointer"
           >
             <ArrowDown size={24} />
           </button>

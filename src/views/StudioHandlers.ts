@@ -141,7 +141,7 @@ export function useStudioHandlers() {
   }, [activeProject?.id]);
 
   // Synchronize and mirror updates
-  const handleUpdateAndSync = async (updates: Partial<Project>) => {
+  const handleUpdateAndSync = async (updates: Partial<Project>, throttleCloud?: boolean) => {
     if (!activeProjectId) return;
     const start = performance.now();
     setIsSaving(true);
@@ -155,7 +155,7 @@ export function useStudioHandlers() {
       nextUpdates.logoUrl = `data:image/svg+xml;utf8,${encodeURIComponent(updates.svgSource)}`;
     }
 
-    await updateProject(activeProjectId, nextUpdates);
+    await updateProject(activeProjectId, nextUpdates, throttleCloud);
 
     const duration = performance.now() - start;
     setSaveLatencyMs(parseFloat(duration.toFixed(2)));

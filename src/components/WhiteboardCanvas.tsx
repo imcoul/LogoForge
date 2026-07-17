@@ -5,7 +5,8 @@ import { Node } from '../types';
 import { 
   Trash2, Copy, Edit2, Grid, PenTool, Square, Circle, 
   Maximize2, Save, Sparkles, BookOpen, Sliders, ChevronRight,
-  Settings, CheckCircle, RefreshCw, Undo, Redo, HelpCircle, X
+  Settings, CheckCircle, RefreshCw, Undo, Redo, HelpCircle, X,
+  Lock, Unlock
 } from 'lucide-react';
 import { ForgeAcademy } from './ForgeAcademy';
 
@@ -27,6 +28,7 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
     fillColor?: string;
     fillOpacity?: number;
     strokeDashArray?: string;
+    locked?: boolean;
   }[]>([]);
   
   const [currentPoints, setCurrentPoints] = useState<string>('');
@@ -60,6 +62,7 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
     fillColor?: string;
     fillOpacity?: number;
     strokeDashArray?: string;
+    locked?: boolean;
   }[][]>([]);
   const [sketchesHistoryIndex, setSketchesHistoryIndex] = useState<number>(-1);
 
@@ -127,6 +130,8 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   };
 
   const deleteSketch = (id: string) => {
+    const target = sketches.find(s => s.id === id);
+    if (target?.locked) return;
     const updated = sketches.filter(s => s.id !== id);
     if (selectedSketchId === id) setSelectedSketchId(null);
     updateSketchesWithHistory(updated);
@@ -239,6 +244,8 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
     const point = snapCoords(rawPoint);
     
     if (tool === 'select' && selectedSketchId && startPoint) {
+      const selectedSketch = sketches.find(s => s.id === selectedSketchId);
+      if (selectedSketch?.locked) return;
       const dx = point.x - snapCoords(startPoint).x;
       const dy = point.y - snapCoords(startPoint).y;
       setDragOffset({ x: dx, y: dy });
@@ -261,6 +268,7 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
       setCurrentPoints(`${startPoint.x},${startPoint.y} ${endPoint.x},${endPoint.y}`);
     } else if (tool === 'sweeping-eraser') {
       const deletedSketch = sketches.find(s => {
+        if (s.locked) return false;
         const threshold = 15;
         if (s.type === 'rectangle' && s.props) {
             const { x, y, width, height } = s.props;
@@ -442,6 +450,10 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   // Modify individual properties of the selected sketch shape
   const handleUpdateSelectedSketch = (updatedFields: Partial<typeof sketches[0]>) => {
     if (!selectedSketchId) return;
+    const target = sketches.find(s => s.id === selectedSketchId);
+    if (target?.locked && Object.keys(updatedFields).length > 0 && !('locked' in updatedFields)) {
+      return;
+    }
     const updated = sketches.map(s => {
       if (s.id !== selectedSketchId) return s;
       return {
@@ -454,6 +466,8 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
 
   const handleUpdateSelectedProps = (updatedProps: any) => {
     if (!selectedSketchId) return;
+    const target = sketches.find(s => s.id === selectedSketchId);
+    if (target?.locked) return;
     const updated = sketches.map(s => {
       if (s.id !== selectedSketchId) return s;
       return {
@@ -969,9 +983,23 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
               </div>
 
               {/* Title & Dimensions description */}
-              <div>
-                <span className="text-xs font-bold block text-neutral-800 dark:text-zinc-100 truncate">{selectedSketch.name}</span>
-                <span className="text-[9px] font-mono font-bold text-neutral-400 uppercase">{selectedSketch.type || 'freehand path'}</span>
+              <div className="flex items-center justify-between bg-neutral-50 dark:bg-zinc-900 p-2.5 rounded-xl border border-neutral-150 dark:border-zinc-800">
+                <div className="overflow-hidden">
+                  <span className="text-xs font-bold block text-neutral-800 dark:text-zinc-100 truncate">{selectedSketch.name}</span>
+                  <span className="text-[9px] font-mono font-bold text-neutral-400 uppercase">{selectedSketch.type || 'freehand path'}</span>
+                </div>
+                <button
+                  onClick={() => handleUpdateSelectedSketch({ locked: !selectedSketch.locked })}
+                  className={`p-1.5 px-2.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    selectedSketch.locked 
+                      ? 'bg-red-500/10 hover:bg-red-500/15 text-red-500 border-red-500/30 dark:border-red-500/20' 
+                      : 'bg-neutral-50 hover:bg-neutral-100 dark:bg-zinc-850 text-neutral-500 border-neutral-250 dark:border-zinc-800 hover:text-indigo-500'
+                  }`}
+                  title={selectedSketch.locked ? "Unlock element" : "Lock element"}
+                >
+                  {selectedSketch.locked ? <Lock size={12} className="text-red-500" /> : <Unlock size={12} />}
+                  <span className="text-[9px] font-mono font-bold uppercase">{selectedSketch.locked ? "Locked" : "Lock"}</span>
+                </button>
               </div>
 
               {/* Fill styling */}
@@ -1161,10 +1189,15 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
                 <div key={s.id} className="border border-neutral-200 dark:border-zinc-800 p-4 rounded-2xl bg-neutral-50 dark:bg-zinc-950 space-y-2 relative group">
                     <div className="text-xs font-bold truncate pr-6">{s.name}</div>
                     <div className="text-[10px] font-mono text-neutral-400 uppercase">{s.type || 'path'}</div>
+                    {s.locked && (
+                      <div className="absolute top-4 right-4 text-red-500" title="Locked element">
+                        <Lock size={12} />
+                      </div>
+                    )}
                     <div className="flex gap-1.5 justify-end pt-2">
                         <button onClick={() => duplicateSketch(s.id)} className="p-1.5 bg-white dark:bg-zinc-900 border rounded-lg text-neutral-500 hover:text-indigo-500 cursor-pointer" title="Duplicate"><Copy size={12} /></button>
                         <button onClick={() => setEditingSketch(s)} className="p-1.5 bg-white dark:bg-zinc-900 border rounded-lg text-neutral-500 hover:text-indigo-500 cursor-pointer" title="Rename"><Edit2 size={12} /></button>
-                        <button onClick={() => deleteSketch(s.id)} className="p-1.5 bg-red-50 text-red-500 rounded-lg cursor-pointer" title="Delete"><Trash2 size={12} /></button>
+                        <button onClick={() => deleteSketch(s.id)} className={`p-1.5 rounded-lg cursor-pointer ${s.locked ? 'bg-neutral-100 dark:bg-zinc-900 text-neutral-300 dark:text-zinc-700 cursor-not-allowed' : 'bg-red-50 text-red-500 hover:bg-red-100'}`} title={s.locked ? "Locked" : "Delete"} disabled={s.locked}><Trash2 size={12} /></button>
                     </div>
                 </div>
             ))}

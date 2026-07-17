@@ -7,6 +7,9 @@ import { BrandGuide, RefinementSuggestion } from './services/geminiService';
 import { syncProjectToPostgres, syncProjectToSupabase } from './utils/dbBackupClient';
 import { Node } from './types';
 
+const cloudSyncTimeouts: Record<string, NodeJS.Timeout | null> = {};
+const pendingCloudUpdates: Record<string, Partial<Project>> = {};
+
 export type ProjectStage = 'discovery' | 'ideation' | 'drafting' | 'refinement' | 'delivery';
 
 export interface Comment {
@@ -109,7 +112,7 @@ interface AppState {
   loadProjects: () => Promise<void>;
   setUser: (user: User | null) => Promise<void>;
   createProject: (name?: string) => Promise<Project>;
-  updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
+  updateProject: (id: string, updates: Partial<Project>, throttleCloud?: boolean) => Promise<void>;
   bulkUpdateProjects: (ids: string[], updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   deleteProjects: (ids: string[]) => Promise<void>;
@@ -411,7 +414,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     await set('projects', updatedProjects);
   },
 
-  updateProject: async (id, updates) => {
+  updateProject: async (id, updates, throttleCloud = false) => {
     const { user, projects } = getStore();
     const updatedProjects = projects.map(p => {
       if (p.id !== id) return p;
@@ -430,15 +433,47 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     await set('projects', updatedProjects);
 
     if (user) {
-      const updatedProject = updatedProjects.find(p => p.id === id);
-      if (updatedProject) {
-        try {
-          console.log('Updating project in Firestore:', id, updatedProject);
-          await setDoc(doc(db, 'projects', id), prepareForFirestore(updatedProject));
-          // Mirror to cloud backup
-          triggerBackupMirror(updatedProject, getStore().settings);
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
+      if (throttleCloud) {
+        // Accumulate updates in the pending map
+        pendingCloudUpdates[id] = { ...(pendingCloudUpdates[id] || {}), ...updates };
+        
+        if (!cloudSyncTimeouts[id]) {
+          // Set a 1-second timeout to flush changes
+          cloudSyncTimeouts[id] = setTimeout(async () => {
+            const accumulatedUpdates = pendingCloudUpdates[id];
+            delete pendingCloudUpdates[id];
+            cloudSyncTimeouts[id] = null;
+            
+            const { projects: currentProjects } = getStore();
+            const currentProj = currentProjects.find(p => p.id === id);
+            if (currentProj) {
+              try {
+                console.log('Flushing throttled updates to Firestore:', id);
+                await setDoc(doc(db, 'projects', id), prepareForFirestore(currentProj));
+                triggerBackupMirror(currentProj, getStore().settings);
+              } catch (err) {
+                handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
+              }
+            }
+          }, 1000);
+        }
+      } else {
+        // Immediate save: clear active timeouts and merge pending accumulators
+        if (cloudSyncTimeouts[id]) {
+          clearTimeout(cloudSyncTimeouts[id]);
+          cloudSyncTimeouts[id] = null;
+        }
+        delete pendingCloudUpdates[id];
+        
+        const updatedProject = updatedProjects.find(p => p.id === id);
+        if (updatedProject) {
+          try {
+            console.log('Immediate update to Firestore:', id);
+            await setDoc(doc(db, 'projects', id), prepareForFirestore(updatedProject));
+            triggerBackupMirror(updatedProject, getStore().settings);
+          } catch (err) {
+            handleFirestoreError(err, OperationType.UPDATE, `projects/${id}`);
+          }
         }
       }
     }

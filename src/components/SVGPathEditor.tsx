@@ -4,7 +4,7 @@ import {
   Eye, Edit2, Sliders, ChevronRight, Zap, Trash2, 
   Plus, MousePointer, Paintbrush, Circle, Palette, 
   Sparkles, Check, RotateCcw, Move, LayoutGrid,
-  ZoomIn, ZoomOut, Maximize2, Minimize2, Undo2, Redo2, HelpCircle, BookOpen
+  ZoomIn, ZoomOut, Maximize2, Minimize2, Undo2, Redo2, HelpCircle, BookOpen, X
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { useToast } from './Toast';
@@ -23,8 +23,8 @@ const sanitizeSVG = (svg: string | null): string => {
 interface SVGPathEditorProps {
   svgSource?: string | null;
   svgContent?: string | null;
-  onUpdateSvg?: (newSvg: string) => void;
-  onChange?: (newSvg: string) => void;
+  onUpdateSvg?: (newSvg: string, throttleCloud?: boolean) => void;
+  onChange?: (newSvg: string, throttleCloud?: boolean) => void;
   fullscreen?: boolean;
   setFullscreen?: (f: boolean) => void;
 }
@@ -69,6 +69,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const [localFullscreen, setLocalFullscreen] = useState<boolean>(false);
   const isFullscreen = fullscreen !== undefined ? fullscreen : localFullscreen;
   const [academyOpen, setAcademyOpen] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState<number | null>(null);
 
   const toggleFullscreen = () => {
     if (setFullscreen) {
@@ -312,7 +313,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   }, [parsedPaths, selectedPathIndex]);
 
   // Push new SVG to parent and update internal undo history
-  const pushSvgChange = (nextSvg: string) => {
+  const pushSvgChange = (nextSvg: string, throttleCloud?: boolean) => {
     if (!actualOnUpdateSvg || !actualSvgSource) return;
     if (nextSvg === actualSvgSource) return;
 
@@ -320,7 +321,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     setUndoStack((prev) => [...prev, actualSvgSource]);
     setRedoStack([]); // Clear redo on fresh manual action
 
-    actualOnUpdateSvg(nextSvg);
+    actualOnUpdateSvg(nextSvg, throttleCloud);
   };
 
   // Undo manual design actions (Triggered via toolbar or two-finger swipe)
@@ -387,7 +388,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Reconstruct SVG source from nodes
-  const reconstructSvgFromNodes = (currentNodes: PathNode[]) => {
+  const reconstructSvgFromNodes = (currentNodes: PathNode[], throttleCloud = true) => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       if (!actualSvgSource || parsedPaths.length === 0) return;
@@ -396,12 +397,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
         .map((n) => `${n.type}${n.values.join(',')}`)
         .join(' ');
 
-      updatePathAtIndex(selectedPathIndex, { d: newPathString });
+      updatePathAtIndex(selectedPathIndex, { d: newPathString }, throttleCloud);
     }, 150);
   };
 
   // Re-write path attributes for a selected index and broadcast changes
-  const updatePathAtIndex = (indexToUpdate: number, newAttrs: Partial<ParsedPath>) => {
+  const updatePathAtIndex = (indexToUpdate: number, newAttrs: Partial<ParsedPath>, throttleCloud?: boolean) => {
     if (!actualSvgSource || !actualOnUpdateSvg) return;
 
     let index = 0;
@@ -422,7 +423,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       return match;
     });
 
-    pushSvgChange(newSvg);
+    pushSvgChange(newSvg, throttleCloud);
   };
 
   // Push brand background updates safely
@@ -460,12 +461,34 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Initialize brand canvas manually from fresh slate
   const handleInitBlankCanvas = (bgColor: string) => {
     if (!actualOnUpdateSvg) return;
-    const freshSvg = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+    const startX = Math.round(0.3 * gridSize);
+    const endX = Math.round(0.7 * gridSize);
+    const centerY = Math.round(0.5 * gridSize);
+    const strokeW = Math.round(gridSize / 33) || 4;
+    const freshSvg = `<svg viewBox="0 0 ${gridSize} ${gridSize}" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
   <rect width="100%" height="100%" fill="${bgColor}" rx="16"/>
-  <path d="M60,100 L140,100" stroke="#6366F1" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M${startX},${centerY} L${endX},${centerY}" stroke="#6366F1" fill="none" stroke-width="${strokeW}" stroke-linecap="round" stroke-linejoin="round" />
 </svg>`;
     pushSvgChange(freshSvg);
     setSelectedPathIndex(0);
+  };
+
+  const handleGridSizeSelect = (newSize: number) => {
+    setGridSize(newSize);
+    triggerHaptic(15);
+    if (actualSvgSource && actualOnUpdateSvg) {
+      const viewBoxRegex = /viewBox="([^"]+)"/;
+      const match = viewBoxRegex.exec(actualSvgSource);
+      if (match) {
+        const nextSvg = actualSvgSource.replace(viewBoxRegex, `viewBox="0 0 ${newSize} ${newSize}"`);
+        pushSvgChange(nextSvg);
+      } else {
+        const svgOpenTag = /<svg([^>]*)>/;
+        const nextSvg = actualSvgSource.replace(svgOpenTag, `<svg$1 viewBox="0 0 ${newSize} ${newSize}">`);
+        pushSvgChange(nextSvg);
+      }
+    }
+    toast(`Grid scale size set to ${newSize}x${newSize}!`, "success");
   };
 
   // Clear all paths inside the current canvas
@@ -1112,6 +1135,19 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     };
 
     const handleGlobalEnd = () => {
+      if (draggedNode !== null) {
+        // Clear any pending debounced reconstruct, and commit the final values immediately
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+          debounceTimerRef.current = null;
+        }
+        if (nodes.length > 0 && selectedPathIndex !== -1) {
+          const newPathString = nodes
+            .map((n) => `${n.type}${n.values.join(',')}`)
+            .join(' ');
+          updatePathAtIndex(selectedPathIndex, { d: newPathString }, false);
+        }
+      }
       setDraggedNode(null);
       setLoupeCoords(null);
       setSnappingLines(null);
@@ -1375,7 +1411,18 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   }
 
   return (
-    <div className={`bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 relative transition-all ${isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen rounded-none p-8 overflow-y-auto bg-white dark:bg-zinc-900' : 'rounded-3xl p-5 md:p-6 space-y-6 shadow-xs'}`}>
+    <div className={`border border-neutral-200 dark:border-zinc-800 relative transition-all ${isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen rounded-none p-6 md:p-8 overflow-y-auto bg-white dark:bg-zinc-950 flex flex-col' : 'bg-white dark:bg-zinc-900 rounded-3xl p-5 md:p-6 space-y-6 shadow-xs'}`}>
+      
+      {/* Floating Exit Fullscreen Button */}
+      {isFullscreen && (
+        <button
+          onClick={toggleFullscreen}
+          className="fixed top-6 right-6 z-55 flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold uppercase tracking-widest text-[10px] px-4 py-2.5 rounded-full shadow-2xl transition-all cursor-pointer hover:scale-105 active:scale-95 border border-rose-400"
+        >
+          <Minimize2 size={13} />
+          Exit Fullscreen
+        </button>
+      )}
       
       {/* Floating Two-Finger Gesture Toast Indicator */}
       {gestureToast && (
@@ -1411,19 +1458,30 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           >
             <BookOpen size={12} /> Tutorial
           </button>
+
+          {/* Quick Start Tour Button */}
+          <button
+            onClick={() => { setTutorialStep(0); triggerHaptic(20); }}
+            className="p-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-lg flex items-center gap-1 text-[10px] font-black uppercase shadow-xs cursor-pointer hover:scale-102 transition-transform border border-indigo-400"
+            title="Quick Start Interactive Tour"
+          >
+            <Sparkles size={12} /> Interactive Tour
+          </button>
         </div>
 
         {/* Tab Selection */}
         <div className="flex bg-neutral-100 dark:bg-zinc-950 p-1 rounded-xl w-full sm:w-auto">
           <button
+            id="tour-touch-draw-tab"
             onClick={() => { setEditorMode('draw'); triggerHaptic(15); }}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${editorMode === 'draw' ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-zinc-400'}`}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${tutorialStep === 1 || tutorialStep === 2 ? 'ring-4 ring-emerald-500 animate-pulse' : ''} ${editorMode === 'draw' ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-zinc-400'}`}
           >
             <Paintbrush size={13} /> Touch Draw Board
           </button>
           <button
+            id="tour-precision-handles-tab"
             onClick={() => { setEditorMode('coordinate'); triggerHaptic(15); }}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${editorMode === 'coordinate' ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-zinc-400'}`}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${tutorialStep === 3 ? 'ring-4 ring-indigo-500 animate-pulse' : ''} ${editorMode === 'coordinate' ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-zinc-400'}`}
           >
             <Move size={13} /> Precision Handles
           </button>
@@ -1437,7 +1495,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           <div className="lg:col-span-7 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">Tactile Vector Pad (200x200 Grid)</span>
+                <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">Tactile Vector Pad ({gridSize}x{gridSize} Grid)</span>
                 {/* Gestures guide helper */}
                 <div className="group relative">
                   <HelpCircle size={12} className="text-neutral-300 dark:text-zinc-700 cursor-help" />
@@ -1481,8 +1539,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 {/* Expanded Grid size selector */}
                 <select
                   value={gridSize}
-                  onChange={(e) => { setGridSize(Number(e.target.value)); triggerHaptic(15); }}
-                  className="text-[10px] font-bold bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-lg text-neutral-700 dark:text-zinc-300 py-1 px-1.5 focus:outline-none cursor-pointer animate-pulse"
+                  onChange={(e) => handleGridSizeSelect(Number(e.target.value))}
+                  className="text-[10px] font-bold bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-lg text-neutral-700 dark:text-zinc-300 py-1 px-1.5 focus:outline-none cursor-pointer"
                   title="Change grid viewBox scale size"
                 >
                   <option value={200}>200x200 Grid</option>
@@ -1511,6 +1569,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
             {/* Render Drawing Area */}
             <div 
+              id="tour-drawing-viewport"
               ref={canvasRef}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
@@ -1519,7 +1578,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
-              className="relative aspect-square w-full rounded-2xl border-2 border-dashed border-neutral-200 dark:border-zinc-800 bg-neutral-50 dark:bg-zinc-950 overflow-hidden shadow-inner flex items-center justify-center cursor-crosshair touch-none"
+              className={`relative aspect-square w-full rounded-2xl border-2 bg-neutral-50 dark:bg-zinc-950 overflow-hidden shadow-inner flex items-center justify-center cursor-crosshair touch-none transition-all ${tutorialStep === 0 ? 'ring-4 ring-indigo-500 ring-offset-4 dark:ring-offset-zinc-900 animate-pulse border-indigo-400' : 'border-dashed border-neutral-200 dark:border-zinc-800'}`}
             >
               {/* Dynamic Zoom & Pan Transform Layer */}
               <div 
@@ -1587,7 +1646,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* Dashed guidelines linking auto Bezier points */}
                 {drawTool === 'bezier' && bezierPoints.length > 1 && (
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-20" viewBox="0 0 200 200">
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-20" viewBox={`0 0 ${gridSize} ${gridSize}`}>
                     <path 
                       d={buildPathD(bezierPoints)} 
                       fill="none" 
@@ -1700,10 +1759,10 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider block">Drawing Engine Control</span>
 
             {/* Quick tool selection (Grid style for finger tapping) */}
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="grid grid-cols-4 gap-1.5" id="tour-tool-selection">
               <button
                 onClick={() => { setDrawTool('brush'); setPenPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${drawTool === 'brush' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'brush' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <Paintbrush size={15} />
                 <span className="text-[9px] font-black uppercase tracking-tight">Brush Free</span>
@@ -1711,7 +1770,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
               <button
                 onClick={() => { setDrawTool('bezier'); setPenPoints([]); setBrushPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${drawTool === 'bezier' ? 'bg-emerald-600 border-emerald-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'bezier' ? 'bg-emerald-600 border-emerald-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <Circle size={15} />
                 <span className="text-[9px] font-black uppercase tracking-tight">Auto-Bezier</span>
@@ -1719,7 +1778,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
               <button
                 onClick={() => { setDrawTool('pen'); setBrushPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${drawTool === 'pen' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'pen' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <MousePointer size={15} />
                 <span className="text-[9px] font-black uppercase tracking-tight">Sharp Pen</span>
@@ -1727,7 +1786,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
               <button
                 onClick={() => { setDrawTool('shapes'); setPenPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${drawTool === 'shapes' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'shapes' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <Sparkles size={15} />
                 <span className="text-[9px] font-black uppercase tracking-tight">Stamp Shape</span>
@@ -1962,7 +2021,10 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             )}
 
             {/* Precision Toolbox card */}
-            <div className="p-4 bg-neutral-50 dark:bg-zinc-950 border border-neutral-150 dark:border-zinc-855 rounded-2xl space-y-3.5">
+            <div 
+              id="tour-precision-toolbox" 
+              className={`p-4 bg-neutral-50 dark:bg-zinc-950 border rounded-2xl space-y-3.5 transition-all ${tutorialStep === 4 ? 'ring-4 ring-emerald-500 ring-offset-4 dark:ring-offset-zinc-900 animate-pulse border-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-neutral-150 dark:border-zinc-855'}`}
+            >
               <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-widest block">Precision Toolbox</span>
               
               <button
@@ -2369,6 +2431,109 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           </div>
         </div>
       )}
+
+      {/* Interactive Walkthrough Tour Overlay */}
+      {(() => {
+        const tutorialSteps = [
+          {
+            title: "🧭 Welcome & Layout Orientation",
+            content: "Let's learn how to navigate like a pro vector designer! This drawing viewport is your infinite canvas. Drag any blank space to PAN, and pinch or scroll to ZOOM up to 500% with absolute sub-pixel precision.",
+            targetId: "tour-drawing-viewport",
+          },
+          {
+            title: "✍️ Flowing Curves: Brush & Bezier",
+            content: "Switch between freehand flowing brush strokes and mathematically perfect Bezier nodes! Use the 'Brush Free' tool to paint organic paths, or click anywhere using 'Auto-Bezier' to automatically place anchors linked by beautiful smooth curves.",
+            targetId: "tour-touch-draw-tab",
+          },
+          {
+            title: "📐 Sharp Angles & Custom Stamps",
+            content: "Select the 'Sharp Pen' tool to plot precise straight-line coordinate vectors (M and L commands). Or, tap 'Stamp Shape' to instantly inject beautiful pre-designed vector shapes like Shields, Leaves, or Stars into your layout!",
+            targetId: "tour-tool-selection",
+          },
+          {
+            title: "🎯 Precision Handle Dragger",
+            content: "Ready for micro-tuning? Switch to the 'Precision Handles' tab! Tap on any anchor node or control handle, drag to reposition, and use the 4x Magnifier Loupe above your finger to align nodes with sub-pixel perfection.",
+            targetId: "tour-precision-handles-tab",
+          },
+          {
+            title: "⚡ Alignment Snapping & Simplified Clean",
+            content: "All nodes automatically snap to dynamic structural symmetry guides. If your XML source gets heavy or complex, simply open the 'Precision Toolbox' and click 'Clean & Simplify SVG' to prune redundant nodes in a flash!",
+            targetId: "tour-precision-toolbox",
+          }
+        ];
+
+        if (tutorialStep === null) return null;
+        const currentStep = tutorialSteps[tutorialStep];
+
+        return (
+          <div className="fixed bottom-6 right-6 z-55 max-w-sm w-full bg-zinc-950 text-white border border-indigo-500/40 rounded-3xl p-5 shadow-2xl animate-fadeIn space-y-4 pointer-events-auto backdrop-blur-md bg-zinc-950/95 flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] bg-indigo-500 text-white px-2 py-0.5 rounded-full font-mono font-black uppercase tracking-wider">
+                  Interactive Tour • Step {tutorialStep + 1} of {tutorialSteps.length}
+                </span>
+                <button 
+                  onClick={() => { setTutorialStep(null); triggerHaptic(10); }}
+                  className="text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                  title="Exit Tour"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              
+              <h4 className="text-sm font-black tracking-tight text-white">{currentStep.title}</h4>
+              <p className="text-[11px] text-zinc-300 leading-normal font-semibold">
+                {currentStep.content}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-zinc-800/80 pt-3">
+              <button
+                onClick={() => {
+                  if (tutorialStep > 0) {
+                    setTutorialStep(tutorialStep - 1);
+                    triggerHaptic(10);
+                  }
+                }}
+                disabled={tutorialStep === 0}
+                className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 hover:text-white rounded-xl text-[10px] font-bold uppercase transition-all"
+              >
+                Back
+              </button>
+              
+              <div className="flex gap-1">
+                {tutorialSteps.map((_, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`w-1.5 h-1.5 rounded-full transition-all ${idx === tutorialStep ? 'bg-indigo-400 scale-125' : 'bg-zinc-800'}`}
+                  />
+                ))}
+              </div>
+
+              <button
+                onClick={() => {
+                  if (tutorialStep < tutorialSteps.length - 1) {
+                    if (tutorialStep === 2) {
+                      setEditorMode('coordinate');
+                    } else if (tutorialStep === 0 || tutorialStep === 1) {
+                      setEditorMode('draw');
+                    }
+                    setTutorialStep(tutorialStep + 1);
+                    triggerHaptic(15);
+                  } else {
+                    setTutorialStep(null);
+                    triggerHaptic([20, 50]);
+                    toast("🎉 Walkthrough completed! You're ready to forge incredible vector shapes!", "success");
+                  }
+                }}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold uppercase tracking-wide text-[10px] rounded-xl transition-all shadow-md shadow-indigo-600/20"
+              >
+                {tutorialStep === tutorialSteps.length - 1 ? "Finish Tour" : "Next Step"}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Forge Academy Modal */}
       <ForgeAcademy isOpen={academyOpen} onClose={() => setAcademyOpen(false)} />
