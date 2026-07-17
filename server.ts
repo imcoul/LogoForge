@@ -573,6 +573,14 @@ async function startServer() {
           }
         }
 
+        else if (msg.type === "ghost_sync" && currentRoomId) {
+          const { ghostData } = msg;
+          broadcastToRoom(currentRoomId, ws, {
+            type: "ghost_sync",
+            senderId: userId,
+            ghostData
+          });
+        }
         else if (msg.type === "comment" && currentRoomId) {
           const { comment } = msg;
           const room = rooms[currentRoomId];

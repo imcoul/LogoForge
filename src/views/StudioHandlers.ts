@@ -141,6 +141,17 @@ export function useStudioHandlers() {
   }, [activeProject?.id]);
 
   // Synchronize and mirror updates
+  const handleGhostSync = (ghostData: any) => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: 'ghost_sync',
+          ghostData,
+        })
+      );
+    }
+  };
+
   const handleUpdateAndSync = async (updates: Partial<Project>, throttleCloud?: boolean) => {
     if (!activeProjectId) return;
     const start = performance.now();
@@ -168,19 +179,21 @@ export function useStudioHandlers() {
     } as Project;
 
     // Trigger Cloud Backups/Mirrors
-    if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
-      syncProjectToPostgres(mergedProject, settings.postgresConnectionString).then((res) => {
-        if (!res.success) {
-          console.warn('Postgres Backup Failed:', res.message);
-        }
-      });
-    }
-    if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
-      syncProjectToSupabase(mergedProject, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
-        if (!res.success) {
-          console.warn('Supabase Backup Failed:', res.message);
-        }
-      });
+    if (!throttleCloud) {
+      if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
+        syncProjectToPostgres(mergedProject, settings.postgresConnectionString).then((res) => {
+          if (!res.success) {
+            console.warn('Postgres Backup Failed:', res.message);
+          }
+        });
+      }
+      if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
+        syncProjectToSupabase(mergedProject, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+          if (!res.success) {
+            console.warn('Supabase Backup Failed:', res.message);
+          }
+        });
+      }
     }
 
     // Broadcast sync
@@ -359,6 +372,13 @@ export function useStudioHandlers() {
             if (msg.projectState) {
               updateProject(activeProjectId, msg.projectState);
             }
+          } else if (msg.type === 'ghost_sync') {
+            const store = useAppStore.getState();
+            store.setEphemeralGhost(msg.senderId, msg.ghostData);
+            // Clear ghost after 500ms of inactivity
+            setTimeout(() => {
+              store.clearEphemeralGhost(msg.senderId);
+            }, 500);
           } else if (msg.type === 'cursor') {
             setRemoteCursors((prev) => ({
               ...prev,
@@ -831,6 +851,7 @@ ${guide.dosAndDonts.map((rule) => `- ${rule}`).join('\n')}
     error,
     setError,
     socket,
+    handleGhostSync,
     activeUsers,
     remoteCursors,
     username,

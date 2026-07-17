@@ -122,6 +122,9 @@ interface AppState {
   addNodeToScene: (node: Node) => Promise<void>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
+  ephemeralGhosts: Record<string, any>;
+  setEphemeralGhost: (id: string, ghostData: any) => void;
+  clearEphemeralGhost: (id: string) => void;
 }
 
 function prepareForFirestore(project: Project): any {
@@ -163,6 +166,15 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   settings: {},
   isHydrated: false,
   user: null,
+  ephemeralGhosts: {},
+  setEphemeralGhost: (id, ghostData) => setStore((state) => ({
+    ephemeralGhosts: { ...state.ephemeralGhosts, [id]: ghostData }
+  })),
+  clearEphemeralGhost: (id) => setStore((state) => {
+    const next = { ...state.ephemeralGhosts };
+    delete next[id];
+    return { ephemeralGhosts: next };
+  }),
 
   // ... (existing methods remain the same, just adding undo/redo)
   undo: async () => {

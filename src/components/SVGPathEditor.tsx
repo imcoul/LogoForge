@@ -21,6 +21,7 @@ const sanitizeSVG = (svg: string | null): string => {
 };
 
 interface SVGPathEditorProps {
+  onGhostSync?: (ghostData: any) => void;
   svgSource?: string | null;
   svgContent?: string | null;
   onUpdateSvg?: (newSvg: string, throttleCloud?: boolean) => void;
@@ -45,6 +46,7 @@ interface PathNode {
 }
 
 export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
+  onGhostSync,
   svgSource,
   svgContent,
   onUpdateSvg,
@@ -144,16 +146,34 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Magnifier Loupe state for Precision node dragging
   const [draggedNode, setDraggedNode] = useState<{ nodeId: number; valIdx: number } | null>(null);
   const [selectedNode, setSelectedNode] = useState<{ nodeId: number; valIdx: number } | null>(null);
+  const { ephemeralGhosts } = useAppStore();
+  const [contextMenuNode, setContextMenuNode] = useState<{ nodeId: number; valIdx: number } | null>(null);
+  const [lockedAngles, setLockedAngles] = useState<Record<string, { angle: number; length: number; type: 'angle' | 'length' }>>({});
+  const [localSvg, setLocalSvg] = useState<string>(actualSvgSource || '');
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [precisionStep, setPrecisionStep] = useState<number>(1);
   const [loupeCoords, setLoupeCoords] = useState<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
   
+  // Keep localSvg in sync with actualSvgSource when not dragging
+  useEffect(() => {
+    if (draggedNode === null) {
+      setLocalSvg(actualSvgSource || '');
+    }
+  }, [actualSvgSource, draggedNode]);
+  
   // Precision Mode UI controls
-  const [snappingLines, setSnappingLines] = useState<{ x?: number; y?: number } | null>(null);
+  const [snappingLines, setSnappingLines] = useState<{ x?: number; y?: number; angleLine?: { x1: number; y1: number; x2: number; y2: number } } | null>(null);
   const [showGestureMap, setShowGestureMap] = useState<boolean>(false);
 
   // Local undo/redo stacks
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
+
+  // Multitouch Gesture Chords tracking
+  const tapStartTimeRef = useRef<number>(0);
+  const tapMaxFingersRef = useRef<number>(0);
+  const tapMovedRef = useRef<boolean>(false);
+  const touchTapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     pathWorkerRef.current = new Worker(new URL('../workers/pathWorker.ts', import.meta.url), { type: 'module' });
@@ -352,6 +372,225 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     actualOnUpdateSvg(nextSvg);
 
     toast('Redo Action', 'info');
+  };
+
+  const getContextMenuCoords = () => {
+    if (!contextMenuNode) return null;
+    const node = nodes.find(n => n.id === contextMenuNode.nodeId);
+    if (!node) return null;
+    let x = 0;
+    let y = 0;
+    if (node.type.toUpperCase() === 'M' || node.type.toUpperCase() === 'L') {
+      x = node.values[0];
+      y = node.values[1];
+    } else if (node.type.toUpperCase() === 'C') {
+      x = node.values[contextMenuNode.valIdx];
+      y = node.values[contextMenuNode.valIdx + 1];
+    }
+    return { x, y };
+  };
+
+  // Helper to construct the updated SVG in-memory
+  const getSvgWithUpdatedNodes = (currentNodes: PathNode[]) => {
+    if (!actualSvgSource || parsedPaths.length === 0) return actualSvgSource || '';
+    const newPathString = currentNodes
+      .map((n) => `${n.type}${n.values.join(',')}`)
+      .join(' ');
+    
+    let index = 0;
+    const regex = /<path([^>]+)\/?>/g;
+    const newSvg = actualSvgSource.replace(regex, (match) => {
+      if (index === selectedPathIndex) {
+        const updated = { ...parsedPaths[selectedPathIndex], d: newPathString };
+        const strokeAttr = updated.stroke && updated.stroke !== 'none' ? ` stroke="${updated.stroke}"` : '';
+        const fillAttr = updated.fill && updated.fill !== 'none' ? ` fill="${updated.fill}"` : ' fill="none"';
+        const strokeWidthAttr = updated.stroke && updated.stroke !== 'none' ? ` stroke-width="${updated.strokeWidth}"` : '';
+        
+        const newTag = `<path d="${updated.d}"${strokeAttr}${fillAttr}${strokeWidthAttr} stroke-linecap="round" stroke-linejoin="round" />`;
+        index++;
+        return newTag;
+      }
+      index++;
+      return match;
+    });
+    return newSvg;
+  };
+
+  // Delete a point from the path
+  const handleDeleteNode = (nodeId: number) => {
+    let updated = nodes.filter(n => n.id !== nodeId);
+    updated = updated.map((n, i) => ({ ...n, id: i }));
+    if (updated.length > 0 && updated[0].type.toUpperCase() !== 'M') {
+      updated[0] = { ...updated[0], type: 'M' };
+    }
+    setNodes(updated);
+    const finalSvg = getSvgWithUpdatedNodes(updated);
+    pushSvgChange(finalSvg, false);
+    setContextMenuNode(null);
+    setSelectedNode(null);
+    toast("🗑️ Point deleted", "success");
+    triggerHaptic(20);
+  };
+
+  // Convert node type (M, L, C) with smart interpolation
+  const handleConvertNodeType = (nodeId: number, newType: string) => {
+    const updated = nodes.map(n => {
+      if (n.id === nodeId) {
+        let newVals = [...n.values];
+        const oldType = n.type.toUpperCase();
+        const targetType = newType.toUpperCase();
+        if (oldType === targetType) return n;
+
+        if (targetType === 'M' || targetType === 'L') {
+          if (newVals.length >= 6) {
+            newVals = [newVals[4], newVals[5]];
+          } else if (newVals.length === 0) {
+            newVals = [100, 100];
+          } else {
+            newVals = [newVals[0] || 100, newVals[1] || 100];
+          }
+        } else if (targetType === 'C') {
+          let prevX = 0;
+          let prevY = 0;
+          const idx = nodes.findIndex(node => node.id === nodeId);
+          if (idx > 0) {
+            const prevNode = nodes[idx - 1];
+            if (prevNode.type.toUpperCase() === 'C' && prevNode.values.length >= 6) {
+              prevX = prevNode.values[4];
+              prevY = prevNode.values[5];
+            } else if (prevNode.values.length >= 2) {
+              prevX = prevNode.values[0];
+              prevY = prevNode.values[1];
+            }
+          }
+          const endX = newVals[0] || 100;
+          const endY = newVals[1] || 100;
+
+          const cp1x = prevX + (endX - prevX) / 3;
+          const cp1y = prevY + (endY - prevY) / 3;
+          const cp2x = prevX + (endX - prevX) * 2 / 3;
+          const cp2y = prevY + (endY - prevY) * 2 / 3;
+
+          newVals = [cp1x, cp1y, cp2x, cp2y, endX, endY];
+        }
+        return { ...n, type: newType, values: newVals };
+      }
+      return n;
+    });
+
+    setNodes(updated);
+    const finalSvg = getSvgWithUpdatedNodes(updated);
+    pushSvgChange(finalSvg, false);
+    setContextMenuNode(null);
+    setSelectedNode(null);
+    toast(`Converted point to ${newType.toUpperCase()}`, "success");
+    triggerHaptic(20);
+  };
+
+  // Toggle angle/length asymmetric locks
+  const toggleHandleLock = (nodeId: number, valIdx: number, lockType: 'angle' | 'length') => {
+    const key = `${nodeId}-${valIdx}`;
+    setLockedAngles(prev => {
+      const current = prev[key];
+      if (current && current.type === lockType) {
+        const next = { ...prev };
+        delete next[key];
+        toast("Unlocked handle", "info");
+        return next;
+      } else {
+        const node = nodes.find(n => n.id === nodeId);
+        if (!node || node.type.toUpperCase() !== 'C') return prev;
+
+        let anchorX = 0;
+        let anchorY = 0;
+        const cpX = node.values[valIdx];
+        const cpY = node.values[valIdx + 1];
+
+        if (valIdx === 0) {
+          const idx = nodes.findIndex(n => n.id === nodeId);
+          if (idx > 0) {
+            const prevNode = nodes[idx - 1];
+            if (prevNode.type.toUpperCase() === 'C' && prevNode.values.length >= 6) {
+              anchorX = prevNode.values[4];
+              anchorY = prevNode.values[5];
+            } else if (prevNode.values.length >= 2) {
+              anchorX = prevNode.values[0];
+              anchorY = prevNode.values[1];
+            }
+          }
+        } else if (valIdx === 2) {
+          anchorX = node.values[4];
+          anchorY = node.values[5];
+        } else {
+          return prev;
+        }
+
+        const dx = cpX - anchorX;
+        const dy = cpY - anchorY;
+        const angle = Math.atan2(dy, dx);
+        const length = Math.hypot(dy, dx);
+
+        toast(`Locked handle ${lockType}`, "success");
+        return {
+          ...prev,
+          [key]: { angle, length, type: lockType }
+        };
+      }
+    });
+    triggerHaptic(15);
+  };
+
+  // Proximity finder for Dynamic Touch Hit-Testing
+  const findClosestNode = (cx: number, cy: number) => {
+    let closestNode: { nodeId: number; valIdx: number; dist: number } | null = null;
+    let lastX = 0;
+    let lastY = 0;
+
+    nodes.forEach((node) => {
+      const { type, values, id } = node;
+
+      if (type.toUpperCase() === 'M' || type.toUpperCase() === 'L') {
+        if (values.length >= 2) {
+          const x = values[0];
+          const y = values[1];
+          const dist = Math.hypot(cx - x, cy - y);
+          if (!closestNode || dist < closestNode.dist) {
+            closestNode = { nodeId: id, valIdx: 0, dist };
+          }
+          lastX = x;
+          lastY = y;
+        }
+      } else if (type.toUpperCase() === 'C') {
+        if (values.length >= 6) {
+          const cp1x = values[0];
+          const cp1y = values[1];
+          const cp2x = values[2];
+          const cp2y = values[3];
+          const endx = values[4];
+          const endy = values[5];
+
+          const dist1 = Math.hypot(cx - cp1x, cy - cp1y);
+          if (!closestNode || dist1 < closestNode.dist) {
+            closestNode = { nodeId: id, valIdx: 0, dist: dist1 };
+          }
+
+          const dist2 = Math.hypot(cx - cp2x, cy - cp2y);
+          if (!closestNode || dist2 < closestNode.dist) {
+            closestNode = { nodeId: id, valIdx: 2, dist: dist2 };
+          }
+
+          const dist3 = Math.hypot(cx - endx, cy - endy);
+          if (!closestNode || dist3 < closestNode.dist) {
+            closestNode = { nodeId: id, valIdx: 4, dist: dist3 };
+          }
+
+          lastX = endx;
+          lastY = endy;
+        }
+      }
+    });
+
+    return closestNode;
   };
 
   // Handle manual coordinate changes via sliders/inputs
@@ -573,6 +812,16 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
     const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
 
+    // Multitouch gesture tracking
+    if (e.touches.length === 1) {
+      tapStartTimeRef.current = Date.now();
+      tapMaxFingersRef.current = 1;
+      tapMovedRef.current = false;
+    } else if (e.touches.length > tapMaxFingersRef.current) {
+      tapMaxFingersRef.current = e.touches.length;
+      tapMovedRef.current = false; // Reset on finger add
+    }
+
     if (e.touches.length === 3) {
       // 3-Finger horizontal swipe tracking
       e.preventDefault();
@@ -618,6 +867,11 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       if (!coords) return;
 
       if (editorMode === 'coordinate') {
+        const closest = findClosestNode(coords.x, coords.y);
+        if (closest && closest.dist <= 18 / zoom) {
+          handleNodeDragStart(e, closest.nodeId, closest.valIdx, 0);
+          return;
+        }
         setIsPanning(true);
         setPanStart({ x: coords.clientX - panOffset.x, y: coords.clientY - panOffset.y });
         return;
@@ -646,8 +900,22 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Handle Touch moves
   const handleTouchMove = (e: any) => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (false) {
+      const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)?.getBoundingClientRect();
+      if (rect) {
+        const { x, y } = getEventCoords(e.touches[0], rect);
+        
+      }
+    }
+    
     if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)) return;
     const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
+
+    tapMovedRef.current = true;
 
     if (e.touches.length === 3 && swipeStartX !== null) {
       e.preventDefault();
@@ -763,6 +1031,22 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Handle Touch ends
   const handleTouchEnd = (e: any) => {
+    if (e.touches.length === 0 && tapMaxFingersRef.current >= 2) {
+      const touchDuration = Date.now() - tapStartTimeRef.current;
+      if (touchDuration < 350 && !tapMovedRef.current) {
+        if (tapMaxFingersRef.current === 2) {
+           handleUndo();
+           toast("Undo", "info");
+           triggerHaptic([30]);
+        } else if (tapMaxFingersRef.current === 3) {
+           handleRedo();
+           toast("Redo", "info");
+           triggerHaptic([30, 60]);
+        }
+      }
+      tapMaxFingersRef.current = 0;
+    }
+
     if (e.touches.length < 2) {
       setInitialDistance(null);
       setSwipeStartX(null);
@@ -787,8 +1071,21 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     const coords = getEventCoords(e, rect);
     if (!coords) return;
 
-    if (e.button === 1 || e.shiftKey || editorMode === 'coordinate') {
-      // Middle click or Shift + Drag pans (or any click in coordinate mode background)
+    if (editorMode === 'coordinate') {
+      if (e.button === 0) {
+        const closest = findClosestNode(coords.x, coords.y);
+        if (closest && closest.dist <= 18 / zoom) {
+          handleNodeDragStart(e, closest.nodeId, closest.valIdx, 0);
+          return;
+        }
+      }
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+      return;
+    }
+
+    if (e.button === 1 || e.shiftKey) {
+      // Middle click or Shift + Drag pans
       setIsPanning(true);
       setPanStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
       return;
@@ -816,6 +1113,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Handle Desktop Mouse Move
   const handleMouseMove = (e: any) => {
+    if (false) {
+      const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)?.getBoundingClientRect();
+      if (rect) {
+        const { x, y } = getEventCoords(e, rect);
+        
+      }
+    }
+    
     if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)) return;
     const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
 
@@ -840,6 +1145,10 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Handle Desktop Mouse Up
   const handleMouseUp = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
     if (isPanning) {
       setIsPanning(false);
       return;
@@ -976,12 +1285,21 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   const handleNodeDragStart = (
-    e: any | any, 
-    nodeId: number, 
-    valIdx: number, 
-    initialVal: number
+    e: React.MouseEvent | React.TouchEvent | any,
+    nodeId: number,
+    valIdx: number,
+    startVal: number
   ) => {
     e.stopPropagation();
+    
+    if (e && 'touches' in e) {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = setTimeout(() => {
+        setContextMenuNode({ nodeId, valIdx });
+        setDraggedNode(null); 
+      }, 500);
+    }
+    
     setDraggedNode({ nodeId, valIdx });
     setSelectedNode({ nodeId, valIdx });
     triggerHaptic(20);
@@ -992,6 +1310,11 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     if (draggedNode === null) return;
 
     const handleGlobalMove = (e: MouseEvent | TouchEvent) => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+
       const activeRef = editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current;
       if (!activeRef || draggedNode === null) return;
 
@@ -1026,6 +1349,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       let finalY = Math.max(0, Math.min(gridSize, rawY));
       let isSnappedX = false;
       let isSnappedY = false;
+      let snapAngleLine: { x1: number; y1: number; x2: number; y2: number } | null = null;
 
       // Snapping guide list calculated dynamically
       const snapGridPoints = Array.from({ length: 9 }).map((_, i) => Math.round((i * gridSize) / 8));
@@ -1076,8 +1400,123 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
         }
       });
 
+      // Now update the coordinate values & apply Locks or 45/90 deg Angle Snaps
+      const updatedNodes = nodes.map((node) => {
+        if (node.id === draggedNode.nodeId) {
+          const nextVals = [...node.values];
+          
+          if (editorMode === 'coordinate') {
+            const baseIdx = draggedNode.valIdx;
+            let x = finalX;
+            let y = finalY;
+            if (showGrid) {
+              const localGridSize = 10;
+              x = Math.round(x / localGridSize) * localGridSize;
+              y = Math.round(y / localGridSize) * localGridSize;
+            }
+
+            // Lock Check
+            const lockKey = `${draggedNode.nodeId}-${baseIdx}`;
+            const lock = lockedAngles[lockKey];
+
+            if (lock && (lock.type === 'angle' || lock.type === 'length')) {
+              let anchorX = 0;
+              let anchorY = 0;
+              if (baseIdx === 0) {
+                const idx = nodes.findIndex(n => n.id === draggedNode.nodeId);
+                if (idx > 0) {
+                  const prevNode = nodes[idx - 1];
+                  if (prevNode.type.toUpperCase() === 'C' && prevNode.values.length >= 6) {
+                    anchorX = prevNode.values[4];
+                    anchorY = prevNode.values[5];
+                  } else if (prevNode.values.length >= 2) {
+                    anchorX = prevNode.values[0];
+                    anchorY = prevNode.values[1];
+                  }
+                }
+              } else if (baseIdx === 2) {
+                anchorX = node.values[4];
+                anchorY = node.values[5];
+              }
+
+              const dx = x - anchorX;
+              const dy = y - anchorY;
+
+              if (lock.type === 'angle') {
+                const proj = dx * Math.cos(lock.angle) + dy * Math.sin(lock.angle);
+                x = anchorX + proj * Math.cos(lock.angle);
+                y = anchorY + proj * Math.sin(lock.angle);
+              } else if (lock.type === 'length') {
+                const currentAngle = Math.atan2(dy, dx);
+                x = anchorX + lock.length * Math.cos(currentAngle);
+                y = anchorY + lock.length * Math.sin(currentAngle);
+              }
+            } else if ((baseIdx === 0 || baseIdx === 2)) {
+              // 45 / 90 degree snap check when not locked
+              let anchorX = 0;
+              let anchorY = 0;
+              if (baseIdx === 0) {
+                const idx = nodes.findIndex(n => n.id === draggedNode.nodeId);
+                if (idx > 0) {
+                  const prevNode = nodes[idx - 1];
+                  if (prevNode.type.toUpperCase() === 'C' && prevNode.values.length >= 6) {
+                    anchorX = prevNode.values[4];
+                    anchorY = prevNode.values[5];
+                  } else if (prevNode.values.length >= 2) {
+                    anchorX = prevNode.values[0];
+                    anchorY = prevNode.values[1];
+                  }
+                }
+              } else if (baseIdx === 2) {
+                anchorX = node.values[4];
+                anchorY = node.values[5];
+              }
+
+              const dx = x - anchorX;
+              const dy = y - anchorY;
+              const length = Math.hypot(dy, dx);
+              const angle = Math.atan2(dy, dx);
+
+              const standardAngles = [
+                -Math.PI, -3 * Math.PI / 4, -Math.PI / 2, -Math.PI / 4,
+                0, Math.PI / 4, Math.PI / 2, 3 * Math.PI / 4, Math.PI
+              ];
+
+              const angleThreshold = 0.12; // about 7 degrees
+              for (const sa of standardAngles) {
+                if (Math.abs(angle - sa) <= angleThreshold || Math.abs(angle - (sa - 2 * Math.PI)) <= angleThreshold) {
+                  x = anchorX + length * Math.cos(sa);
+                  y = anchorY + length * Math.sin(sa);
+                  snapAngleLine = { x1: anchorX, y1: anchorY, x2: x, y2: y };
+                  break;
+                }
+              }
+            }
+
+            nextVals[baseIdx] = parseFloat(x.toFixed(precision));
+            if (baseIdx + 1 < nextVals.length) {
+              nextVals[baseIdx + 1] = parseFloat(y.toFixed(precision));
+            }
+
+            // Update final coordinate feedback coordinates
+            finalX = x;
+            finalY = y;
+          } else {
+            // Dragging on 1D range slider
+            let targetVal = draggedNode.valIdx % 2 === 0 ? finalX : finalY;
+            if (showGrid) {
+              const localGridSize = 10;
+              targetVal = Math.round(targetVal / localGridSize) * localGridSize;
+            }
+            nextVals[draggedNode.valIdx] = parseFloat(targetVal.toFixed(precision));
+          }
+          return { ...node, values: nextVals };
+        }
+        return node;
+      });
+
       // Gentle haptic hum when snap occurs
-      if (isSnappedX || isSnappedY) {
+      if (isSnappedX || isSnappedY || snapAngleLine) {
         triggerHaptic(5);
       } else {
         triggerHaptic(8);
@@ -1086,7 +1525,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       // Store snapping line state
       setSnappingLines({
         x: isSnappedX ? finalX : undefined,
-        y: isSnappedY ? finalY : undefined
+        y: isSnappedY ? finalY : undefined,
+        angleLine: snapAngleLine || undefined
       });
 
       // Set Loupe rendering state
@@ -1097,55 +1537,37 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
         clientY
       });
 
-      // Now update the coordinate values
-      const updatedNodes = nodes.map((node) => {
-        if (node.id === draggedNode.nodeId) {
-          const nextVals = [...node.values];
-          
-          if (editorMode === 'coordinate') {
-            // Dragging on 2D visual coordinate canvas: update BOTH X and Y values
-            const baseIdx = draggedNode.valIdx;
-            let x = finalX;
-            let y = finalY;
-            if (showGrid) {
-              const gridSize = 10;
-              x = Math.round(x / gridSize) * gridSize;
-              y = Math.round(y / gridSize) * gridSize;
-            }
-            nextVals[baseIdx] = parseFloat(x.toFixed(precision));
-            if (baseIdx + 1 < nextVals.length) {
-              nextVals[baseIdx + 1] = parseFloat(y.toFixed(precision));
-            }
-          } else {
-            // Dragging on 1D range slider
-            let targetVal = draggedNode.valIdx % 2 === 0 ? finalX : finalY;
-            if (showGrid) {
-              const gridSize = 10;
-              targetVal = Math.round(targetVal / gridSize) * gridSize;
-            }
-            nextVals[draggedNode.valIdx] = parseFloat(targetVal.toFixed(precision));
-          }
-          return { ...node, values: nextVals };
-        }
-        return node;
-      });
-
       setNodes(updatedNodes);
-      reconstructSvgFromNodes(updatedNodes);
+
+      // Update real-time local-only preview SVG to prevent database write loops
+      const tempSvg = getSvgWithUpdatedNodes(updatedNodes);
+      setLocalSvg(tempSvg);
+
+      // Broadcast tiny, lightweight ephemeral websocket ghost sync
+      if (onGhostSync && draggedNode) {
+        onGhostSync({
+          mode: 'coordinate',
+          nodeId: draggedNode.nodeId,
+          valIdx: draggedNode.valIdx,
+          x: finalX,
+          y: finalY
+        });
+      }
     };
 
     const handleGlobalEnd = () => {
       if (draggedNode !== null) {
-        // Clear any pending debounced reconstruct, and commit the final values immediately
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current);
           debounceTimerRef.current = null;
         }
         if (nodes.length > 0 && selectedPathIndex !== -1) {
-          const newPathString = nodes
-            .map((n) => `${n.type}${n.values.join(',')}`)
-            .join(' ');
-          updatePathAtIndex(selectedPathIndex, { d: newPathString }, false);
+          const finalSvg = getSvgWithUpdatedNodes(nodes);
+          // Layer 2: durable final save to Firestore and full sync message
+          pushSvgChange(finalSvg, false);
+        }
+        if (onGhostSync) {
+          onGhostSync(null); // Clear active ghost point
         }
       }
       setDraggedNode(null);
@@ -1165,7 +1587,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       window.removeEventListener('touchmove', handleGlobalMove);
       window.removeEventListener('touchend', handleGlobalEnd);
     };
-  }, [draggedNode, nodes, panOffset, zoom, precision, editorMode]);
+  }, [draggedNode, nodes, panOffset, zoom, precision, editorMode, lockedAngles, actualSvgSource, selectedPathIndex]);
 
   // Implement a 'Clean SVG' feature in the Precision tab that automatically removes redundant nodes,
   // optimizes path data, and simplifies complex Bezier curves while preserving the overall logo geometry.
@@ -1282,6 +1704,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     nodes.forEach((node) => {
       const { type, values, id } = node;
 
+      const isAnchorActive = (vIdx: number) => draggedNode?.nodeId === id && draggedNode?.valIdx === vIdx;
+
+      // Inverse zoom scaling for precision touch sizing
+      const rAnchor = Math.max(4, 6 / zoom);
+      const rCtrl = Math.max(3, 4 / zoom);
+
       if (type.toUpperCase() === 'M' || type.toUpperCase() === 'L') {
         if (values.length >= 2) {
           const x = values[0];
@@ -1291,12 +1719,21 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               <circle
                 cx={x}
                 cy={y}
-                r="6"
+                r={rAnchor}
                 tabIndex={0}
                 role="button"
                 aria-label={`Node ${id} point at ${x},${y}`}
                 onKeyDown={(e) => handleNodeKeyDown(e, id, 0, x)}
-                className={`cursor-pointer transition-all ${draggedNode?.nodeId === id && draggedNode?.valIdx === 0 ? 'fill-indigo-600 stroke-white stroke-2 scale-125' : 'fill-white stroke-indigo-600 stroke-2 hover:fill-indigo-50'}`}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenuNode({ nodeId: id, valIdx: 0 });
+                  triggerHaptic(15);
+                }}
+                className={`cursor-pointer transition-all ${
+                  isAnchorActive(0)
+                    ? 'fill-indigo-600 stroke-white stroke-2 scale-125'
+                    : 'fill-white stroke-indigo-600 stroke-2 hover:fill-indigo-50'
+                }`}
                 onMouseDown={(e) => handleNodeDragStart(e, id, 0, x)}
                 onTouchStart={(e) => handleNodeDragStart(e, id, 0, x)}
               />
@@ -1315,11 +1752,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           const endx = values[4];
           const endy = values[5];
 
+          const isCp1Locked = !!lockedAngles[`${id}-0`];
+          const isCp2Locked = !!lockedAngles[`${id}-2`];
+
           // Lines from endpoints to control points
           elements.push(
             <g key={`node-${id}-ctrl-lines`}>
-              <line x1={lastX} y1={lastY} x2={cp1x} y2={cp1y} stroke="#F59E0B" strokeWidth="1" strokeDasharray="2 2" />
-              <line x1={endx} y1={endy} x2={cp2x} y2={cp2y} stroke="#F59E0B" strokeWidth="1" strokeDasharray="2 2" />
+              <line x1={lastX} y1={lastY} x2={cp1x} y2={cp1y} stroke="#F59E0B" strokeWidth={1 / zoom} strokeDasharray="2 2" />
+              <line x1={endx} y1={endy} x2={cp2x} y2={cp2y} stroke="#F59E0B" strokeWidth={1 / zoom} strokeDasharray="2 2" />
             </g>
           );
 
@@ -1329,8 +1769,19 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               key={`node-${id}-cp1`}
               cx={cp1x}
               cy={cp1y}
-              r="4"
-              className={`cursor-pointer transition-all ${draggedNode?.nodeId === id && draggedNode?.valIdx === 0 ? 'fill-amber-600 stroke-white stroke-2 scale-125' : 'fill-white stroke-amber-500 stroke-1.5 hover:fill-amber-50'}`}
+              r={rCtrl}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenuNode({ nodeId: id, valIdx: 0 });
+                triggerHaptic(15);
+              }}
+              className={`cursor-pointer transition-all ${
+                isAnchorActive(0)
+                  ? 'fill-amber-600 stroke-white stroke-2 scale-125'
+                  : isCp1Locked
+                  ? 'fill-emerald-500 stroke-white stroke-1.5'
+                  : 'fill-white stroke-amber-500 stroke-1.5 hover:fill-amber-50'
+              }`}
               onMouseDown={(e) => handleNodeDragStart(e, id, 0, cp1x)}
               onTouchStart={(e) => handleNodeDragStart(e, id, 0, cp1x)}
             />
@@ -1342,8 +1793,19 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               key={`node-${id}-cp2`}
               cx={cp2x}
               cy={cp2y}
-              r="4"
-              className={`cursor-pointer transition-all ${draggedNode?.nodeId === id && draggedNode?.valIdx === 2 ? 'fill-amber-600 stroke-white stroke-2 scale-125' : 'fill-white stroke-amber-500 stroke-1.5 hover:fill-amber-50'}`}
+              r={rCtrl}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenuNode({ nodeId: id, valIdx: 2 });
+                triggerHaptic(15);
+              }}
+              className={`cursor-pointer transition-all ${
+                isAnchorActive(2)
+                  ? 'fill-amber-600 stroke-white stroke-2 scale-125'
+                  : isCp2Locked
+                  ? 'fill-emerald-500 stroke-white stroke-1.5'
+                  : 'fill-white stroke-amber-500 stroke-1.5 hover:fill-amber-50'
+              }`}
               onMouseDown={(e) => handleNodeDragStart(e, id, 2, cp2x)}
               onTouchStart={(e) => handleNodeDragStart(e, id, 2, cp2x)}
             />
@@ -1355,8 +1817,17 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               <circle
                 cx={endx}
                 cy={endy}
-                r="6"
-                className={`cursor-pointer transition-all ${draggedNode?.nodeId === id && draggedNode?.valIdx === 4 ? 'fill-indigo-600 stroke-white stroke-2 scale-125' : 'fill-white stroke-indigo-600 stroke-2 hover:fill-indigo-50'}`}
+                r={rAnchor}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenuNode({ nodeId: id, valIdx: 4 });
+                  triggerHaptic(15);
+                }}
+                className={`cursor-pointer transition-all ${
+                  isAnchorActive(4)
+                    ? 'fill-indigo-600 stroke-white stroke-2 scale-125'
+                    : 'fill-white stroke-indigo-600 stroke-2 hover:fill-indigo-50'
+                }`}
                 onMouseDown={(e) => handleNodeDragStart(e, id, 4, endx)}
                 onTouchStart={(e) => handleNodeDragStart(e, id, 4, endx)}
               />
@@ -1370,6 +1841,18 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       }
     });
 
+
+    Object.entries((ephemeralGhosts as Record<string, any>) || {}).forEach(([senderId, ghost]) => {
+      if (ghost && (ghost as any).mode === 'coordinate' && (ghost as any).x !== undefined && (ghost as any).y !== undefined) {
+         elements.push(
+            <circle 
+              key={`ghost-${senderId}`}
+              cx={(ghost as any).x} cy={(ghost as any).y} r={4}
+              fill="none" stroke="#3B82F6" strokeWidth={1.5} strokeDasharray="2 2"
+            />
+         );
+      }
+    });
     return elements;
   };
 
@@ -2195,7 +2678,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* Main Logo Base Preview */}
                 <div 
-                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(actualSvgSource) }} 
+                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(localSvg) }} 
                   className="w-full h-full max-w-[280px] max-h-[280px] flex items-center justify-center pointer-events-none select-none z-10 opacity-40 dark:opacity-20"
                 />
 
@@ -2230,6 +2713,28 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                         <text x="5" y={snappingLines.y - 3} className="fill-emerald-500 font-mono text-[8px] font-bold">Y: {snappingLines.y}</text>
                       </g>
                     )}
+                    {snappingLines.angleLine && (
+                      <g>
+                        <line 
+                          x1={snappingLines.angleLine.x1} 
+                          y1={snappingLines.angleLine.y1} 
+                          x2={snappingLines.angleLine.x2} 
+                          y2={snappingLines.angleLine.y2} 
+                          stroke="#10B981" 
+                          strokeWidth="2" 
+                          strokeDasharray="1 1" 
+                          className="drop-shadow-[0_0_2px_#10B981]"
+                        />
+                        <circle cx={snappingLines.angleLine.x1} cy={snappingLines.angleLine.y1} r="3" fill="#10B981" />
+                        <text 
+                          x={(snappingLines.angleLine.x1 + snappingLines.angleLine.x2) / 2 + 5} 
+                          y={(snappingLines.angleLine.y1 + snappingLines.angleLine.y2) / 2 - 5} 
+                          className="fill-emerald-500 font-mono text-[8px] font-bold"
+                        >
+                          Snap ∠ 45°/90°
+                        </text>
+                      </g>
+                    )}
                   </svg>
                 )}
 
@@ -2245,6 +2750,104 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               <div className="absolute bottom-3 left-3 bg-white/90 dark:bg-zinc-900/90 border border-neutral-200/50 dark:border-zinc-800 rounded-lg px-2.5 py-1 text-[9px] font-mono text-neutral-500 font-semibold pointer-events-none shadow-xs z-30">
                 🎯 Drag circle nodes to position coordinates
               </div>
+
+              {/* Contextual Floating Menu */}
+              {contextMenuNode && (() => {
+                const coords = getContextMenuCoords();
+                if (!coords) return null;
+                const node = nodes.find(n => n.id === contextMenuNode.nodeId);
+                if (!node) return null;
+
+                const isControlPoint = node.type.toUpperCase() === 'C' && (contextMenuNode.valIdx === 0 || contextMenuNode.valIdx === 2);
+
+                return (
+                  <div 
+                    className="absolute z-50 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 rounded-2xl p-3 shadow-2xl space-y-2 text-left w-48 text-xs font-semibold"
+                    style={{ 
+                      left: `${Math.min(85, Math.max(15, (coords.x / gridSize) * 100))}%`, 
+                      top: `${Math.min(85, Math.max(15, (coords.y / gridSize) * 100))}%`,
+                      transform: 'translate(-50%, -105%)'
+                    }}
+                  >
+                    <div className="flex items-center justify-between border-b border-neutral-100 dark:border-zinc-800 pb-1.5 mb-1.5">
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Node Options</span>
+                      <button 
+                        onClick={() => setContextMenuNode(null)} 
+                        className="p-1 rounded-md hover:bg-neutral-100 dark:hover:bg-zinc-800 text-neutral-400 cursor-pointer"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+
+                    {/* Node Conversions */}
+                    {!isControlPoint && (
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-neutral-400 block font-bold">CONVERT POINT TO</span>
+                        <div className="grid grid-cols-3 gap-1">
+                          {['M', 'L', 'C'].map((t) => (
+                            <button
+                              key={t}
+                              disabled={node.type.toUpperCase() === t}
+                              onClick={() => handleConvertNodeType(contextMenuNode.nodeId, t)}
+                              className={`py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer ${
+                                node.type.toUpperCase() === t
+                                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-400'
+                                  : 'bg-white hover:bg-neutral-50 dark:bg-zinc-900 dark:hover:bg-zinc-855 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-300'
+                              }`}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Handle Locks (Only for C control points) */}
+                    {isControlPoint && (
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-neutral-400 block font-bold font-mono">ASYMMETRIC LOCKS</span>
+                        <button
+                          onClick={() => {
+                            toggleHandleLock(contextMenuNode.nodeId, contextMenuNode.valIdx, 'angle');
+                            setContextMenuNode(null);
+                          }}
+                          className={`w-full py-1.5 px-2 flex items-center gap-1.5 rounded-lg border text-[10px] transition-all cursor-pointer ${
+                            lockedAngles[`${contextMenuNode.nodeId}-${contextMenuNode.valIdx}`]?.type === 'angle'
+                              ? 'bg-amber-50 border-amber-200 text-amber-600 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-400 font-bold font-mono'
+                              : 'bg-white hover:bg-neutral-50 dark:bg-zinc-900 dark:hover:bg-zinc-855 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-300 font-mono'
+                          }`}
+                        >
+                          {lockedAngles[`${contextMenuNode.nodeId}-${contextMenuNode.valIdx}`]?.type === 'angle' ? '🔓 Unlock Angle' : '🔒 Lock Angle'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            toggleHandleLock(contextMenuNode.nodeId, contextMenuNode.valIdx, 'length');
+                            setContextMenuNode(null);
+                          }}
+                          className={`w-full py-1.5 px-2 flex items-center gap-1.5 rounded-lg border text-[10px] transition-all cursor-pointer ${
+                            lockedAngles[`${contextMenuNode.nodeId}-${contextMenuNode.valIdx}`]?.type === 'length'
+                              ? 'bg-amber-50 border-amber-200 text-amber-600 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-400 font-bold font-mono'
+                              : 'bg-white hover:bg-neutral-50 dark:bg-zinc-900 dark:hover:bg-zinc-855 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-300 font-mono'
+                          }`}
+                        >
+                          {lockedAngles[`${contextMenuNode.nodeId}-${contextMenuNode.valIdx}`]?.type === 'length' ? '🔓 Unlock Length' : '📏 Lock Length'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Delete point (only if not the only node) */}
+                    {nodes.length > 1 && (
+                      <button
+                        onClick={() => handleDeleteNode(contextMenuNode.nodeId)}
+                        className="w-full py-1.5 px-2 flex items-center gap-1.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-[10px] font-bold border border-transparent hover:border-rose-100 dark:hover:border-rose-900 transition-all cursor-pointer"
+                      >
+                        <Trash2 size={12} />
+                        Delete Anchor Point
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 

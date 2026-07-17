@@ -1,7 +1,7 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/store.ts', 'utf-8');
-code = code.replace(
-  'whiteboardSketches?: { id: string; name: string; path: string }[];',
-  'whiteboardSketches?: { id: string; name: string; path?: string; color?: string; strokeWidth?: number; type?: \'path\' | \'rectangle\' | \'circle\' | \'line\'; props?: any }[];'
+let svgCode = fs.readFileSync('src/components/SVGPathEditor.tsx', 'utf-8');
+svgCode = svgCode.replace(
+  `startPos: (e && 'touches' in e && e.touches && e.touches[0]) ? e.touches[0].clientX : (e as React.MouseEvent)?.clientX || 0`,
+  ``
 );
-fs.writeFileSync('src/store.ts', code);
+fs.writeFileSync('src/components/SVGPathEditor.tsx', svgCode);

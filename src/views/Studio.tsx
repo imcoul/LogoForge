@@ -429,6 +429,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
     cursorRafRef,
 
     handleUpdateAndSync,
+    handleGhostSync,
     handleUndoLogo,
     playBrandMelody,
     applySynthPreset,
@@ -828,7 +829,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
 
                 {workbenchSubTab === 'sketch' && (
                   <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-neutral-200 dark:border-zinc-800">
-                    <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} />
+                    <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} onUpdateAndSync={handleUpdateAndSync} onGhostSync={handleGhostSync} />
                   </div>
                 )}
 
@@ -955,6 +956,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                     <div className="space-y-6">
                       <SVGPathEditor
                         svgContent={activeProject.svgSource || ''}
+                        onGhostSync={handleGhostSync}
                         onChange={(newSvg, throttleCloud) => handleUpdateAndSync({ svgSource: newSvg }, throttleCloud)}
                         fullscreen={fullscreen}
                         setFullscreen={setFullscreen}

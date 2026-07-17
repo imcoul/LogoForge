@@ -10,8 +10,8 @@ import {
 } from 'lucide-react';
 import { ForgeAcademy } from './ForgeAcademy';
 
-export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f: boolean) => void }> = ({ fullscreen, setFullscreen }) => {
-  const { activeProjectId, projects, updateProject } = useAppStore();
+export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f: boolean) => void, onUpdateAndSync?: (updates: any, throttleCloud?: boolean) => Promise<void>, onGhostSync?: (ghostData: any) => void }> = ({ fullscreen, setFullscreen, onUpdateAndSync, onGhostSync }) => {
+  const { activeProjectId, projects, updateProject, ephemeralGhosts } = useAppStore();
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
   const canvasRef = useRef<SVGSVGElement>(null);
   
@@ -66,6 +66,11 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   }[][]>([]);
   const [sketchesHistoryIndex, setSketchesHistoryIndex] = useState<number>(-1);
 
+  // Multitouch Gesture Chords tracking
+  const tapStartTimeRef = useRef<number>(0);
+  const tapMaxFingersRef = useRef<number>(0);
+  const tapMovedRef = useRef<boolean>(false);
+
   useEffect(() => {
     if (activeProject?.whiteboardSketches) {
       setSketches(activeProject.whiteboardSketches);
@@ -78,15 +83,19 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   }, [activeProject?.whiteboardSketches]);
 
   // Push updated sketches to store and commit to history
-  const saveSketch = async (updatedSketches: typeof sketches) => {
+  const saveSketch = async (updatedSketches: typeof sketches, throttleCloud?: boolean) => {
     if (activeProjectId && activeProject) {
-        await updateProject(activeProjectId, { whiteboardSketches: updatedSketches });
+        if (onUpdateAndSync) {
+            await onUpdateAndSync({ whiteboardSketches: updatedSketches }, throttleCloud);
+        } else {
+            await updateProject(activeProjectId, { whiteboardSketches: updatedSketches });
+        }
     }
   };
 
-  const updateSketchesWithHistory = (updated: typeof sketches) => {
+  const updateSketchesWithHistory = (updated: typeof sketches, throttleCloud?: boolean) => {
     setSketches(updated);
-    saveSketch(updated);
+    saveSketch(updated, throttleCloud);
     
     // Slice current stack to index and append new change
     const nextHistory = sketchesHistory.slice(0, sketchesHistoryIndex + 1);
@@ -213,6 +222,24 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
 
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     if (mode !== 'drawing') return;
+
+    if ('touches' in e) {
+      if (e.touches.length === 1) {
+        tapStartTimeRef.current = Date.now();
+        tapMaxFingersRef.current = 1;
+        tapMovedRef.current = false;
+      } else if (e.touches.length > tapMaxFingersRef.current) {
+        tapMaxFingersRef.current = e.touches.length;
+        tapMovedRef.current = false;
+      }
+      
+      // Cancel drawing if multi-touch
+      if (e.touches.length > 1) {
+        setIsDrawing(false);
+        return;
+      }
+    }
+
     const rawPoint = getPoint(e);
     const point = snapCoords(rawPoint);
     
@@ -237,6 +264,18 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   };
 
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (tool === 'select' && selectedSketchId && startPoint && isDrawing && onGhostSync) {
+      const point = snapCoords(getPoint(e));
+      const dx = point.x - snapCoords(startPoint).x;
+      const dy = point.y - snapCoords(startPoint).y;
+      onGhostSync({ sketchId: selectedSketchId, dx, dy });
+    }
+    
+    if ('touches' in e) {
+      tapMovedRef.current = true;
+      if (e.touches.length > 1) return;
+    }
+
     const rawPoint = getPoint(e);
     setMousePos(rawPoint);
 
@@ -309,7 +348,19 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
     }
   };
 
-  const handleMouseUp = async () => {
+  const handleMouseUp = async (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e && 'changedTouches' in e && e.touches.length === 0 && tapMaxFingersRef.current >= 2) {
+      const touchDuration = Date.now() - tapStartTimeRef.current;
+      if (touchDuration < 350 && !tapMovedRef.current) {
+        if (tapMaxFingersRef.current === 2) {
+           handleLocalUndo();
+        } else if (tapMaxFingersRef.current === 3) {
+           handleLocalRedo();
+        }
+      }
+      tapMaxFingersRef.current = 0;
+    }
+
     if (!isDrawing) return;
     setIsDrawing(false);
     
@@ -448,7 +499,7 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   };
 
   // Modify individual properties of the selected sketch shape
-  const handleUpdateSelectedSketch = (updatedFields: Partial<typeof sketches[0]>) => {
+  const handleUpdateSelectedSketch = (updatedFields: Partial<typeof sketches[0]>, throttleCloud?: boolean) => {
     if (!selectedSketchId) return;
     const target = sketches.find(s => s.id === selectedSketchId);
     if (target?.locked && Object.keys(updatedFields).length > 0 && !('locked' in updatedFields)) {
@@ -461,10 +512,10 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
         ...updatedFields
       };
     });
-    updateSketchesWithHistory(updated);
+    updateSketchesWithHistory(updated, throttleCloud);
   };
 
-  const handleUpdateSelectedProps = (updatedProps: any) => {
+  const handleUpdateSelectedProps = (updatedProps: any, throttleCloud?: boolean) => {
     if (!selectedSketchId) return;
     const target = sketches.find(s => s.id === selectedSketchId);
     if (target?.locked) return;
@@ -478,7 +529,7 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
         }
       };
     });
-    updateSketchesWithHistory(updated);
+    updateSketchesWithHistory(updated, throttleCloud);
   };
 
   // Bi-directional bridge: Send selected shape to precision studio
@@ -609,11 +660,11 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
               className={`w-full border border-neutral-300 dark:border-zinc-800 rounded-xl bg-white dark:bg-black touch-none flex-1 min-h-0 ${fullscreen ? 'h-full' : 'h-[400px]'}`}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
+              onMouseUp={(e) => handleMouseUp(e)}
+              onMouseLeave={() => handleMouseUp()}
               onTouchStart={handleMouseDown}
               onTouchMove={handleMouseMove}
-              onTouchEnd={handleMouseUp}
+              onTouchEnd={(e) => handleMouseUp(e)}
               >
               
               <defs>
@@ -876,6 +927,47 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
                   );
               })}
 
+              {/* Draw Ghost States */}
+              {Object.entries(ephemeralGhosts || {}).map(([senderId, ghost]) => {
+                if (ghost && ghost.sketchId) {
+                  const sketch = sketches.find(s => s.id === ghost.sketchId);
+                  if (sketch) {
+                    const transform = ghost.dx || ghost.dy ? `translate(${ghost.dx}, ${ghost.dy})` : '';
+                    if (sketch.type === 'rectangle' && sketch.props) {
+                      return (
+                        <rect 
+                          key={`ghost-${senderId}`}
+                          x={sketch.props.x} y={sketch.props.y}
+                          width={sketch.props.width} height={sketch.props.height}
+                          fill="none" stroke="#3B82F6" strokeWidth={2} strokeDasharray="5 5"
+                          transform={transform} opacity={0.5}
+                        />
+                      );
+                    }
+                    if (sketch.type === 'circle' && sketch.props) {
+                      return (
+                        <ellipse 
+                          key={`ghost-${senderId}`}
+                          cx={sketch.props.cx} cy={sketch.props.cy}
+                          rx={sketch.props.rx} ry={sketch.props.ry}
+                          fill="none" stroke="#3B82F6" strokeWidth={2} strokeDasharray="5 5"
+                          transform={transform} opacity={0.5}
+                        />
+                      );
+                    }
+                    return (
+                      <path 
+                        key={`ghost-${senderId}`}
+                        d={sketch.path}
+                        fill="none" stroke="#3B82F6" strokeWidth={2} strokeDasharray="5 5"
+                        transform={transform} opacity={0.5}
+                      />
+                    );
+                  }
+                }
+                return null;
+              })}
+
               {/* Dynamic crosshair guidelines */}
               {guideMode === 'linear' && (
                 <g className="pointer-events-none text-neutral-300 dark:text-zinc-800 opacity-60">
@@ -1038,7 +1130,9 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
                       max="1"
                       step="0.05"
                       value={selectedSketch.fillOpacity ?? 1}
-                      onChange={(e) => handleUpdateSelectedSketch({ fillOpacity: Number(e.target.value) })}
+                      onChange={(e) => handleUpdateSelectedSketch({ fillOpacity: Number(e.target.value) }, true)}
+                      onMouseUp={() => saveSketch(sketches, false)}
+                      onTouchEnd={() => saveSketch(sketches, false)}
                       className="w-full h-1 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
                     />
                   </div>
@@ -1069,7 +1163,9 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
                     min="1"
                     max="20"
                     value={selectedSketch.strokeWidth || 2}
-                    onChange={(e) => handleUpdateSelectedSketch({ strokeWidth: Number(e.target.value) })}
+                    onChange={(e) => handleUpdateSelectedSketch({ strokeWidth: Number(e.target.value) }, true)}
+                    onMouseUp={() => saveSketch(sketches, false)}
+                    onTouchEnd={() => saveSketch(sketches, false)}
                     className="w-full h-1 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
                   />
                 </div>
@@ -1102,7 +1198,9 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
                     min="0"
                     max="50"
                     value={selectedSketch.props.rx || 0}
-                    onChange={(e) => handleUpdateSelectedProps({ rx: Number(e.target.value) })}
+                    onChange={(e) => handleUpdateSelectedProps({ rx: Number(e.target.value) }, true)}
+                    onMouseUp={() => saveSketch(sketches, false)}
+                    onTouchEnd={() => saveSketch(sketches, false)}
                     className="w-full h-1 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
                   />
 

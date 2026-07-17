@@ -1312,6 +1312,17 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
   // --- Parallel Spikes Hooks & Handlers ---
   
   // Custom update and broadcast coordination
+  const handleGhostSync = (ghostData: any) => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: 'ghost_sync',
+          ghostData,
+        })
+      );
+    }
+  };
+
   const handleUpdateAndSync = async (updates: Partial<Project>, throttleCloud?: boolean) => {
     if (!activeProjectId) return;
     const start = performance.now();
@@ -1340,19 +1351,22 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
     } as Project;
 
     // Trigger Cloud Backups/Mirrors if configured
-    if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
-      syncProjectToPostgres(mergedProject, settings.postgresConnectionString).then((res) => {
-        if (!res.success) {
-          console.warn('Postgres Backup Failed:', res.message);
-        }
-      });
-    }
-    if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
-      syncProjectToSupabase(mergedProject, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
-        if (!res.success) {
-          console.warn('Supabase Backup Failed:', res.message);
-        }
-      });
+    // Trigger Cloud Backups/Mirrors
+    if (!throttleCloud) {
+      if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
+        syncProjectToPostgres(mergedProject, settings.postgresConnectionString).then((res) => {
+          if (!res.success) {
+            console.warn('Postgres Backup Failed:', res.message);
+          }
+        });
+      }
+      if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
+        syncProjectToSupabase(mergedProject, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+          if (!res.success) {
+            console.warn('Supabase Backup Failed:', res.message);
+          }
+        });
+      }
     }
 
     // Broadcast update via WebSocket
@@ -1600,6 +1614,13 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
             if (msg.projectState) {
               updateProject(activeProjectId, msg.projectState);
             }
+          } else if (msg.type === 'ghost_sync') {
+            const store = useAppStore.getState();
+            store.setEphemeralGhost(msg.senderId, msg.ghostData);
+            // Clear ghost after 500ms of inactivity
+            setTimeout(() => {
+              store.clearEphemeralGhost(msg.senderId);
+            }, 500);
           } else if (msg.type === 'cursor') {
             setRemoteCursors(prev => ({
               ...prev,
