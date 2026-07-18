@@ -1,8 +1,8 @@
 import React from 'react';
-import { Pencil, Eraser, Maximize2, Grid, Edit2, Undo, Redo, Square, Circle, MousePointer2 } from 'lucide-react';
+import { Pencil, Eraser, Maximize2, Grid, Edit2, Undo, Redo, Square, Circle, MousePointer2, Scissors, Bomb } from 'lucide-react';
 import { FileUploader } from './FileUploader';
 
-export type WhiteboardTool = 'pencil' | 'sweeping-eraser' | 'duster-eraser' | 'line' | 'rectangle' | 'circle' | 'select';
+export type WhiteboardTool = 'pencil' | 'sweeping-eraser' | 'duster-eraser' | 'slice-eraser' | 'line' | 'rectangle' | 'circle' | 'select';
 
 interface ToolbarProps {
     tool: WhiteboardTool;
@@ -33,8 +33,42 @@ export const WhiteboardToolbar: React.FC<ToolbarProps> = ({
                     <button onClick={() => setTool('rectangle')} className={`p-1.5 sm:p-2 rounded-lg shrink-0 ${tool === 'rectangle' ? 'bg-indigo-500 text-white' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300'}`} title="Rectangle"><Square size={18} /></button>
                     <button onClick={() => setTool('circle')} className={`p-1.5 sm:p-2 rounded-lg shrink-0 ${tool === 'circle' ? 'bg-indigo-500 text-white' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300'}`} title="Circle"><Circle size={18} /></button>
                     <div className="w-px h-6 bg-zinc-300 dark:bg-zinc-600 mx-0.5 shrink-0" />
-                    <button onClick={() => setTool('sweeping-eraser')} className={`p-1.5 sm:p-2 rounded-lg shrink-0 ${tool === 'sweeping-eraser' ? 'bg-indigo-500 text-white' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300'}`} title="Sweeping Eraser"><Eraser size={18} /></button>
-                    <button onClick={() => setTool('duster-eraser')} className={`p-1.5 sm:p-2 rounded-lg shrink-0 ${tool === 'duster-eraser' ? 'bg-indigo-500 text-white' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300'}`} title="Duster Eraser"><Eraser size={18} /></button>
+                    {/* Beautiful color-coded grouped eraser toggle list */}
+                    <div className="flex items-center gap-1 bg-zinc-100/80 dark:bg-zinc-800/80 p-1 rounded-xl border border-neutral-200/50 dark:border-zinc-700/50 shrink-0 shadow-sm" title="Eraser Modes">
+                      <button 
+                        onClick={() => setTool('sweeping-eraser')} 
+                        className={`p-1.5 sm:p-2 rounded-lg shrink-0 transition-all ${
+                          tool === 'sweeping-eraser' 
+                            ? 'bg-indigo-500 text-white shadow-sm scale-102' 
+                            : 'hover:bg-zinc-250 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
+                        }`} 
+                        title="Object Eraser: Deletes full shapes on contact"
+                      >
+                        <Eraser size={18} />
+                      </button>
+                      <button 
+                        onClick={() => setTool('slice-eraser')} 
+                        className={`p-1.5 sm:p-2 rounded-lg shrink-0 transition-all ${
+                          tool === 'slice-eraser' 
+                            ? 'bg-emerald-500 text-white shadow-sm scale-102' 
+                            : 'hover:bg-zinc-250 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
+                        }`} 
+                        title="Slice Eraser: Erases points and splits path segments"
+                      >
+                        <Scissors size={18} />
+                      </button>
+                      <button 
+                        onClick={() => setTool('duster-eraser')} 
+                        className={`p-1.5 sm:p-2 rounded-lg shrink-0 transition-all ${
+                          tool === 'duster-eraser' 
+                            ? 'bg-rose-500 text-white shadow-sm scale-102 animate-pulse' 
+                            : 'hover:bg-zinc-250 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
+                        }`} 
+                        title="Canvas Duster: Wipes the entire board"
+                      >
+                        <Bomb size={18} />
+                      </button>
+                    </div>
                     <div className="w-px h-6 bg-zinc-300 dark:bg-zinc-600 mx-0.5 shrink-0" />
                     <input 
                         type="color" 

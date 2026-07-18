@@ -23,6 +23,11 @@ const handleCloudErrorGracefully = (err: any) => {
   ) {
     if (!isCloudSyncSuspended) {
       isCloudSyncSuspended = true;
+      try {
+        useAppStore.setState({ isCloudSyncSuspended: true });
+      } catch (e) {
+        console.warn("Failed to set isCloudSyncSuspended in store state", e);
+      }
       console.warn("⚠️ Firestore Daily Quota Exceeded. Safely falling back to Local Offline-first Storage (IndexedDB)!");
       try {
         window.dispatchEvent(new CustomEvent('cloud-sync-suspended', { 
@@ -112,7 +117,7 @@ export type Project = {
   logoHistory?: string[]; // Stack of logo history
   snapshots?: Snapshot[]; // List of version snapshots
   stickyNotes?: StickyNote[]; // Interactive sticky notes anchored to canvas
-  whiteboardSketches?: { id: string; name: string; path?: string; color?: string; strokeWidth?: number; type?: 'path' | 'rectangle' | 'circle' | 'line'; props?: any }[];
+  whiteboardSketches?: { id: string; name: string; path?: string; color?: string; strokeWidth?: number; type?: 'path' | 'rectangle' | 'circle' | 'line'; props?: any; fillColor?: string; fillOpacity?: number; strokeDashArray?: string; locked?: boolean; maskId?: string; maskType?: 'hide' | 'reveal' }[];
   driveFileId?: string; // Linked Google Drive file identifier
   tags?: string[]; // Bulk tags for organization
 };
@@ -162,6 +167,7 @@ interface AppState {
   settings: AppSettings;
   isHydrated: boolean;
   user: User | null;
+  isCloudSyncSuspended: boolean;
   loadProjects: () => Promise<void>;
   setUser: (user: User | null) => Promise<void>;
   createProject: (name?: string) => Promise<Project>;
@@ -488,6 +494,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   settings: {},
   isHydrated: false,
   user: null,
+  isCloudSyncSuspended: false,
   ephemeralGhosts: {},
   setEphemeralGhost: (id, ghostData) => setStore((state) => ({
     ephemeralGhosts: { ...state.ephemeralGhosts, [id]: ghostData }
@@ -546,16 +553,23 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       
       const { user } = getStore();
       if (user) {
-        // If user is already set, load remote projects
-        const q = query(collection(db, 'projects'), where('ownerId', '==', user.uid));
-        const querySnapshot = await getDocs(q);
-        const fbProjects: Project[] = [];
-        querySnapshot.forEach((docSnap) => {
-          fbProjects.push(loadFromFirestore(docSnap.data()));
-        });
-        const sorted = fbProjects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        setStore({ projects: sorted, settings: storedSettings, isHydrated: true });
-        await set('projects', sorted);
+        try {
+          // If user is already set, load remote projects
+          const q = query(collection(db, 'projects'), where('ownerId', '==', user.uid));
+          const querySnapshot = await getDocs(q);
+          const fbProjects: Project[] = [];
+          querySnapshot.forEach((docSnap) => {
+            fbProjects.push(loadFromFirestore(docSnap.data()));
+          });
+          const sorted = fbProjects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          setStore({ projects: sorted, settings: storedSettings, isHydrated: true });
+          await set('projects', sorted);
+        } catch (fbError) {
+          console.error('Failed to load remote projects from Firestore, falling back to local cache:', fbError);
+          handleCloudErrorGracefully(fbError);
+          const userProjects = storedProjects.filter(p => p.ownerId === user.uid || !p.ownerId || p.ownerId === 'local');
+          setStore({ projects: userProjects, settings: storedSettings, isHydrated: true });
+        }
       } else {
         // Otherwise use local projects
         const localOnly = storedProjects.filter(p => !p.ownerId || p.ownerId === 'local');
@@ -660,7 +674,16 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         setStore({ projects: initializedProjects });
         await set('projects', initializedProjects);
       } catch (err) {
-        handleFirestoreError(err, OperationType.LIST, 'projects');
+        console.error('Failed to sync or authenticate user profile', err);
+        const isQuota = handleCloudErrorGracefully(err);
+        if (!isQuota) {
+          handleFirestoreError(err, OperationType.LIST, 'projects');
+        } else {
+          const rawStoredProjects = await get<any[]>('projects') || [];
+          const storedProjects = rawStoredProjects.map(loadFromFirestore);
+          const userProjects = storedProjects.filter(p => p.ownerId === user.uid || !p.ownerId || p.ownerId === 'local');
+          setStore({ projects: userProjects });
+        }
       }
     } else {
       // User logged out, restore local-only projects & reset settings to local state

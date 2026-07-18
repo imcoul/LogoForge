@@ -6,7 +6,7 @@ This file defines the project-specific guidelines, persistence contracts, and de
 
 ## 1. Dated Plan Files (Migration-Style)
 
-Every new feature, migration, or critical bug fix must begin with a dated markdown plan file in the `plans/` directory named `YYYY-MM-DD--short-title.md`.
+Every new feature, migration, or critical bug fix must begin with a dated markdown plan file in the `plans/` directory named with a timestamp to distinguish multiple plans from the same day: `YYYY-MM-DD-HHMMSS--short-title.md`.
 
 ### Plan File Template
 ```markdown

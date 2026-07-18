@@ -927,10 +927,12 @@ export default function App() {
   const { toast } = useToast();
   const { 
     projects, activeProjectId, isHydrated, settings, user, setUser,
-    loadProjects, createProject, updateProject, bulkUpdateProjects, deleteProject, deleteProjects, cloneProject, setActiveProject, updateSettings
+    loadProjects, createProject, updateProject, bulkUpdateProjects, deleteProject, deleteProjects, cloneProject, setActiveProject, updateSettings,
+    isCloudSyncSuspended
   } = useAppStore();
 
   const [view, setView] = useState<ViewMode>('dashboard');
+  const [isSuspendedBannerDismissed, setIsSuspendedBannerDismissed] = useState(false);
   const [isWhacanudoOpen, setIsWhacanudoOpen] = useState(false);
   const [isGoogleDriveOpen, setIsGoogleDriveOpen] = useState(false);
   const [whacanudoTab, setWhacanudoTab] = useState<'overview' | 'features' | 'terminal'>('overview');
@@ -995,7 +997,19 @@ export default function App() {
       toast(`Successfully updated ${targetUser.email}'s role to ${newRole}!`, "success");
       fetchUsers();
     } catch (err) {
-      toast("Error updating role: " + (err instanceof Error ? err.message : String(err)), "error");
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (
+        errMsg.includes('resource-exhausted') || 
+        errMsg.includes('Quota limit exceeded') || 
+        errMsg.includes('quota') || 
+        (err && (err as any).code === 'resource-exhausted')
+      ) {
+        useAppStore.setState({ isCloudSyncSuspended: true });
+        toast("Cloud sync suspended: Quota limit exceeded. Your action was saved locally.", "error");
+        setAllUsers(prev => prev.map(u => u.uid === targetUserId ? { ...u, role: newRole } : u));
+      } else {
+        toast("Error updating role: " + errMsg, "error");
+      }
     }
   };
 
@@ -1020,7 +1034,19 @@ export default function App() {
       toast(`Successfully deleted ${targetUser.email}!`, "success");
       fetchUsers();
     } catch (err) {
-      toast("Error deleting user: " + (err instanceof Error ? err.message : String(err)), "error");
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (
+        errMsg.includes('resource-exhausted') || 
+        errMsg.includes('Quota limit exceeded') || 
+        errMsg.includes('quota') || 
+        (err && (err as any).code === 'resource-exhausted')
+      ) {
+        useAppStore.setState({ isCloudSyncSuspended: true });
+        toast("Cloud sync suspended: Quota limit exceeded. Your action was processed locally.", "error");
+        setAllUsers(prev => prev.filter(u => u.uid !== targetUserId));
+      } else {
+        toast("Error deleting user: " + errMsg, "error");
+      }
     }
   };
   
@@ -2502,24 +2528,44 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
         </div>
       </div>
 
-      {view === 'dashboard' ? (
-        <Dashboard
-          setView={setView}
-          isDarkMode={isDarkMode}
-          setIsDarkMode={setIsDarkMode}
-          setIsGoogleDriveOpen={setIsGoogleDriveOpen}
-        />
-      ) : view === 'studio' ? (
-        <Studio
-          setView={setView}
-          isDarkMode={isDarkMode}
-          setIsDarkMode={setIsDarkMode}
-        />
-      ) : view === 'course' ? (
-        <Course />
-      ) : view === 'settings' ? (
-        <Settings setIsGoogleDriveOpen={setIsGoogleDriveOpen} />
-      ) : null}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+        {isCloudSyncSuspended && !isSuspendedBannerDismissed && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 text-amber-900 dark:text-amber-400 px-5 py-3 text-xs font-medium flex items-center justify-between gap-4 shrink-0 shadow-md">
+            <div className="flex items-center gap-3">
+              <ShieldAlert size={18} className="text-amber-500 shrink-0 animate-pulse" />
+              <span>
+                <strong>Cloud Sync Paused (Firestore Quota Limit Met):</strong> Safely fell back to local offline storage (IndexedDB). Your work is preserved and will resume syncing when quotas reset tomorrow. For details, view the <a href="https://firebase.google.com/pricing#cloud-firestore" target="_blank" rel="noopener noreferrer" className="underline font-bold hover:text-amber-600 dark:hover:text-amber-300">Firebase Pricing Guide</a>.
+              </span>
+            </div>
+            <button 
+              onClick={() => setIsSuspendedBannerDismissed(true)}
+              className="text-neutral-500 dark:text-zinc-400 hover:text-neutral-700 dark:hover:text-zinc-200 transition-colors p-1 cursor-pointer"
+              title="Dismiss warning"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
+        {view === 'dashboard' ? (
+          <Dashboard
+            setView={setView}
+            isDarkMode={isDarkMode}
+            setIsDarkMode={setIsDarkMode}
+            setIsGoogleDriveOpen={setIsGoogleDriveOpen}
+          />
+        ) : view === 'studio' ? (
+          <Studio
+            setView={setView}
+            isDarkMode={isDarkMode}
+            setIsDarkMode={setIsDarkMode}
+          />
+        ) : view === 'course' ? (
+          <Course />
+        ) : view === 'settings' ? (
+          <Settings setIsGoogleDriveOpen={setIsGoogleDriveOpen} />
+        ) : null}
+      </div>
 
       {/* Google Drive Storage Modal */}
       <GoogleDriveIntegration 

@@ -99,8 +99,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     toast("⚡ Layer Sent to Whiteboard Canvas!", "info");
   };
   
-  // Drawing sub-tool: 'brush' (freehand) | 'bezier' (cubic Bezier curves) | 'pen' (vector dots) | 'shapes' (injection)
-  const [drawTool, setDrawTool] = useState<'brush' | 'bezier' | 'pen' | 'shapes'>('brush');
+  // Drawing sub-tool: 'brush' (freehand) | 'bezier' (cubic Bezier curves) | 'pen' (vector dots) | 'shapes' (injection) | 'select' (reshape layers)
+  const [drawTool, setDrawTool] = useState<'brush' | 'bezier' | 'pen' | 'shapes' | 'select'>('brush');
   
   // Canvas Transform states (Pinch-to-zoom & Pan layer)
   const [zoom, setZoom] = useState<number>(1);
@@ -255,11 +255,25 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     return match ? match[1] : fallback;
   };
 
-  // Synchronize internal paths list on external svgSource updates
+  // Synchronize internal paths list and gridSize on external svgSource updates
   useEffect(() => {
     if (!actualSvgSource) {
       setParsedPaths([]);
       return;
+    }
+
+    // Parse viewBox to synchronize gridSize
+    const viewBoxRegex = /viewBox="([^"]+)"/;
+    const matchVb = viewBoxRegex.exec(actualSvgSource);
+    if (matchVb) {
+      const parts = matchVb[1].trim().split(/\s+/);
+      if (parts.length === 4) {
+        const width = parseFloat(parts[2]);
+        const height = parseFloat(parts[3]);
+        if (!isNaN(width) && width > 0) {
+          setGridSize(width);
+        }
+      }
     }
 
     const regex = /<path([^>]+)\/?>/g;
@@ -543,6 +557,30 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       }
     });
     triggerHaptic(15);
+  };
+
+  // Proximity finder for selecting path layers by clicking close to them
+  const findClosestPathIndex = (cx: number, cy: number) => {
+    let closestIdx = -1;
+    let minDistance = Infinity;
+
+    parsedPaths.forEach((pathItem, idx) => {
+      const coords = pathItem.d.match(/[+-]?\d+(?:\.\d+)?/gi) || [];
+      for (let i = 0; i < coords.length; i += 2) {
+        const px = parseFloat(coords[i]);
+        const py = parseFloat(coords[i+1]);
+        if (!isNaN(px) && !isNaN(py)) {
+          const dist = Math.hypot(cx - px, cy - py);
+          if (dist < minDistance) {
+            minDistance = dist;
+            closestIdx = idx;
+          }
+        }
+      }
+    });
+
+    // Only return if it's within a reasonable threshold (e.g. 60 units)
+    return minDistance < 60 ? closestIdx : -1;
   };
 
   // Proximity finder for Dynamic Touch Hit-Testing
@@ -871,8 +909,22 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       const coords = getEventCoords(e, rect);
       if (!coords) return;
 
-      if (editorMode === 'coordinate') {
-        if (tuneTool === 'translate') {
+      if (editorMode === 'coordinate' || drawTool === 'select') {
+        if (tuneTool === 'translate' || drawTool === 'select') {
+          const closest = findClosestNode(coords.x, coords.y);
+          if (closest && closest.dist <= 18 / zoom) {
+            handleNodeDragStart(e, closest.nodeId, closest.valIdx, 0);
+            return;
+          }
+
+          if (drawTool === 'select') {
+            const clickedPathIdx = findClosestPathIndex(coords.x, coords.y);
+            if (clickedPathIdx !== -1 && clickedPathIdx !== selectedPathIndex) {
+              setSelectedPathIndex(clickedPathIdx);
+              triggerHaptic(15);
+            }
+          }
+
           setIsTranslatingPath(true);
           setTranslateStart({ x: coords.x, y: coords.y });
           setTranslateOriginalNodes(JSON.parse(JSON.stringify(nodes)));
@@ -1082,8 +1134,22 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     const coords = getEventCoords(e, rect);
     if (!coords) return;
 
-    if (editorMode === 'coordinate') {
-      if (tuneTool === 'translate') {
+    if (editorMode === 'coordinate' || drawTool === 'select') {
+      if (tuneTool === 'translate' || drawTool === 'select') {
+        const closest = findClosestNode(coords.x, coords.y);
+        if (closest && closest.dist <= 18 / zoom) {
+          handleNodeDragStart(e, closest.nodeId, closest.valIdx, 0);
+          return;
+        }
+
+        if (drawTool === 'select') {
+          const clickedPathIdx = findClosestPathIndex(coords.x, coords.y);
+          if (clickedPathIdx !== -1 && clickedPathIdx !== selectedPathIndex) {
+            setSelectedPathIndex(clickedPathIdx);
+            triggerHaptic(15);
+          }
+        }
+
         setIsTranslatingPath(true);
         setTranslateStart({ x: coords.x, y: coords.y });
         setTranslateOriginalNodes(JSON.parse(JSON.stringify(nodes)));
@@ -2139,8 +2205,15 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 {/* LIVE PREVIEW OF CURRENT LOGO BASE */}
                 <div 
                   dangerouslySetInnerHTML={{ __html: sanitizeSVG(actualSvgSource) }} 
-                  className="w-full h-full max-w-[280px] max-h-[280px] flex items-center justify-center pointer-events-none select-none z-10"
+                  className="w-full h-full absolute inset-0 flex items-center justify-center pointer-events-none select-none z-10 [&>svg]:w-full [&>svg]:h-full [&>svg]:absolute [&>svg]:inset-0"
                 />
+
+                {/* Precision Nodes Overlay for Reshaping */}
+                {drawTool === 'select' && (
+                  <svg className="absolute inset-0 w-full h-full z-30" viewBox={`0 0 ${gridSize} ${gridSize}`}>
+                    {renderPrecisionNodes()}
+                  </svg>
+                )}
 
                 {/* Brush Drawing Preview Line */}
                 {isDrawing && brushPoints.length > 1 && (
@@ -2203,7 +2276,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
               {/* Draw instructions watermark */}
               <div className="absolute bottom-3 left-3 bg-white/90 dark:bg-zinc-900/90 border border-neutral-200/50 dark:border-zinc-800 rounded-lg px-2.5 py-1 text-[9px] font-mono text-neutral-500 font-semibold pointer-events-none shadow-xs z-30">
-                {drawTool === 'brush' ? '✍️ Brush: Swipe to draw freehand' : drawTool === 'bezier' ? '🟢 Smooth Bezier: Tap canvas to link curves' : drawTool === 'pen' ? '🎯 Pen: Tap to add sharp line paths' : '💫 Shapes: Stamp vector presets'}
+                {drawTool === 'brush' ? '✍️ Brush: Swipe to draw freehand' : drawTool === 'bezier' ? '🟢 Smooth Bezier: Tap canvas to link curves' : drawTool === 'pen' ? '🎯 Pen: Tap to add sharp line paths' : drawTool === 'select' ? '🔍 Reshape: Drag anchor nodes directly to edit' : '💫 Shapes: Stamp vector presets'}
               </div>
 
               {/* Floating Undo/Redo quick action on Touch Draw Board */}
@@ -2291,37 +2364,46 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider block">Drawing Engine Control</span>
 
             {/* Quick tool selection (Grid style for finger tapping) */}
-            <div className="grid grid-cols-4 gap-1.5" id="tour-tool-selection">
+            <div className="grid grid-cols-5 gap-1" id="tour-tool-selection">
               <button
                 onClick={() => { setDrawTool('brush'); setPenPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'brush' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'brush' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <Paintbrush size={15} />
-                <span className="text-[9px] font-black uppercase tracking-tight">Brush Free</span>
+                <span className="text-[8px] font-black uppercase tracking-tight">Brush Free</span>
               </button>
 
               <button
                 onClick={() => { setDrawTool('bezier'); setPenPoints([]); setBrushPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'bezier' ? 'bg-emerald-600 border-emerald-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'bezier' ? 'bg-emerald-600 border-emerald-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <Circle size={15} />
-                <span className="text-[9px] font-black uppercase tracking-tight">Auto-Bezier</span>
+                <span className="text-[8px] font-black uppercase tracking-tight">Bezier</span>
               </button>
 
               <button
                 onClick={() => { setDrawTool('pen'); setBrushPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'pen' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'pen' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <MousePointer size={15} />
-                <span className="text-[9px] font-black uppercase tracking-tight">Sharp Pen</span>
+                <span className="text-[8px] font-black uppercase tracking-tight">Sharp Pen</span>
               </button>
 
               <button
                 onClick={() => { setDrawTool('shapes'); setPenPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-2 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'shapes' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'shapes' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <Sparkles size={15} />
-                <span className="text-[9px] font-black uppercase tracking-tight">Stamp Shape</span>
+                <span className="text-[8px] font-black uppercase tracking-tight">Shapes</span>
+              </button>
+
+              <button
+                onClick={() => { setDrawTool('select'); setPenPoints([]); setBrushPoints([]); setBezierPoints([]); triggerHaptic(15); }}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${drawTool === 'select' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                title="Reshape existing layers and drag anchor points directly"
+              >
+                <Move size={15} />
+                <span className="text-[8px] font-black uppercase tracking-tight">Reshape</span>
               </button>
             </div>
 
@@ -2750,7 +2832,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 {/* Main Logo Base Preview */}
                 <div 
                   dangerouslySetInnerHTML={{ __html: sanitizeSVG(localSvg) }} 
-                  className="w-full h-full max-w-[280px] max-h-[280px] flex items-center justify-center pointer-events-none select-none z-10 opacity-40 dark:opacity-20"
+                  className="w-full h-full absolute inset-0 flex items-center justify-center pointer-events-none select-none z-10 opacity-40 dark:opacity-20 [&>svg]:w-full [&>svg]:h-full [&>svg]:absolute [&>svg]:inset-0"
                 />
 
                 {/* Snapping Grid Helper Lines */}

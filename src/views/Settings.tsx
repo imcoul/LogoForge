@@ -90,7 +90,19 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
       toast(`Successfully updated ${targetUser.email}'s role to ${newRole}!`, "success");
       fetchUsers();
     } catch (err) {
-      toast("Error updating role: " + (err instanceof Error ? err.message : String(err)), "error");
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (
+        errMsg.includes('resource-exhausted') || 
+        errMsg.includes('Quota limit exceeded') || 
+        errMsg.includes('quota') || 
+        (err && (err as any).code === 'resource-exhausted')
+      ) {
+        useAppStore.setState({ isCloudSyncSuspended: true });
+        toast("Cloud sync suspended: Quota limit exceeded. Your action was saved locally.", "error");
+        setAllUsers(prev => prev.map(u => u.uid === targetUserId ? { ...u, role: newRole } : u));
+      } else {
+        toast("Error updating role: " + errMsg, "error");
+      }
     }
   };
 
@@ -115,7 +127,19 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
       toast(`Successfully deleted ${targetUser.email}!`, "success");
       fetchUsers();
     } catch (err) {
-      toast("Error deleting user: " + (err instanceof Error ? err.message : String(err)), "error");
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (
+        errMsg.includes('resource-exhausted') || 
+        errMsg.includes('Quota limit exceeded') || 
+        errMsg.includes('quota') || 
+        (err && (err as any).code === 'resource-exhausted')
+      ) {
+        useAppStore.setState({ isCloudSyncSuspended: true });
+        toast("Cloud sync suspended: Quota limit exceeded. Your action was processed locally.", "error");
+        setAllUsers(prev => prev.filter(u => u.uid !== targetUserId));
+      } else {
+        toast("Error deleting user: " + errMsg, "error");
+      }
     }
   };
 

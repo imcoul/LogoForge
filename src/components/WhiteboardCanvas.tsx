@@ -43,11 +43,13 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
     fillOpacity?: number;
     strokeDashArray?: string;
     locked?: boolean;
+    maskId?: string;
+    maskType?: 'hide' | 'reveal';
   }[]>([]);
   
   const [currentPoints, setCurrentPoints] = useState<string>('');
   const [mode, setMode] = useState<'drawing' | 'gallery'>('drawing');
-  const [tool, setTool] = useState<'pencil' | 'sweeping-eraser' | 'duster-eraser' | 'line' | 'rectangle' | 'circle' | 'select'>('select');
+  const [tool, setTool] = useState<'pencil' | 'sweeping-eraser' | 'duster-eraser' | 'slice-eraser' | 'line' | 'rectangle' | 'circle' | 'select'>('select');
   const [selectedSketchId, setSelectedSketchId] = useState<string | null>(null);
   const [showOptionsPanel, setShowOptionsPanel] = useState<boolean>(false);
   const [activeHandle, setActiveHandle] = useState<{ sketchId: string; handleId: string } | null>(null);
@@ -188,6 +190,8 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     fillOpacity?: number;
     strokeDashArray?: string;
     locked?: boolean;
+    maskId?: string;
+    maskType?: 'hide' | 'reveal';
   }[][]>([]);
   const [sketchesHistoryIndex, setSketchesHistoryIndex] = useState<number>(-1);
 
@@ -442,7 +446,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
         setIsDrawing(true);
         setStartPoint(point);
         setCurrentPoints(`${point.x},${point.y}`);
-    } else if (tool === 'sweeping-eraser' || tool === 'duster-eraser') {
+    } else if (tool === 'sweeping-eraser' || tool === 'duster-eraser' || tool === 'slice-eraser') {
         setIsDrawing(true);
     }
   };
@@ -662,6 +666,67 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       });
       if (deletedSketch) {
         deleteSketch(deletedSketch.id);
+      }
+    } else if (tool === 'slice-eraser') {
+      const threshold = 15;
+      let anyChanged = false;
+      const updatedSketches = sketches.map(s => {
+        if (s.locked || !s.path || s.type !== 'path') return s;
+        const commands = s.path.match(/[A-Za-z][^A-Za-z]*/g);
+        if (!commands) return s;
+        let newPath = '';
+        let wasErased = false;
+        let s_changed = false;
+        let lastSafePoint: [number, number] | null = null;
+
+        for (const cmdStr of commands) {
+            const type = cmdStr.trim()[0];
+            const nums = cmdStr.substring(1).trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+            let erased = false;
+            if (nums.length >= 2) {
+                const ex = nums[nums.length - 2];
+                const ey = nums[nums.length - 1];
+                
+                // If it's a line or curve, check distance to the segment if we have a previous point
+                let segErased = false;
+                if (lastSafePoint) {
+                   const distSq = getSqSegDist([rawPoint.x, rawPoint.y], lastSafePoint, [ex, ey]);
+                   if (distSq < threshold * threshold) {
+                       segErased = true;
+                   }
+                } else {
+                   const distSq = (rawPoint.x - ex) ** 2 + (rawPoint.y - ey) ** 2;
+                   if (distSq < threshold * threshold) {
+                       segErased = true;
+                   }
+                }
+                
+                if (segErased) {
+                    wasErased = true;
+                    s_changed = true;
+                    erased = true;
+                } else {
+                    lastSafePoint = [ex, ey];
+                }
+            }
+            if (erased) continue;
+
+            if (wasErased && type !== 'M' && type !== 'Z' && nums.length >= 2) {
+                newPath += `M ${nums[nums.length - 2]},${nums[nums.length - 1]} `;
+                wasErased = false;
+            } else {
+                newPath += cmdStr + ' ';
+            }
+        }
+        if (s_changed) {
+            anyChanged = true;
+            return { ...s, path: newPath.trim() };
+        }
+        return s;
+      });
+      
+      if (anyChanged) {
+          updateSketchesWithHistory(updatedSketches, true);
       }
     } else if (tool === 'duster-eraser') {
         if (sketches.length > 0) {
@@ -966,6 +1031,296 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     updateSketchesWithHistory(updated, throttleCloud);
   };
 
+  // Helper: Offset/translate all coordinates in a path string by dx and dy
+  const translatePath = (pathStr: string | undefined, dx: number, dy: number): string => {
+    if (!pathStr) return '';
+    return pathStr.replace(/(-?[0-9.]+),(-?[0-9.]+)/g, (match, x, y) => {
+      const nx = parseFloat(x) + dx;
+      const ny = parseFloat(y) + dy;
+      return `${nx},${ny}`;
+    });
+  };
+
+  // Helper: Convert any shape into a standard SVG path string
+  const convertShapeToPath = (s: any): string => {
+    if (s.type === 'path' && s.path) {
+      return s.path;
+    }
+    if (s.type === 'rectangle' && s.props) {
+      const x = s.props.x ?? 0;
+      const y = s.props.y ?? 0;
+      const width = s.props.width ?? 100;
+      const height = s.props.height ?? 100;
+      return `M ${x},${y} L ${x + width},${y} L ${x + width},${y + height} L ${x},${y + height} Z`;
+    }
+    if (s.type === 'circle' && s.props) {
+      const cx = s.props.cx ?? 100;
+      const cy = s.props.cy ?? 100;
+      const rx = s.props.rx ?? 50;
+      const ry = s.props.ry ?? 50;
+      return `M ${cx - rx},${cy} a ${rx},${ry} 0 1,0 ${rx * 2},0 a ${rx},${ry} 0 1,0 ${-rx * 2},0 Z`;
+    }
+    if (s.type === 'line' && s.props) {
+      const x1 = s.props.x1 ?? 0;
+      const y1 = s.props.y1 ?? 0;
+      const x2 = s.props.x2 ?? 100;
+      const y2 = s.props.y2 ?? 100;
+      return `M ${x1},${y1} L ${x2},${y2}`;
+    }
+    return s.path || '';
+  };
+
+  // Helper: Check if a point lies inside a shape
+  const isPointInsideShape = (p: { x: number, y: number }, shape: any): boolean => {
+    if (shape.type === 'rectangle' && shape.props) {
+      const x = shape.props.x ?? 0;
+      const y = shape.props.y ?? 0;
+      const width = shape.props.width ?? 0;
+      const height = shape.props.height ?? 0;
+      return p.x >= x && p.x <= x + width && p.y >= y && p.y <= y + height;
+    }
+    if (shape.type === 'circle' && shape.props) {
+      const cx = shape.props.cx ?? 0;
+      const cy = shape.props.cy ?? 0;
+      const rx = shape.props.rx ?? 0;
+      const ry = shape.props.ry ?? 0;
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      if (rx <= 0 || ry <= 0) return false;
+      return (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1;
+    }
+    if (shape.type === 'line' && shape.props) {
+      const x1 = shape.props.x1 ?? 0;
+      const y1 = shape.props.y1 ?? 0;
+      const x2 = shape.props.x2 ?? 0;
+      const y2 = shape.props.y2 ?? 0;
+      const distSq = getSqSegDist([p.x, p.y], [x1, y1], [x2, y2]);
+      return distSq < 15 * 15;
+    }
+    if (shape.path) {
+      const coords = shape.path.match(/-?[0-9.]+/g);
+      if (coords && coords.length >= 2) {
+        const px = coords.filter((_, idx) => idx % 2 === 0).map(Number);
+        const py = coords.filter((_, idx) => idx % 2 === 1).map(Number);
+        const minX = Math.min(...px);
+        const maxX = Math.max(...px);
+        const minY = Math.min(...py);
+        const maxY = Math.max(...py);
+        return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+      }
+    }
+    return false;
+  };
+
+  // Perform Boolean Union operation (Compound Path)
+  const handleUnionOfShapes = (targetId: string) => {
+    const selected = sketches.find(s => s.id === selectedSketchId);
+    const target = sketches.find(s => s.id === targetId);
+    if (!target || !selected) return;
+    
+    const pathA = convertShapeToPath(selected);
+    const pathB = convertShapeToPath(target);
+    const unifiedPath = `${pathA} ${pathB}`.trim();
+    
+    const updated = sketches.map(s => {
+      if (s.id === selected.id) {
+        return {
+          ...s,
+          type: 'path' as const,
+          path: unifiedPath,
+          fillColor: selected.fillColor !== 'none' ? selected.fillColor : (target.fillColor !== 'none' ? target.fillColor : 'none'),
+          color: selected.color || target.color,
+          props: undefined
+        };
+      }
+      return s;
+    }).filter(s => s.id !== target.id);
+    
+    setSelectedSketchId(selected.id);
+    updateSketchesWithHistory(updated, true);
+    toast("✨ Vector Union (Compound Path) Created!", "success");
+  };
+
+  // Perform Non-Destructive Subtraction (using dynamic SVG Masking)
+  const handleSubtractNonDestructive = (targetId: string) => {
+    if (!selectedSketchId) return;
+    const updated = sketches.map(s => {
+      if (s.id === selectedSketchId) {
+        return {
+          ...s,
+          maskId: targetId,
+          maskType: 'hide' as const
+        };
+      }
+      return s;
+    });
+    updateSketchesWithHistory(updated, true);
+    toast("✨ Non-destructive Subtraction Applied!", "success");
+  };
+
+  // Perform Destructive Subtraction (by clipping points & splitting segments)
+  const handleSubtractDestructive = (targetId: string) => {
+    const selected = sketches.find(s => s.id === selectedSketchId);
+    const target = sketches.find(s => s.id === targetId);
+    if (!target || !selected) return;
+    
+    if (selected.type !== 'path' || !selected.path) {
+      toast("⚠️ Destructive Subtraction only supports freehand paths. Use Non-destructive instead!", "info");
+      return;
+    }
+    
+    const commands = selected.path.match(/[A-Za-z][^A-Za-z]*/g);
+    if (!commands) return;
+    
+    let newPath = '';
+    let wasInside = false;
+    
+    for (const cmdStr of commands) {
+      const type = cmdStr.trim()[0];
+      const nums = cmdStr.substring(1).trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+      if (nums.length >= 2) {
+        const x = nums[nums.length - 2];
+        const y = nums[nums.length - 1];
+        const inside = isPointInsideShape({ x, y }, target);
+        
+        if (inside) {
+          wasInside = true;
+          continue;
+        }
+        
+        if (wasInside && type !== 'M' && type !== 'Z') {
+          newPath += `M ${x},${y} `;
+          wasInside = false;
+        } else {
+          newPath += cmdStr + ' ';
+        }
+      } else {
+        newPath += cmdStr + ' ';
+      }
+    }
+    
+    const updated = sketches.map(s => {
+      if (s.id === selected.id) {
+        return {
+          ...s,
+          path: newPath.trim()
+        };
+      }
+      return s;
+    });
+    
+    updateSketchesWithHistory(updated, true);
+    toast("✨ Destructive Subtraction Successful!", "success");
+  };
+
+  // Perform Stroke Vectorization (converting an outline stroke to a filled shape)
+  const handleVectorizeStroke = () => {
+    const selected = sketches.find(s => s.id === selectedSketchId);
+    if (!selected) return;
+    
+    const strokeW = selected.strokeWidth || 3;
+    const strokeColor = selected.color || '#6366f1';
+    let vectorizedPath = '';
+    
+    if (selected.type === 'line' && selected.props) {
+      const x1 = selected.props.x1 ?? 0;
+      const y1 = selected.props.y1 ?? 0;
+      const x2 = selected.props.x2 ?? 100;
+      const y2 = selected.props.y2 ?? 100;
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) {
+        const nx = -dy / len;
+        const ny = dx / len;
+        const wHalf = strokeW / 2;
+        const p1x = x1 + nx * wHalf;
+        const p1y = y1 + ny * wHalf;
+        const p2x = x2 + nx * wHalf;
+        const p2y = y2 + ny * wHalf;
+        const p3x = x2 - nx * wHalf;
+        const p3y = y2 - ny * wHalf;
+        const p4x = x1 - nx * wHalf;
+        const p4y = y1 - ny * wHalf;
+        vectorizedPath = `M ${p1x},${p1y} L ${p2x},${p2y} L ${p3x},${p3y} L ${p4x},${p4y} Z`;
+      }
+    } else if (selected.type === 'path' && selected.path) {
+      const coords = selected.path.match(/-?[0-9.]+/g);
+      if (coords && coords.length >= 4) {
+        const points: { x: number, y: number }[] = [];
+        for (let i = 0; i < coords.length; i += 2) {
+          if (coords[i] && coords[i+1]) {
+            points.push({ x: Number(coords[i]), y: Number(coords[i+1]) });
+          }
+        }
+        
+        const leftPoints: { x: number, y: number }[] = [];
+        const rightPoints: { x: number, y: number }[] = [];
+        const wHalf = strokeW / 2;
+        
+        for (let i = 0; i < points.length; i++) {
+          let dx = 0, dy = 0;
+          if (i < points.length - 1) {
+            dx += points[i+1].x - points[i].x;
+            dy += points[i+1].y - points[i].y;
+          }
+          if (i > 0) {
+            dx += points[i].x - points[i-1].x;
+            dy += points[i].y - points[i-1].y;
+          }
+          
+          const len = Math.sqrt(dx * dx + dy * dy);
+          if (len > 0) {
+            const nx = -dy / len;
+            const ny = dx / len;
+            leftPoints.push({ x: points[i].x + nx * wHalf, y: points[i].y + ny * wHalf });
+            rightPoints.push({ x: points[i].x - nx * wHalf, y: points[i].y - ny * wHalf });
+          } else {
+            leftPoints.push(points[i]);
+            rightPoints.push(points[i]);
+          }
+        }
+        
+        let d = `M ${leftPoints[0].x},${leftPoints[0].y} `;
+        for (let i = 1; i < leftPoints.length; i++) {
+          d += `L ${leftPoints[i].x},${leftPoints[i].y} `;
+        }
+        for (let i = rightPoints.length - 1; i >= 0; i--) {
+          d += `L ${rightPoints[i].x},${rightPoints[i].y} `;
+        }
+        d += 'Z';
+        vectorizedPath = d;
+      }
+    } else if (selected.type === 'rectangle' && selected.props) {
+      const { x, y, width, height } = selected.props;
+      const outer = `M ${x},${y} L ${x + width},${y} L ${x + width},${y + height} L ${x},${y + height} Z`;
+      const inner = `M ${x + strokeW},${y + strokeW} L ${x + width - strokeW},${y + strokeW} L ${x + width - strokeW},${y + height - strokeW} L ${x + strokeW},${y + height - strokeW} Z`;
+      vectorizedPath = `${outer} ${inner}`;
+    }
+    
+    if (vectorizedPath) {
+      const updated = sketches.map(s => {
+        if (s.id === selected.id) {
+          return {
+            ...s,
+            type: 'path' as const,
+            path: vectorizedPath,
+            fillColor: strokeColor,
+            color: 'none',
+            strokeWidth: 0,
+            props: undefined
+          };
+        }
+        return s;
+      });
+      
+      updateSketchesWithHistory(updated, true);
+      toast("✨ Stroke Vectorized successfully!", "success");
+    } else {
+      toast("⚠️ Vectorization only supports straight lines, paths, or rectangles currently.", "info");
+    }
+  };
+
   // Bi-directional bridge: Send selected shape to precision studio
   const handlePushToSvgEditor = async () => {
     const selected = sketches.find(s => s.id === selectedSketchId);
@@ -1128,6 +1483,78 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                   <rect width="50" height="50" fill="url(#wb-minor-grid)" />
                   <path d="M 50 0 L 0 0 0 50" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-neutral-300/60 dark:text-zinc-800/40" />
                 </pattern>
+
+                {/* Dynamic Masks for Boolean operations & clipping */}
+                {sketches.map(s => {
+                  const isUsedAsMask = sketches.some(other => other.maskId === s.id);
+                  if (!isUsedAsMask) return null;
+                  
+                  const target = sketches.find(other => other.maskId === s.id);
+                  const mType = target?.maskType || 'reveal';
+                  
+                  const renderMaskContent = (item: any, color: string) => {
+                    if (item.type === 'rectangle' && item.props) {
+                      return (
+                        <rect 
+                          x={item.props.x} 
+                          y={item.props.y} 
+                          width={item.props.width} 
+                          height={item.props.height} 
+                          rx={item.props.rx || 0}
+                          ry={item.props.rx || 0}
+                          fill={color} 
+                        />
+                      );
+                    }
+                    if (item.type === 'circle' && item.props) {
+                      return (
+                        <ellipse 
+                          cx={item.props.cx} 
+                          cy={item.props.cy} 
+                          rx={item.props.rx} 
+                          ry={item.props.ry} 
+                          fill={color} 
+                        />
+                      );
+                    }
+                    if (item.type === 'line' && item.props) {
+                      return (
+                        <line 
+                          x1={item.props.x1} 
+                          y1={item.props.y1} 
+                          x2={item.props.x2} 
+                          y2={item.props.y2} 
+                          stroke={color} 
+                          strokeWidth={item.strokeWidth || 3} 
+                        />
+                      );
+                    }
+                    return (
+                      <path 
+                        d={item.path} 
+                        fill={item.fillColor && item.fillColor !== 'none' ? color : 'none'} 
+                        stroke={color} 
+                        strokeWidth={item.strokeWidth || 3} 
+                      />
+                    );
+                  };
+
+                  return (
+                    <mask key={`mask-def-${s.id}`} id={`mask-${s.id}`}>
+                      {mType === 'reveal' ? (
+                        <>
+                          <rect x="-10000" y="-10000" width="20000" height="20000" fill="black" />
+                          {renderMaskContent(s, 'white')}
+                        </>
+                      ) : (
+                        <>
+                          <rect x="-10000" y="-10000" width="20000" height="20000" fill="white" />
+                          {renderMaskContent(s, 'black')}
+                        </>
+                      )}
+                    </mask>
+                  );
+                })}
               </defs>
 
               {/* Toggleable grid backing */}
@@ -1320,10 +1747,29 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
               {/* Saved Whiteboard Sketches */}
               {sketches.map((sketch) => {
                   const isSelected = sketch.id === selectedSketchId;
+                  
+                  // If this shape is acting as a mask and is not selected, hide it from direct rendering
+                  const isActingAsMask = sketches.some(other => other.maskId === sketch.id);
+                  if (isActingAsMask && !isSelected) {
+                      return null;
+                  }
+
                   const tx = isSelected && dragOffset ? dragOffset.x : 0;
                   const ty = isSelected && dragOffset ? dragOffset.y : 0;
                   const transform = tx || ty ? `translate(${tx}, ${ty})` : undefined;
-                  const strokeClass = isSelected ? "opacity-95 drop-shadow-lg" : "";
+                  
+                  // Style masks subtly when selected so they are editable but distinct
+                  let strokeClass = isSelected ? "opacity-95 drop-shadow-lg" : "";
+                  let maskStrokeDash = sketch.strokeDashArray || 'none';
+                  let maskOpacity = sketch.fillOpacity ?? 1;
+                  
+                  if (isActingAsMask && isSelected) {
+                      maskStrokeDash = "4 4";
+                      maskOpacity = 0.45;
+                      strokeClass = "opacity-50 drop-shadow-sm";
+                  }
+
+                  const maskAttr = sketch.maskId ? `url(#mask-${sketch.maskId})` : undefined;
                   
                   if (sketch.type === 'rectangle' && sketch.props) {
                       return (
@@ -1336,12 +1782,13 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                           rx={sketch.props.rx || 0}
                           ry={sketch.props.rx || 0}
                           fill={sketch.fillColor || 'none'} 
-                          fillOpacity={sketch.fillOpacity ?? 1}
+                          fillOpacity={maskOpacity}
                           stroke={sketch.color || 'currentColor'} 
                           strokeWidth={sketch.strokeWidth || 2} 
-                          strokeDasharray={sketch.strokeDashArray || 'none'}
+                          strokeDasharray={maskStrokeDash}
                           transform={transform} 
                           className={strokeClass} 
+                          mask={maskAttr}
                         />
                       );
                   }
@@ -1354,12 +1801,13 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                           rx={sketch.props.rx} 
                           ry={sketch.props.ry} 
                           fill={sketch.fillColor || 'none'} 
-                          fillOpacity={sketch.fillOpacity ?? 1}
+                          fillOpacity={maskOpacity}
                           stroke={sketch.color || 'currentColor'} 
                           strokeWidth={sketch.strokeWidth || 2} 
-                          strokeDasharray={sketch.strokeDashArray || 'none'}
+                          strokeDasharray={maskStrokeDash}
                           transform={transform} 
                           className={strokeClass} 
+                          mask={maskAttr}
                         />
                       );
                   }
@@ -1368,12 +1816,13 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       key={sketch.id} 
                       d={sketch.path} 
                       fill={sketch.fillColor || 'none'} 
-                      fillOpacity={sketch.fillOpacity ?? 1}
+                      fillOpacity={maskOpacity}
                       stroke={sketch.color || 'currentColor'} 
                       strokeWidth={sketch.strokeWidth || 2} 
-                      strokeDasharray={sketch.strokeDashArray || 'none'}
+                      strokeDasharray={maskStrokeDash}
                       transform={transform} 
                       className={strokeClass} 
+                      mask={maskAttr}
                     />
                   );
               })}
@@ -1605,24 +2054,40 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                         { id: 'bl', x: selectedSketch.props.x, y: selectedSketch.props.y + selectedSketch.props.height, cursor: 'nesw-resize' },
                         { id: 'br', x: selectedSketch.props.x + selectedSketch.props.width, y: selectedSketch.props.y + selectedSketch.props.height, cursor: 'nwse-resize' },
                       ].map(h => (
-                        <rect
-                          key={h.id}
-                          x={h.x - 5}
-                          y={h.y - 5}
-                          width={10}
-                          height={10}
-                          fill="#ffffff"
-                          stroke="#4f46e5"
-                          strokeWidth="2"
-                          style={{ cursor: h.cursor }}
-                          className="hover:scale-125 transition-transform"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setIsDrawing(true);
-                            setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
-                          }}
-                        />
+                        <g key={h.id}>
+                          {/* Visual Handle */}
+                          <rect
+                            x={h.x - 5}
+                            y={h.y - 5}
+                            width={10}
+                            height={10}
+                            fill="#ffffff"
+                            stroke="#4f46e5"
+                            strokeWidth="2"
+                            style={{ cursor: h.cursor }}
+                            className="pointer-events-none"
+                          />
+                          {/* Invisible Large Touch Overlay (44px target) */}
+                          <rect
+                            x={h.x - 22}
+                            y={h.y - 22}
+                            width={44}
+                            height={44}
+                            fill="transparent"
+                            style={{ cursor: h.cursor }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDrawing(true);
+                              setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                            }}
+                            onTouchStart={(e) => {
+                              e.stopPropagation();
+                              setIsDrawing(true);
+                              setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                            }}
+                          />
+                        </g>
                       ))}
                     </>
                   )}
@@ -1649,23 +2114,38 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                         { id: 'left', x: selectedSketch.props.cx - selectedSketch.props.rx, y: selectedSketch.props.cy, cursor: 'ew-resize' },
                         { id: 'right', x: selectedSketch.props.cx + selectedSketch.props.rx, y: selectedSketch.props.cy, cursor: 'ew-resize' },
                       ].map(h => (
-                        <circle
-                          key={h.id}
-                          cx={h.x}
-                          cy={h.y}
-                          r={5}
-                          fill="#ffffff"
-                          stroke="#4f46e5"
-                          strokeWidth="2"
-                          style={{ cursor: h.cursor }}
-                          className="hover:scale-125 transition-transform"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setIsDrawing(true);
-                            setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
-                          }}
-                        />
+                        <g key={h.id}>
+                          {/* Visual Handle */}
+                          <circle
+                            cx={h.x}
+                            cy={h.y}
+                            r={5}
+                            fill="#ffffff"
+                            stroke="#4f46e5"
+                            strokeWidth="2"
+                            style={{ cursor: h.cursor }}
+                            className="pointer-events-none"
+                          />
+                          {/* Invisible Large Touch Overlay (44px target) */}
+                          <circle
+                            cx={h.x}
+                            cy={h.y}
+                            r={22}
+                            fill="transparent"
+                            style={{ cursor: h.cursor }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDrawing(true);
+                              setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                            }}
+                            onTouchStart={(e) => {
+                              e.stopPropagation();
+                              setIsDrawing(true);
+                              setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                            }}
+                          />
+                        </g>
                       ))}
                     </>
                   )}
@@ -1713,37 +2193,67 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       return (
                         <>
                           {/* End 1 handle */}
-                          <circle
-                            cx={x1}
-                            cy={y1}
-                            r={6}
-                            fill="#ffffff"
-                            stroke="#4f46e5"
-                            strokeWidth="2"
-                            style={{ cursor: 'move' }}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setIsDrawing(true);
-                              setActiveHandle({ sketchId: selectedSketch.id, handleId: 'start' });
-                            }}
-                          />
+                          <g>
+                            <circle
+                              cx={x1}
+                              cy={y1}
+                              r={6}
+                              fill="#ffffff"
+                              stroke="#4f46e5"
+                              strokeWidth="2"
+                              style={{ cursor: 'move' }}
+                              className="pointer-events-none"
+                            />
+                            <circle
+                              cx={x1}
+                              cy={y1}
+                              r={22}
+                              fill="transparent"
+                              style={{ cursor: 'move' }}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setIsDrawing(true);
+                                setActiveHandle({ sketchId: selectedSketch.id, handleId: 'start' });
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation();
+                                setIsDrawing(true);
+                                setActiveHandle({ sketchId: selectedSketch.id, handleId: 'start' });
+                              }}
+                            />
+                          </g>
                           {/* End 2 handle */}
-                          <circle
-                            cx={x2}
-                            cy={y2}
-                            r={6}
-                            fill="#ffffff"
-                            stroke="#4f46e5"
-                            strokeWidth="2"
-                            style={{ cursor: 'move' }}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setIsDrawing(true);
-                              setActiveHandle({ sketchId: selectedSketch.id, handleId: 'end' });
-                            }}
-                          />
+                          <g>
+                            <circle
+                              cx={x2}
+                              cy={y2}
+                              r={6}
+                              fill="#ffffff"
+                              stroke="#4f46e5"
+                              strokeWidth="2"
+                              style={{ cursor: 'move' }}
+                              className="pointer-events-none"
+                            />
+                            <circle
+                              cx={x2}
+                              cy={y2}
+                              r={22}
+                              fill="transparent"
+                              style={{ cursor: 'move' }}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setIsDrawing(true);
+                                setActiveHandle({ sketchId: selectedSketch.id, handleId: 'end' });
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation();
+                                setIsDrawing(true);
+                                setActiveHandle({ sketchId: selectedSketch.id, handleId: 'end' });
+                              }}
+                            />
+                          </g>
                           {/* Midpoint Curve control handle */}
                           {isCurved && (
                             <>
@@ -1767,21 +2277,36 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                                 strokeDasharray="2 2"
                                 className="pointer-events-none"
                               />
-                              <circle
-                                cx={cx}
-                                cy={cy}
-                                r={6}
-                                fill="#4f46e5"
-                                stroke="#ffffff"
-                                strokeWidth="2"
-                                style={{ cursor: 'pointer' }}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setIsDrawing(true);
-                                  setActiveHandle({ sketchId: selectedSketch.id, handleId: 'curve' });
-                                }}
-                              />
+                              <g>
+                                <circle
+                                  cx={cx}
+                                  cy={cy}
+                                  r={6}
+                                  fill="#4f46e5"
+                                  stroke="#ffffff"
+                                  strokeWidth="2"
+                                  style={{ cursor: 'pointer' }}
+                                  className="pointer-events-none"
+                                />
+                                <circle
+                                  cx={cx}
+                                  cy={cy}
+                                  r={22}
+                                  fill="transparent"
+                                  style={{ cursor: 'pointer' }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setIsDrawing(true);
+                                    setActiveHandle({ sketchId: selectedSketch.id, handleId: 'curve' });
+                                  }}
+                                  onTouchStart={(e) => {
+                                    e.stopPropagation();
+                                    setIsDrawing(true);
+                                    setActiveHandle({ sketchId: selectedSketch.id, handleId: 'curve' });
+                                  }}
+                                />
+                              </g>
                             </>
                           )}
                         </>
@@ -2000,6 +2525,24 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
                   <div className="grid grid-cols-2 gap-2 pt-1.5">
                     <div>
+                      <span className="text-[9px] font-mono text-neutral-400">X</span>
+                      <input
+                        type="number"
+                        value={selectedSketch.props.x || 0}
+                        onChange={(e) => handleUpdateSelectedProps({ x: Number(e.target.value) })}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-mono text-neutral-400">Y</span>
+                      <input
+                        type="number"
+                        value={selectedSketch.props.y || 0}
+                        onChange={(e) => handleUpdateSelectedProps({ y: Number(e.target.value) })}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
+                      />
+                    </div>
+                    <div>
                       <span className="text-[9px] font-mono text-neutral-400">Width</span>
                       <input
                         type="number"
@@ -2027,6 +2570,24 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                   <label className="text-[9px] font-mono font-black text-neutral-400 uppercase block">Radii Coordinates</label>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
+                      <span className="text-[9px] font-mono text-neutral-400">CX</span>
+                      <input
+                        type="number"
+                        value={selectedSketch.props.cx || 0}
+                        onChange={(e) => handleUpdateSelectedProps({ cx: Number(e.target.value) })}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-mono text-neutral-400">CY</span>
+                      <input
+                        type="number"
+                        value={selectedSketch.props.cy || 0}
+                        onChange={(e) => handleUpdateSelectedProps({ cy: Number(e.target.value) })}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
+                      />
+                    </div>
+                    <div>
                       <span className="text-[9px] font-mono text-neutral-400">Radius X</span>
                       <input
                         type="number"
@@ -2051,6 +2612,65 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
               {/* Line Style Options */}
               {selectedSketch.type === 'line' && (
                 <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-850/50">
+                  <label className="text-[9px] font-mono font-black text-neutral-400 uppercase block">Line Coordinates</label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <div>
+                      <span className="text-[9px] font-mono text-neutral-400">X1</span>
+                      <input
+                        type="number"
+                        value={selectedSketch.props.x1 ?? 0}
+                        onChange={(e) => {
+                          const newX1 = Number(e.target.value);
+                          const path = `M ${newX1},${selectedSketch.props.y1 ?? 0} L ${selectedSketch.props.x2 ?? 100},${selectedSketch.props.y2 ?? 100}`;
+                          handleUpdateSelectedProps({ x1: newX1 });
+                          handleUpdateSelectedSketch({ path });
+                        }}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-mono text-neutral-400">Y1</span>
+                      <input
+                        type="number"
+                        value={selectedSketch.props.y1 ?? 0}
+                        onChange={(e) => {
+                          const newY1 = Number(e.target.value);
+                          const path = `M ${selectedSketch.props.x1 ?? 0},${newY1} L ${selectedSketch.props.x2 ?? 100},${selectedSketch.props.y2 ?? 100}`;
+                          handleUpdateSelectedProps({ y1: newY1 });
+                          handleUpdateSelectedSketch({ path });
+                        }}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-mono text-neutral-400">X2</span>
+                      <input
+                        type="number"
+                        value={selectedSketch.props.x2 ?? 100}
+                        onChange={(e) => {
+                          const newX2 = Number(e.target.value);
+                          const path = `M ${selectedSketch.props.x1 ?? 0},${selectedSketch.props.y1 ?? 0} L ${newX2},${selectedSketch.props.y2 ?? 100}`;
+                          handleUpdateSelectedProps({ x2: newX2 });
+                          handleUpdateSelectedSketch({ path });
+                        }}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-mono text-neutral-400">Y2</span>
+                      <input
+                        type="number"
+                        value={selectedSketch.props.y2 ?? 100}
+                        onChange={(e) => {
+                          const newY2 = Number(e.target.value);
+                          const path = `M ${selectedSketch.props.x1 ?? 0},${selectedSketch.props.y1 ?? 0} L ${selectedSketch.props.x2 ?? 100},${newY2}`;
+                          handleUpdateSelectedProps({ y2: newY2 });
+                          handleUpdateSelectedSketch({ path });
+                        }}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
+                      />
+                    </div>
+                  </div>
                   <label className="text-[9px] font-mono font-black text-neutral-400 uppercase block">Line Connection Style</label>
                   <div className="grid grid-cols-1 gap-1.5">
                     <button
@@ -2167,6 +2787,121 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       Elbow Connector / Orthogonal
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* Path/Freehand Coordinate Inputs */}
+              {selectedSketch.type === 'path' && (
+                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-850/50">
+                  <label className="text-[9px] font-mono font-black text-neutral-400 uppercase block">Path Coordinates</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-[9px] font-mono text-neutral-400">X (Left Bound)</span>
+                      <input
+                        type="number"
+                        value={Math.round(getSketchBoundingBox(selectedSketch)?.x ?? 0)}
+                        onChange={(e) => {
+                          const bbox = getSketchBoundingBox(selectedSketch);
+                          const currentX = bbox ? bbox.x : 0;
+                          const newX = Number(e.target.value);
+                          const dx = newX - currentX;
+                          const translated = translatePath(selectedSketch.path, dx, 0);
+                          handleUpdateSelectedSketch({ path: translated });
+                        }}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center animate-pulse"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-mono text-neutral-400">Y (Top Bound)</span>
+                      <input
+                        type="number"
+                        value={Math.round((getSketchBoundingBox(selectedSketch)?.y ?? 0) + 45)}
+                        onChange={(e) => {
+                          const bbox = getSketchBoundingBox(selectedSketch);
+                          const currentY = bbox ? bbox.y + 45 : 0;
+                          const newY = Number(e.target.value);
+                          const dy = newY - currentY;
+                          const translated = translatePath(selectedSketch.path, 0, dy);
+                          handleUpdateSelectedSketch({ path: translated });
+                        }}
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center animate-pulse"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Vector Operations & Masking Section */}
+              {sketches.length > 1 && (
+                <div className="space-y-2 pt-2 border-t border-neutral-100 dark:border-zinc-850/50">
+                  <label className="text-[9px] font-mono font-black text-neutral-400 uppercase tracking-widest block">Vector Ops & Masking</label>
+                  <span className="text-[9px] font-mono text-neutral-400 block leading-tight">Combine with another element:</span>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                    {sketches
+                      .filter(s => s.id !== selectedSketch.id)
+                      .map(other => {
+                        const isMaskingSelected = selectedSketch.maskId === other.id;
+                        return (
+                          <div key={other.id} className="flex flex-col gap-1 p-1.5 rounded bg-zinc-50 dark:bg-zinc-900 border border-neutral-150 dark:border-zinc-850">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] font-mono text-neutral-600 dark:text-zinc-400 truncate max-w-[120px]">
+                                {other.type.toUpperCase()} ({other.id.slice(0,4)})
+                              </span>
+                              <div className="w-2.5 h-2.5 rounded-full border border-neutral-350" style={{ backgroundColor: other.color || '#fff' }} />
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-1 mt-1">
+                              <button
+                                onClick={() => handleUnionOfShapes(other.id)}
+                                className="py-1 px-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/30 text-[9px] font-bold text-indigo-600 dark:text-indigo-400 rounded transition-colors text-center cursor-pointer"
+                                title="Combines both elements into a single compound path"
+                              >
+                                Union
+                              </button>
+                              <button
+                                onClick={() => handleSubtractDestructive(other.id)}
+                                className="py-1 px-1 bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/20 dark:hover:bg-orange-900/30 text-[9px] font-bold text-orange-600 dark:text-orange-400 rounded transition-colors text-center cursor-pointer"
+                                title="Clips the overlapping region from this element"
+                              >
+                                Subtract (Dest)
+                              </button>
+                              <button
+                                onClick={() => handleSubtractNonDestructive(other.id)}
+                                className={`py-1 px-1 text-[9px] font-bold rounded transition-colors text-center cursor-pointer ${
+                                  isMaskingSelected
+                                    ? 'bg-emerald-500 text-white'
+                                    : 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
+                                }`}
+                                title="Dynamically masks this element using the target element (non-destructive)"
+                              >
+                                {isMaskingSelected ? 'Unmask' : 'Mask Subtract'}
+                              </button>
+                              {selectedSketch.maskId === other.id && (
+                                <button
+                                  onClick={() => handleUpdateSelectedSketch({ maskId: undefined, maskType: undefined })}
+                                  className="py-1 px-1 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-[9px] font-bold text-red-600 dark:text-red-400 rounded transition-colors text-center cursor-pointer"
+                                >
+                                  Clear Mask
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Stroke Vectorization Action */}
+              {(selectedSketch.type === 'path' || selectedSketch.type === 'rectangle' || selectedSketch.type === 'line') && (
+                <div className="pt-2.5 border-t border-neutral-100 dark:border-zinc-850/50">
+                  <button
+                    onClick={handleVectorizeStroke}
+                    className="w-full py-1.5 bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/30 dark:hover:bg-violet-900/40 text-violet-600 dark:text-violet-400 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                    title="Converts the thin outline stroke into a stylized, editable vector filled shape"
+                  >
+                    Vectorize Stroke Outline
+                  </button>
                 </div>
               )}
 
