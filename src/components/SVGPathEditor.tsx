@@ -154,12 +154,17 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const [precisionStep, setPrecisionStep] = useState<number>(1);
   const [loupeCoords, setLoupeCoords] = useState<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
   
+  const [tuneTool, setTuneTool] = useState<'nodes' | 'translate'>('nodes');
+  const [isTranslatingPath, setIsTranslatingPath] = useState<boolean>(false);
+  const [translateStart, setTranslateStart] = useState<{ x: number, y: number } | null>(null);
+  const [translateOriginalNodes, setTranslateOriginalNodes] = useState<PathNode[]>([]);
+  
   // Keep localSvg in sync with actualSvgSource when not dragging
   useEffect(() => {
-    if (draggedNode === null) {
+    if (draggedNode === null && !isTranslatingPath) {
       setLocalSvg(actualSvgSource || '');
     }
-  }, [actualSvgSource, draggedNode]);
+  }, [actualSvgSource, draggedNode, isTranslatingPath]);
   
   // Precision Mode UI controls
   const [snappingLines, setSnappingLines] = useState<{ x?: number; y?: number; angleLine?: { x1: number; y1: number; x2: number; y2: number } } | null>(null);
@@ -867,6 +872,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       if (!coords) return;
 
       if (editorMode === 'coordinate') {
+        if (tuneTool === 'translate') {
+          setIsTranslatingPath(true);
+          setTranslateStart({ x: coords.x, y: coords.y });
+          setTranslateOriginalNodes(JSON.parse(JSON.stringify(nodes)));
+          return;
+        }
         const closest = findClosestNode(coords.x, coords.y);
         if (closest && closest.dist <= 18 / zoom) {
           handleNodeDragStart(e, closest.nodeId, closest.valIdx, 0);
@@ -1072,6 +1083,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     if (!coords) return;
 
     if (editorMode === 'coordinate') {
+      if (tuneTool === 'translate') {
+        setIsTranslatingPath(true);
+        setTranslateStart({ x: coords.x, y: coords.y });
+        setTranslateOriginalNodes(JSON.parse(JSON.stringify(nodes)));
+        return;
+      }
       if (e.button === 0) {
         const closest = findClosestNode(coords.x, coords.y);
         if (closest && closest.dist <= 18 / zoom) {
@@ -1307,7 +1324,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Interactive coordinate handle dragging with Magnifier Loupe calculation and path-snapping behavior
   useEffect(() => {
-    if (draggedNode === null) return;
+    if (draggedNode === null && !isTranslatingPath) return;
 
     const handleGlobalMove = (e: MouseEvent | TouchEvent) => {
       if (longPressTimerRef.current) {
@@ -1316,7 +1333,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       }
 
       const activeRef = editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current;
-      if (!activeRef || draggedNode === null) return;
+      if (!activeRef || (draggedNode === null && !isTranslatingPath)) return;
 
       const rect = activeRef.getBoundingClientRect();
       let clientX = 0;
@@ -1342,6 +1359,31 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
       const rawX = Math.round((canvasX / rect.width) * gridSize);
       const rawY = Math.round((canvasY / rect.height) * gridSize);
+
+      if (isTranslatingPath && translateStart) {
+        // Translation Drag Mode! Shift all nodes by rawX/rawY delta
+        const dx = rawX - translateStart.x;
+        const dy = rawY - translateStart.y;
+
+        if (dx !== 0 || dy !== 0) {
+          const shifted = translateOriginalNodes.map((node) => {
+            const shiftedVals = node.values.map((val, idx) => {
+              if (idx % 2 === 0) return parseFloat((val + dx).toFixed(precision));
+              return parseFloat((val + dy).toFixed(precision));
+            });
+            return { ...node, values: shiftedVals };
+          });
+
+          setNodes(shifted);
+
+          // Update real-time local-only preview SVG to prevent database write loops
+          const tempSvg = getSvgWithUpdatedNodes(shifted);
+          setLocalSvg(tempSvg);
+        }
+        return;
+      }
+
+      if (draggedNode === null) return;
 
       // Now apply Snapping!
       let snapThreshold = Math.max(2, Math.round(gridSize * 0.02));
@@ -1556,7 +1598,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     };
 
     const handleGlobalEnd = () => {
-      if (draggedNode !== null) {
+      if (isTranslatingPath) {
+        if (nodes.length > 0 && selectedPathIndex !== -1) {
+          const finalSvg = getSvgWithUpdatedNodes(nodes);
+          pushSvgChange(finalSvg, false);
+        }
+        setIsTranslatingPath(false);
+        setTranslateStart(null);
+      } else if (draggedNode !== null) {
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current);
           debounceTimerRef.current = null;
@@ -1587,7 +1636,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       window.removeEventListener('touchmove', handleGlobalMove);
       window.removeEventListener('touchend', handleGlobalEnd);
     };
-  }, [draggedNode, nodes, panOffset, zoom, precision, editorMode, lockedAngles, actualSvgSource, selectedPathIndex]);
+  }, [draggedNode, nodes, panOffset, zoom, precision, editorMode, lockedAngles, actualSvgSource, selectedPathIndex, isTranslatingPath, translateStart, translateOriginalNodes]);
 
   // Implement a 'Clean SVG' feature in the Precision tab that automatically removes redundant nodes,
   // optimizes path data, and simplifies complex Bezier curves while preserving the overall logo geometry.
@@ -2472,8 +2521,30 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
             {/* Translation and coordinate shifts */}
             {parsedPaths.length > 0 && (
-              <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-150 dark:border-zinc-855 space-y-3">
+              <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-150 dark:border-zinc-855 space-y-3.5">
                 <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-widest block">Position translate</span>
+                
+                {/* Drag-and-Move Interactive Translation Toggle */}
+                <div className="flex bg-neutral-100 dark:bg-zinc-900 p-1 rounded-xl gap-1">
+                  <button
+                    onClick={() => { setTuneTool('nodes'); triggerHaptic(15); }}
+                    className={`flex-1 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer text-center ${tuneTool === 'nodes' ? 'bg-white dark:bg-zinc-800 text-indigo-600 shadow-2xs' : 'text-neutral-500 hover:text-neutral-700'}`}
+                  >
+                    📍 Edit Nodes
+                  </button>
+                  <button
+                    onClick={() => { setTuneTool('translate'); triggerHaptic(15); }}
+                    className={`flex-1 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer text-center ${tuneTool === 'translate' ? 'bg-indigo-600 text-white shadow-2xs' : 'text-neutral-500 hover:text-neutral-700'}`}
+                  >
+                    ✋ Drag & Move
+                  </button>
+                </div>
+                {tuneTool === 'translate' && (
+                  <p className="text-[10px] text-indigo-500 dark:text-indigo-400 font-medium text-center animate-pulse">
+                    ⚡ Drag anywhere on the grid canvas below to position the element
+                  </p>
+                )}
+
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => { handleTranslatePath(-8, 0); triggerHaptic(12); }}

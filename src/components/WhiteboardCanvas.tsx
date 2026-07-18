@@ -10,6 +10,18 @@ import {
 } from 'lucide-react';
 import { ForgeAcademy } from './ForgeAcademy';
 import { useToast } from './Toast';
+import { PrecisionOverlay } from './PrecisionOverlay';
+import { AiPreviewSlider } from './AiPreviewSlider';
+
+// Define a worker pool for geometric processing
+let pathWorkerInstance: Worker | null = null;
+if (typeof window !== 'undefined') {
+  try {
+    pathWorkerInstance = new Worker(new URL('../workers/pathWorker.ts', import.meta.url), { type: 'module' });
+  } catch (e) {
+    console.warn("Failed to initialize pathWorker", e);
+  }
+}
 
 export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f: boolean) => void, onUpdateAndSync?: (updates: any, throttleCloud?: boolean) => Promise<void>, onGhostSync?: (ghostData: any) => void }> = ({ fullscreen, setFullscreen, onUpdateAndSync, onGhostSync }) => {
   const { activeProjectId, projects, updateProject, ephemeralGhosts, settings } = useAppStore();
@@ -58,6 +70,9 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [isAiGenerating, setIsAiGenerating] = useState(false);
+  const [aiDraftSketches, setAiDraftSketches] = useState<any[] | null>(null);
+  const [aiDraftMetadata, setAiDraftMetadata] = useState<{ model: string, prompt: string, timestamp: string } | null>(null);
+  const [isAiDraftMode, setIsAiDraftMode] = useState(false);
 
   const handleAiGenerate = async () => {
     if (!aiPrompt.trim()) return;
@@ -139,9 +154,14 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
           }
         }));
 
-        const newSketchesList = [...sketches, ...generatedSketches];
-        updateSketchesWithHistory(newSketchesList);
-        toast(`Successfully generated ${generatedSketches.length} AI whiteboard elements!`, 'success');
+        setAiDraftSketches(generatedSketches);
+        setAiDraftMetadata({
+          model: activeModel,
+          prompt: aiPrompt,
+          timestamp: new Date().toISOString()
+        });
+        setIsAiDraftMode(true);
+        toast(`Generated ${generatedSketches.length} AI elements. Please review to accept or discard.`, 'success');
         setAiPrompt('');
         setIsAiPanelOpen(false);
       } else {
@@ -233,17 +253,20 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
   }, [activeProject?.whiteboardSketches]);
 
   // Push updated sketches to store and commit to history
-  const saveSketch = async (updatedSketches: typeof sketches, throttleCloud?: boolean) => {
+  const saveSketch = async (updatedSketches: typeof sketches, throttleCloud: boolean = true) => {
     if (activeProjectId && activeProject) {
         if (onUpdateAndSync) {
             await onUpdateAndSync({ whiteboardSketches: updatedSketches }, throttleCloud);
         } else {
-            await updateProject(activeProjectId, { whiteboardSketches: updatedSketches });
+            await updateProject(activeProjectId, { whiteboardSketches: updatedSketches }, throttleCloud);
         }
     }
   };
 
-  const updateSketchesWithHistory = (updated: typeof sketches, throttleCloud?: boolean) => {
+  const updateSketchesWithHistory = (updated: typeof sketches, throttleCloud: boolean = true) => {
+    // Basic deduplication
+    if (updated === sketches || (updated.length === sketches.length && JSON.stringify(updated) === JSON.stringify(sketches))) return;
+
     setSketches(updated);
     saveSketch(updated, throttleCloud);
     
@@ -293,7 +316,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     if (target?.locked) return;
     const updated = sketches.filter(s => s.id !== id);
     if (selectedSketchId === id) setSelectedSketchId(null);
-    updateSketchesWithHistory(updated);
+    updateSketchesWithHistory(updated, true);
   };
 
   const duplicateSketch = (id: string) => {
@@ -575,7 +598,6 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
         }
         
         setSketches(updatedSketches);
-        saveSketch(updatedSketches, true);
       }
       return;
     }
@@ -642,7 +664,9 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
         deleteSketch(deletedSketch.id);
       }
     } else if (tool === 'duster-eraser') {
-        updateSketchesWithHistory([]);
+        if (sketches.length > 0) {
+            updateSketchesWithHistory([], true);
+        }
     }
   };
 
@@ -787,20 +811,126 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
         setCurrentPoints('');
         setStartPoint(null);
     } else if (tool === 'pencil' && currentPoints) {
-        const smoothedPath = smoothPointsToPath(currentPoints);
-        const newSketch = {
-            id: Date.now().toString(),
+        const rawPoints = currentPoints;
+        setCurrentPoints('');
+        
+        if (pathWorkerInstance) {
+          const tempId = Date.now().toString();
+          
+          // Render immediate unsmoothed path
+          const newSketch = {
+            id: tempId,
             name: `Sketch ${sketches.length + 1}`,
-            path: smoothedPath || `M ${currentPoints}`,
+            path: `M ${rawPoints}`,
             color: strokeColor,
             strokeWidth,
             type: 'path' as const
-        };
-        const updatedSketches = [...sketches, newSketch];
-        updateSketchesWithHistory(updatedSketches);
-        setCurrentPoints('');
+          };
+          updateSketchesWithHistory([...sketches, newSketch]);
+          
+          // Setup message handler
+          const workerHandler = (e: MessageEvent) => {
+             if (e.data.id === tempId) {
+                 pathWorkerInstance!.removeEventListener('message', workerHandler);
+                 if (e.data.error) {
+                    console.error("pathWorker error:", e.data.error);
+                    return;
+                 }
+                 
+                 const simplified: {x: number, y: number}[] = e.data.points;
+                 if (!simplified || simplified.length < 2) return;
+                 
+                 let d = `M ${simplified[0].x},${simplified[0].y}`;
+                 if (simplified.length === 2) {
+                   d += ` L ${simplified[1].x},${simplified[1].y}`;
+                 } else {
+                   for (let i = 1; i < simplified.length - 1; i++) {
+                     const xc = (simplified[i].x + simplified[i + 1].x) / 2;
+                     const yc = (simplified[i].y + simplified[i + 1].y) / 2;
+                     d += ` Q ${simplified[i].x},${simplified[i].y} ${xc},${yc}`;
+                   }
+                   const last = simplified[simplified.length - 1];
+                   const secondLast = simplified[simplified.length - 2];
+                   d += ` Q ${secondLast.x},${secondLast.y} ${last.x},${last.y}`;
+                 }
+
+                 // We must update the state functionally to avoid stale closure on `sketches`
+                 setSketches(prev => {
+                    const updated = prev.map(s => s.id === tempId ? { ...s, path: d } : s);
+                    saveSketch(updated); // Background push
+                    
+                    // We also need to update sketchesHistory for correct redo/undo state
+                    setSketchesHistory(history => {
+                       const newHistory = [...history];
+                       if (newHistory.length > 0) {
+                         const currentIdx = sketchesHistoryIndex;
+                         // Replace the last history item (which was the unsmoothed one) with this smoothed one
+                         newHistory[currentIdx] = updated;
+                       }
+                       return newHistory;
+                    });
+                    
+                    return updated;
+                 });
+             }
+          };
+          
+          // Let's parse current points to {x,y} array for the worker
+          const pointsArr = rawPoints.trim().split(' ').map(p => {
+             const [x,y] = p.split(',');
+             return {x: Number(x), y: Number(y)};
+          });
+          
+          pathWorkerInstance.addEventListener('message', workerHandler);
+          pathWorkerInstance.postMessage({ id: tempId, points: pointsArr, tolerance: 1.2 });
+
+        } else {
+          const smoothedPath = smoothPointsToPath(rawPoints);
+          const newSketch = {
+              id: Date.now().toString(),
+              name: `Sketch ${sketches.length + 1}`,
+              path: smoothedPath || `M ${rawPoints}`,
+              color: strokeColor,
+              strokeWidth,
+              type: 'path' as const
+          };
+          updateSketchesWithHistory([...sketches, newSketch]);
+        }
     }
   };
+
+  // Keep latest handler closures accessible to global listeners without re-binding overhead
+  const mouseMoveRef = useRef(handleMouseMove);
+  const mouseUpRef = useRef(handleMouseUp);
+
+  useEffect(() => {
+    mouseMoveRef.current = handleMouseMove;
+    mouseUpRef.current = handleMouseUp;
+  });
+
+  useEffect(() => {
+    if (!isDrawing) return;
+
+    const handleGlobalMove = (e: MouseEvent | TouchEvent) => {
+      mouseMoveRef.current(e as any);
+    };
+
+    const handleGlobalUp = (e: MouseEvent | TouchEvent) => {
+      mouseUpRef.current(e as any);
+    };
+
+    window.addEventListener('mousemove', handleGlobalMove);
+    window.addEventListener('mouseup', handleGlobalUp);
+    window.addEventListener('touchmove', handleGlobalMove, { passive: false });
+    window.addEventListener('touchend', handleGlobalUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMove);
+      window.removeEventListener('mouseup', handleGlobalUp);
+      window.removeEventListener('touchmove', handleGlobalMove);
+      window.removeEventListener('touchend', handleGlobalUp);
+    };
+  }, [isDrawing]);
 
   // Modify individual properties of the selected sketch shape
   const handleUpdateSelectedSketch = (updatedFields: Partial<typeof sketches[0]>, throttleCloud?: boolean) => {
@@ -851,12 +981,29 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
     let tag = '';
     if (selected.type === 'rectangle' && selected.props) {
-      const rxAttr = selected.props.rx ? ` rx="${selected.props.rx}" ry="${selected.props.rx}"` : '';
-      tag = `<path d="M${selected.props.x},${selected.props.y} h${selected.props.width} v${selected.props.height} h-${selected.props.width} z" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
+      const { x, y, width, height } = selected.props;
+      tag = `<path d="M ${x},${y} L ${x + width},${y} L ${x + width},${y + height} L ${x},${y + height} Z" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
     } else if (selected.type === 'circle' && selected.props) {
-      // Convert Ellipse to path node representation for universal compatibility
+      // Convert Ellipse to absolute Cubic Bezier path representation (4 cardinal sections approximated with kappa factor)
       const { cx, cy, rx, ry } = selected.props;
-      tag = `<path d="M ${cx - rx},${cy} a ${rx},${ry} 0 1,0 ${rx * 2},0 a ${rx},${ry} 0 1,0 -${rx * 2},0" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
+      const kappa = 0.5522847498307933;
+      const ox = rx * kappa;
+      const oy = ry * kappa;
+      
+      const p1 = `${cx + rx},${cy}`;
+      const c1_1 = `${cx + rx},${cy + oy}`;
+      const c1_2 = `${cx + ox},${cy + ry}`;
+      const p2 = `${cx},${cy + ry}`;
+      const c2_1 = `${cx - ox},${cy + ry}`;
+      const c2_2 = `${cx - rx},${cy + oy}`;
+      const p3 = `${cx - rx},${cy}`;
+      const c3_1 = `${cx - rx},${cy - oy}`;
+      const c3_2 = `${cx - ox},${cy - ry}`;
+      const p4 = `${cx},${cy - ry}`;
+      const c4_1 = `${cx + ox},${cy - ry}`;
+      const c4_2 = `${cx + rx},${cy - oy}`;
+      
+      tag = `<path d="M ${p1} C ${c1_1} ${c1_2} ${p2} C ${c2_1} ${c2_2} ${p3} C ${c3_1} ${c3_2} ${p4} C ${c4_1} ${c4_2} ${p1} Z" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
     } else {
       // It's a freehand curve
       tag = `<path d="${selected.path}" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
@@ -966,7 +1113,6 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
               onDoubleClick={handleDoubleClick}
               onMouseMove={handleMouseMove}
               onMouseUp={(e) => handleMouseUp(e)}
-              onMouseLeave={() => handleMouseUp()}
               onTouchStart={handleMouseDown}
               onTouchMove={handleMouseMove}
               onTouchEnd={(e) => handleMouseUp(e)}
@@ -1271,6 +1417,78 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                   }
                 }
                 return null;
+              })}
+
+              {/* AI Draft Sketches */}
+              {isAiDraftMode && aiDraftSketches && aiDraftSketches.map((sketch) => {
+                  const strokeClass = "opacity-80 drop-shadow-md animate-pulse";
+                  
+                  if (sketch.type === 'rectangle' && sketch.props) {
+                      return (
+                        <rect 
+                          key={sketch.id} 
+                          x={sketch.props.x} 
+                          y={sketch.props.y} 
+                          width={sketch.props.width} 
+                          height={sketch.props.height} 
+                          rx={sketch.props.rx || 0}
+                          stroke={sketch.color} 
+                          strokeWidth={sketch.strokeWidth} 
+                          fill={sketch.fillColor || "none"}
+                          fillOpacity={sketch.fillOpacity || 1}
+                          strokeDasharray={sketch.strokeDashArray !== 'none' ? sketch.strokeDashArray : undefined}
+                          className={strokeClass}
+                        />
+                      );
+                  } else if (sketch.type === 'circle' && sketch.props) {
+                      return (
+                        <ellipse 
+                          key={sketch.id} 
+                          cx={sketch.props.cx} 
+                          cy={sketch.props.cy} 
+                          rx={sketch.props.rx} 
+                          ry={sketch.props.ry} 
+                          stroke={sketch.color} 
+                          strokeWidth={sketch.strokeWidth} 
+                          fill={sketch.fillColor || "none"}
+                          fillOpacity={sketch.fillOpacity || 1}
+                          strokeDasharray={sketch.strokeDashArray !== 'none' ? sketch.strokeDashArray : undefined}
+                          className={strokeClass}
+                        />
+                      );
+                  } else if (sketch.path) {
+                    if (sketch.type === 'line') {
+                      return (
+                        <path 
+                          key={sketch.id} 
+                          d={sketch.path} 
+                          stroke={sketch.color} 
+                          strokeWidth={sketch.strokeWidth} 
+                          fill="none" 
+                          strokeDasharray={sketch.strokeDashArray !== 'none' ? sketch.strokeDashArray : undefined}
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                          className={strokeClass}
+                        />
+                      );
+                    } else if (sketch.type === 'path') {
+                      return (
+                        <path 
+                          key={sketch.id} 
+                          d={sketch.path} 
+                          stroke={sketch.color} 
+                          strokeWidth={sketch.strokeWidth} 
+                          fill={sketch.fillColor || "none"}
+                          fillOpacity={sketch.fillOpacity || 1}
+                          strokeDasharray={sketch.strokeDashArray !== 'none' ? sketch.strokeDashArray : undefined}
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                          className={strokeClass}
+                        />
+                      );
+                    }
+                  }
+                  return null;
               })}
 
               {/* Dynamic crosshair guidelines */}
@@ -2097,6 +2315,51 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
           </div>
         </div>
       )}
+
+      {/* Precision Overlay */}
+      <PrecisionOverlay 
+        isVisible={!!selectedSketchId && tool === 'select'} 
+        activeNodeId={selectedSketchId || undefined} 
+        onNudge={(dx, dy) => {
+          if (!selectedSketchId) return;
+          const target = sketches.find(s => s.id === selectedSketchId);
+          if (!target || target.locked) return;
+          const updated = sketches.map(s => {
+            if (s.id !== selectedSketchId) return s;
+            if (s.type === 'rectangle' && s.props) {
+              return { ...s, props: { ...s.props, x: s.props.x + dx, y: s.props.y + dy } };
+            } else if (s.type === 'circle' && s.props) {
+              return { ...s, props: { ...s.props, cx: s.props.cx + dx, cy: s.props.cy + dy } };
+            } else if (s.path) {
+              const translatedPath = s.path.replace(/([0-9.-]+),([0-9.-]+)/g, (match, px, py) => {
+                return `${Number(px) + dx},${Number(py) + dy}`;
+              });
+              return { ...s, path: translatedPath };
+            }
+            return s;
+          });
+          updateSketchesWithHistory(updated, true);
+        }}
+      />
+
+      {/* AI Preview Slider Overlay */}
+      <AiPreviewSlider 
+        isVisible={isAiDraftMode} 
+        metadata={aiDraftMetadata || undefined} 
+        onDiscard={() => {
+          setAiDraftSketches(null);
+          setIsAiDraftMode(false);
+          toast("AI drafted elements discarded.", "info");
+        }}
+        onAccept={() => {
+          if (aiDraftSketches) {
+            updateSketchesWithHistory([...sketches, ...aiDraftSketches]);
+            toast(`Merged ${aiDraftSketches.length} AI elements into project!`, "success");
+          }
+          setAiDraftSketches(null);
+          setIsAiDraftMode(false);
+        }}
+      />
 
     </div>
   );

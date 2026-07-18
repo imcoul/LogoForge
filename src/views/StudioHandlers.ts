@@ -357,7 +357,7 @@ export function useStudioHandlers() {
           if (msg.type === 'welcome') {
             setActiveUsers(msg.activeUsers || []);
             if (msg.projectState) {
-              updateProject(activeProjectId, msg.projectState);
+              updateProject(activeProjectId, msg.projectState, 'skip');
             }
           } else if (msg.type === 'user_joined') {
             setActiveUsers(msg.activeUsers || []);
@@ -370,7 +370,7 @@ export function useStudioHandlers() {
             });
           } else if (msg.type === 'sync') {
             if (msg.projectState) {
-              updateProject(activeProjectId, msg.projectState);
+              updateProject(activeProjectId, msg.projectState, 'skip');
             }
           } else if (msg.type === 'ghost_sync') {
             const store = useAppStore.getState();

@@ -964,6 +964,16 @@ export default function App() {
     }
   }, [view, user]);
 
+  useEffect(() => {
+    const handleSyncSuspended = (e: any) => {
+      toast(e.detail?.message || "Cloud Sync paused: Quota Exceeded. Safely falling back to Local Storage (IndexedDB).", "error");
+    };
+    window.addEventListener('cloud-sync-suspended', handleSyncSuspended);
+    return () => {
+      window.removeEventListener('cloud-sync-suspended', handleSyncSuspended);
+    };
+  }, [toast]);
+
   const handleChangeUserRole = async (targetUserId: string, newRole: 'Designer' | 'Server') => {
     const targetUser = allUsers.find(u => u.uid === targetUserId);
     if (!targetUser) return;
@@ -1599,7 +1609,7 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
           if (msg.type === 'welcome') {
             setActiveUsers(msg.activeUsers || []);
             if (msg.projectState) {
-              updateProject(activeProjectId, msg.projectState);
+              updateProject(activeProjectId, msg.projectState, 'skip');
             }
           } else if (msg.type === 'user_joined') {
             setActiveUsers(msg.activeUsers || []);
@@ -1612,7 +1622,7 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
             });
           } else if (msg.type === 'sync') {
             if (msg.projectState) {
-              updateProject(activeProjectId, msg.projectState);
+              updateProject(activeProjectId, msg.projectState, 'skip');
             }
           } else if (msg.type === 'ghost_sync') {
             const store = useAppStore.getState();

@@ -391,6 +391,22 @@ router.post("/generate-ecosystem", async (req, res) => {
   }
 });
 
+const ALLOWED_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-2.0-flash',
+  'gemini-3.1-pro-preview'
+];
+
+// Simple in-memory audit log for demonstration. In production, save to a DB table.
+export const generationAuditLog: Array<{
+  timestamp: string;
+  model: string;
+  promptLength: number;
+  status: 'success' | 'failed';
+  error?: string;
+}> = [];
+
 // Server-side proxy route that keeps the Gemini API key perfectly hidden
 router.post("/generate", async (req, res) => {
   try {
@@ -398,6 +414,18 @@ router.post("/generate", async (req, res) => {
     
     if (!prompt) {
       return res.status(400).json({ error: "Prompt is required" });
+    }
+
+    const requestedModel = model || 'gemini-2.5-flash';
+    if (!ALLOWED_MODELS.includes(requestedModel)) {
+      generationAuditLog.push({
+        timestamp: new Date().toISOString(),
+        model: requestedModel,
+        promptLength: prompt.length,
+        status: 'failed',
+        error: 'Unauthorized model requested'
+      });
+      return res.status(403).json({ error: "Model not allowed in registry." });
     }
 
     const client = getClient(req);
@@ -411,14 +439,28 @@ router.post("/generate", async (req, res) => {
     if (topK !== undefined) config.topK = Number(topK);
 
     const response = await client.models.generateContent({
-      model: model || 'gemini-2.5-flash',
+      model: requestedModel,
       contents: { parts: contentsParts },
       config,
+    });
+
+    generationAuditLog.push({
+      timestamp: new Date().toISOString(),
+      model: requestedModel,
+      promptLength: prompt.length,
+      status: 'success'
     });
 
     res.json({ text: response.text || '' });
   } catch (err: any) {
     console.error(err);
+    generationAuditLog.push({
+      timestamp: new Date().toISOString(),
+      model: req.body?.model || 'gemini-2.5-flash',
+      promptLength: req.body?.prompt?.length || 0,
+      status: 'failed',
+      error: err.message || 'Unknown error'
+    });
     res.status(500).json({ error: err.message || "AI Generation failed." });
   }
 });
