@@ -488,15 +488,30 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
             </div>
           </div>
 
-          {/* Database Backups & Cloud Mirroring Block */}
           <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-neutral-200 dark:border-zinc-800">
             <h2 className="text-xl font-bold font-display mb-2 flex items-center gap-2 text-neutral-900 dark:text-white">
-              <Layers size={22} className="text-indigo-500" />
-              Database Backups & Mirroring
+              <Database size={22} className="text-indigo-500" />
+              Primary Cloud Database
             </h2>
             <p className="text-sm text-neutral-500 mb-6">
-              Set up automatic secondary mirroring of your projects to a secure relational database fallback in case Firebase is unavailable.
+              Configure your primary storage backend. Supabase provides a scalable relational database, while Firestore is ideal for real-time document sync.
             </p>
+            <div className="grid grid-cols-2 gap-4">
+              {(['firestore', 'supabase'] as const).map((dbOption) => (
+                <button
+                  key={dbOption}
+                  onClick={() => updateSettings({ primaryDatabase: dbOption })}
+                  className={`px-4 py-3 text-sm font-bold rounded-2xl border capitalize transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    (settings.primaryDatabase || 'firestore') === dbOption
+                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                      : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-400 hover:border-indigo-400'
+                  }`}
+                >
+                  {dbOption === 'firestore' ? 'Firestore 🔥' : 'Supabase ⚡'}
+                </button>
+              ))}
+            </div>
+          </div>
 
             <div className="space-y-6">
               <div>
@@ -752,6 +767,5 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
           </div>
         </div>
       </div>
-    </div>
   );
 };

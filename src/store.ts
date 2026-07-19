@@ -4,7 +4,7 @@ import { User } from 'firebase/auth';
 import { collection, query, where, getDocs, getDoc, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './services/firebase';
 import { BrandGuide, RefinementSuggestion } from './services/geminiService';
-import { syncProjectToPostgres, syncProjectToSupabase, deleteProjectFromPostgres, deleteProjectFromSupabase } from './utils/dbBackupClient';
+import { syncProjectToPostgres, syncProjectToSupabase, deleteProjectFromPostgres, deleteProjectFromSupabase, loadProjectsFromSupabase } from './utils/dbBackupClient';
 import { Node } from './types';
 
 const cloudSyncTimeouts: Record<string, NodeJS.Timeout | null> = {};
@@ -137,6 +137,7 @@ export interface KeyboardMap {
 }
 
 export interface AppSettings {
+  primaryDatabase?: 'firestore' | 'supabase';
   geminiKey?: string;
   openaiKey?: string;
   customEndpoint?: string;
@@ -555,12 +556,21 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
       if (user) {
         try {
           // If user is already set, load remote projects
-          const q = query(collection(db, 'projects'), where('ownerId', '==', user.uid));
-          const querySnapshot = await getDocs(q);
-          const fbProjects: Project[] = [];
-          querySnapshot.forEach((docSnap) => {
-            fbProjects.push(loadFromFirestore(docSnap.data()));
-          });
+          let fbProjects: Project[] = [];
+          if (storedSettings.primaryDatabase === 'supabase') {
+            const res = await loadProjectsFromSupabase(user.uid, storedSettings.supabaseUrl, storedSettings.supabaseAnonKey);
+            if (res.success && res.projects) {
+              fbProjects = res.projects.map(loadFromFirestore);
+            } else {
+              throw new Error(res.message);
+            }
+          } else {
+            const q = query(collection(db, 'projects'), where('ownerId', '==', user.uid));
+            const querySnapshot = await getDocs(q);
+            querySnapshot.forEach((docSnap) => {
+              fbProjects.push(loadFromFirestore(docSnap.data()));
+            });
+          }
           const sorted = fbProjects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
           setStore({ projects: sorted, settings: storedSettings, isHydrated: true });
           await set('projects', sorted);
@@ -626,12 +636,21 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         await set('settings', userSettings);
 
         // 2. Fetch remote projects
-        const q = query(collection(db, 'projects'), where('ownerId', '==', user.uid));
-        const querySnapshot = await getDocs(q);
-        const fbProjects: Project[] = [];
-        querySnapshot.forEach((docSnap) => {
-          fbProjects.push(loadFromFirestore(docSnap.data()));
-        });
+        let fbProjects: Project[] = [];
+        if (userSettings.primaryDatabase === 'supabase') {
+          const res = await loadProjectsFromSupabase(user.uid, userSettings.supabaseUrl, userSettings.supabaseAnonKey);
+          if (res.success && res.projects) {
+            fbProjects = res.projects.map(loadFromFirestore);
+          } else {
+            console.error('Failed to load projects from Supabase in setUser:', res.message);
+          }
+        } else {
+          const q = query(collection(db, 'projects'), where('ownerId', '==', user.uid));
+          const querySnapshot = await getDocs(q);
+          querySnapshot.forEach((docSnap) => {
+            fbProjects.push(loadFromFirestore(docSnap.data()));
+          });
+        }
 
         // 3. See if there are any local unsynced projects to merge
         const rawLocalProjects = await get<any[]>('projects') || [];

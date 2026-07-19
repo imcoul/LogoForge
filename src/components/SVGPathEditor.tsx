@@ -2176,7 +2176,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
-              className={`relative aspect-square w-full rounded-2xl border-2 bg-neutral-50 dark:bg-zinc-950 overflow-hidden shadow-inner flex items-center justify-center cursor-crosshair touch-none transition-all ${tutorialStep === 0 ? 'ring-4 ring-indigo-500 ring-offset-4 dark:ring-offset-zinc-900 animate-pulse border-indigo-400' : 'border-dashed border-neutral-200 dark:border-zinc-800'}`}
+              className={`relative w-[70vh] h-[70vh] max-w-full max-h-full mx-auto rounded-2xl border-2 bg-neutral-50 dark:bg-zinc-950 overflow-hidden shadow-inner flex items-center justify-center cursor-crosshair touch-none transition-all ${tutorialStep === 0 ? 'ring-4 ring-indigo-500 ring-offset-4 dark:ring-offset-zinc-900 animate-pulse border-indigo-400' : 'border-dashed border-neutral-200 dark:border-zinc-800'}`}
             >
               {/* Dynamic Zoom & Pan Transform Layer */}
               <div 

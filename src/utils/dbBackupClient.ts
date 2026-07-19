@@ -119,6 +119,46 @@ export async function deleteProjectFromPostgres(
 }
 
 /**
+ * Fetches all projects for an owner from Supabase.
+ */
+export async function loadProjectsFromSupabase(
+  ownerId: string,
+  customUrl?: string,
+  customKey?: string
+): Promise<BackupResult & { projects?: Project[] }> {
+  try {
+    const response = await fetch('/api/backup/supabase/load', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ownerId,
+        customUrl,
+        customKey,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to load projects from Supabase.');
+    }
+
+    return {
+      success: true,
+      message: 'Supabase load succeeded.',
+      projects: data.projects,
+    };
+  } catch (error: any) {
+    console.error('Supabase Load Error:', error);
+    return {
+      success: false,
+      message: error.message || 'Unknown error during Supabase load.',
+    };
+  }
+}
+
+/**
  * Triggers a server-side delete of a project from Supabase.
  */
 export async function deleteProjectFromSupabase(

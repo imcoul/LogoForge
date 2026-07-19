@@ -23,7 +23,7 @@ if (typeof window !== 'undefined') {
   }
 }
 
-export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f: boolean) => void, onUpdateAndSync?: (updates: any, throttleCloud?: boolean) => Promise<void>, onGhostSync?: (ghostData: any) => void }> = ({ fullscreen, setFullscreen, onUpdateAndSync, onGhostSync }) => {
+export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f: boolean) => void, onUpdateAndSync?: (updates: any, throttleCloud?: boolean) => Promise<void>, onGhostSync?: (ghostData: any) => void, onRedirectToPrecision?: () => void }> = ({ fullscreen, setFullscreen, onUpdateAndSync, onGhostSync, onRedirectToPrecision }) => {
   const { activeProjectId, projects, updateProject, ephemeralGhosts, settings } = useAppStore();
   const { toast } = useToast();
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
@@ -1376,6 +1376,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
     await updateProject(activeProjectId, { svgSource: nextSvg });
     triggerBanner("⚡ Sent to Precision SVG Editor!");
+    onRedirectToPrecision?.();
   };
 
   const selectedSketch = sketches.find(s => s.id === selectedSketchId);

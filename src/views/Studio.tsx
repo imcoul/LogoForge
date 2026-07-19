@@ -448,6 +448,10 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
     handleDownloadBrandGuide,
   } = state;
 
+  const handleRedirectToPrecision = () => {
+    setWorkbenchSubTab('precision');
+  };
+
   const currentAnim = ANIMATIONS[activeProject?.stage === 'discovery' ? 'float' : 'pulse'];
 
   return (
@@ -829,7 +833,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
 
                 {workbenchSubTab === 'sketch' && (
                   <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-neutral-200 dark:border-zinc-800">
-                    <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} onUpdateAndSync={handleUpdateAndSync} onGhostSync={handleGhostSync} />
+                    <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} onUpdateAndSync={handleUpdateAndSync} onGhostSync={handleGhostSync} onRedirectToPrecision={handleRedirectToPrecision} />
                   </div>
                 )}
 

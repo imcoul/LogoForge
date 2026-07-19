@@ -251,6 +251,38 @@ router.post("/postgres/delete", async (req: Request, res: Response) => {
   }
 });
 
+// Load from Supabase
+router.post("/supabase/load", async (req: Request, res: Response) => {
+  const { ownerId, customUrl, customKey } = req.body;
+  const url = customUrl || process.env.SUPABASE_URL;
+  const key = customKey || process.env.SUPABASE_PUBLIC_KEY;
+
+  if (!ownerId) {
+    return res.status(400).json({ error: "Missing ownerId." });
+  }
+
+  if (!url || !key) {
+    return res.status(400).json({ error: "Supabase URL or Public Key is not configured." });
+  }
+
+  try {
+    const supabase = createClient(url, key, {
+      auth: { persistSession: false }
+    });
+
+    const { data, error } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("owner_id", ownerId);
+
+    if (error) throw error;
+    res.json({ success: true, projects: data });
+  } catch (err: any) {
+    console.error("Supabase load failure: ", err);
+    res.status(500).json({ error: err.message || "Failed to load from Supabase database." });
+  }
+});
+
 // Delete from Supabase
 router.post("/supabase/delete", async (req: Request, res: Response) => {
   const { id, customUrl, customKey } = req.body;
