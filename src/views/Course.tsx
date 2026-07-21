@@ -18,10 +18,10 @@ export const Course: React.FC = () => {
   const [moduleAnchorOffset, setModuleAnchorOffset] = useState<number>(0);
 
   return (
-    <div className="flex-1 p-12 overflow-y-auto">
+    <div className="flex-1 p-6 md:p-12 overflow-y-auto">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-3 mb-4">
-          <div className="p-2.5 bg-brand-lead/10 text-brand-lead rounded-2xl">
+          <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl">
             <GraduationCap size={28} />
           </div>
           <div>

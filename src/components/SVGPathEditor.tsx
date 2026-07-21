@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Eye, Edit2, Sliders, ChevronRight, Zap, Trash2, 
   Plus, MousePointer, Paintbrush, Circle, Palette, 
-  Sparkles, Check, RotateCcw, Move, LayoutGrid,
+  Sparkles, Check, RotateCcw, Move, LayoutGrid, Magnet,
   ZoomIn, ZoomOut, Maximize2, Minimize2, Undo2, Redo2, HelpCircle, BookOpen, X
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
@@ -121,6 +121,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const [activeFillColor, setActiveFillColor] = useState<string>('none');
   const [activeStrokeWidth, setActiveStrokeWidth] = useState<number>(4);
   const [showGrid, setShowGrid] = useState<boolean>(true);
+  const [snapToGrid, setSnapToGrid] = useState<boolean>(false);
 
   // Parse path state
   const [parsedPaths, setParsedPaths] = useState<ParsedPath[]>([]);
@@ -1517,7 +1518,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             const baseIdx = draggedNode.valIdx;
             let x = finalX;
             let y = finalY;
-            if (showGrid) {
+            if (snapToGrid) {
               const localGridSize = 10;
               x = Math.round(x / localGridSize) * localGridSize;
               y = Math.round(y / localGridSize) * localGridSize;
@@ -1612,7 +1613,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           } else {
             // Dragging on 1D range slider
             let targetVal = draggedNode.valIdx % 2 === 0 ? finalX : finalY;
-            if (showGrid) {
+            if (snapToGrid) {
               const localGridSize = 10;
               targetVal = Math.round(targetVal / localGridSize) * localGridSize;
             }
@@ -2132,6 +2133,13 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                   title="Toggle Assistant Grid Lines"
                 >
                   <LayoutGrid size={12} />
+                </button>
+                <button
+                  onClick={() => { setSnapToGrid(!snapToGrid); triggerHaptic(10); }}
+                  className={`p-1.5 rounded-lg border transition-all cursor-pointer ${snapToGrid ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-950/20 dark:border-indigo-900' : 'bg-transparent border-neutral-200 dark:border-zinc-800 text-neutral-400'}`}
+                  title="Toggle Snap to Grid (10px)"
+                >
+                  <Magnet size={12} />
                 </button>
 
                 {/* Expanded Grid size selector */}

@@ -561,7 +561,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="flex-1 flex flex-col items-center justify-center p-12 text-center"
+                className="flex-1 flex flex-col items-center justify-center p-6 md:p-12 text-center"
               >
                 <div className="max-w-md bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-8 space-y-6">
                   <Wand2 className="w-16 h-16 text-indigo-500 mx-auto animate-bounce" />
@@ -691,7 +691,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                     <p className="text-sm text-neutral-500 mb-6">Import external brand assets, sketch uploads, or existing vector guides to kick off your Studio canvas.</p>
                     <div
                       onClick={() => fileInputRef.current?.click()}
-                      className="border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl p-12 text-center hover:border-indigo-500 hover:text-indigo-500 transition-colors bg-neutral-50 dark:bg-zinc-950 cursor-pointer"
+                      className="border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl p-6 md:p-12 text-center hover:border-indigo-500 hover:text-indigo-500 transition-colors bg-neutral-50 dark:bg-zinc-950 cursor-pointer"
                     >
                       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => {
                         const file = e.target.files?.[0];
@@ -842,7 +842,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                     {/* Left: SVG Canvas Workspace */}
                     <div className="lg:col-span-2 space-y-6">
                       <div
-                        className="relative aspect-square w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-3xl flex items-center justify-center p-12 overflow-hidden shadow-inner cursor-crosshair"
+                        className="relative aspect-square w-full bg-neutral-100 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-3xl flex items-center justify-center p-6 md:p-12 overflow-hidden shadow-inner cursor-crosshair"
                         onMouseMove={(e) => {
                           if (!socket || socket.readyState !== WebSocket.OPEN) return;
                           const rect = e.currentTarget.getBoundingClientRect();
@@ -1221,7 +1221,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                         </div>
                       </div>
                     ) : (
-                      <div className="border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl p-12 text-center text-neutral-500">
+                      <div className="border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl p-6 md:p-12 text-center text-neutral-500">
                         <BookOpen className="w-16 h-16 mx-auto mb-4 opacity-50" />
                         <h3 className="font-bold text-lg mb-2">No Guidelines Assembled</h3>
                         <p className="text-xs max-w-sm mx-auto mb-4">Go to the Generator tab in Sandbox first to compile model-driven guide documents.</p>
@@ -1425,7 +1425,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                           <div className="text-sm leading-relaxed whitespace-pre-wrap">{activeProject.competitorAnalysis}</div>
                         </div>
                       ) : (
-                        <div className="border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl p-12 text-center text-neutral-500 flex flex-col justify-center items-center">
+                        <div className="border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl p-6 md:p-12 text-center text-neutral-500 flex flex-col justify-center items-center">
                           <Target className="w-16 h-16 opacity-50 mb-4" />
                           <p className="font-bold">No Rival Analysis Yet</p>
                           <p className="text-xs">Compile strategic brand comparisons using the left panel.</p>
@@ -1488,7 +1488,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                           </div>
                         ))
                       ) : (
-                        <div className="border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl p-12 text-center text-neutral-500 flex flex-col justify-center items-center h-full">
+                        <div className="border-2 border-dashed border-neutral-300 dark:border-zinc-800 rounded-3xl p-6 md:p-12 text-center text-neutral-500 flex flex-col justify-center items-center h-full">
                           <Globe className="w-16 h-16 opacity-50 mb-4" />
                           <p className="font-bold">No Ecosystem Assets Generated</p>
                           <p className="text-xs">Compile on-brand website hero copy or social channel captions using the guidelines.</p>

@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { ForgeAcademy } from './ForgeAcademy';
 import { useToast } from './Toast';
-import { PrecisionOverlay } from './PrecisionOverlay';
 import { AiPreviewSlider } from './AiPreviewSlider';
 
 // Define a worker pool for geometric processing
@@ -609,8 +608,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     if (tool === 'select' && selectedSketchId && startPoint) {
       const selectedSketch = sketches.find(s => s.id === selectedSketchId);
       if (selectedSketch?.locked) return;
-      const dx = point.x - snapCoords(startPoint).x;
-      const dy = point.y - snapCoords(startPoint).y;
+      const rawDx = rawPoint.x - startPoint.x;
+      const rawDy = rawPoint.y - startPoint.y;
+      const dx = snapToGrid ? Math.round(rawDx / 10) * 10 : rawDx;
+      const dy = snapToGrid ? Math.round(rawDy / 10) * 10 : rawDy;
       setDragOffset({ x: dx, y: dy });
     } else if (tool === 'pencil') {
       // Append raw smoother points
@@ -2319,9 +2320,13 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
           </svg>
 
           {/* COMPACT INLINE MINI-INSPECTOR */}
-          {selectedSketchId && selectedSketch && (!dragOffset || (dragOffset.x === 0 && dragOffset.y === 0)) && (
+          {selectedSketchId && selectedSketch && (
             <div 
-              className="absolute bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 rounded-full shadow-xl px-3.5 py-1.5 flex items-center gap-3 z-40 pointer-events-auto transition-all animate-in fade-in zoom-in-95 duration-150"
+              className={`absolute bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 shadow-xl px-3.5 py-1.5 flex flex-wrap items-center gap-3 z-40 transition-all duration-300 rounded-2xl sm:rounded-full max-w-[280px] sm:max-w-none md:max-w-none gap-y-2 ${
+                dragOffset && (dragOffset.x !== 0 || dragOffset.y !== 0)
+                  ? 'opacity-25 pointer-events-none scale-95'
+                  : 'opacity-100 scale-100 pointer-events-auto'
+              }`}
               style={{
                 left: `${Math.min(window.innerWidth - 300, Math.max(12, getSketchBoundingBox(selectedSketch)?.x ?? 100))}px`,
                 top: `${Math.max(12, (getSketchBoundingBox(selectedSketch)?.y ?? 100) - 20)}px`,
@@ -2329,6 +2334,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
             >
               {/* Stroke Color Circles */}
               <div className="flex items-center gap-1.5 border-r border-neutral-200 dark:border-zinc-800 pr-2.5">
+                <span className="text-[9px] font-mono font-black text-neutral-400 dark:text-zinc-500 uppercase">Border</span>
                 {['#6366f1', '#10b981', '#ef4444', '#000000'].map(c => (
                   <button
                     key={c}
@@ -2337,6 +2343,22 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                     style={{ backgroundColor: c }}
                     title={`Stroke: ${c}`}
                   />
+                ))}
+              </div>
+
+              {/* Fill Color Circles */}
+              <div className="flex items-center gap-1.5 border-r border-neutral-200 dark:border-zinc-800 pr-2.5">
+                <span className="text-[9px] font-mono font-black text-neutral-400 dark:text-zinc-500 uppercase">Fill</span>
+                {['none', '#ffffff', '#6366f1', '#10b981', '#ef4444', '#000000'].map(c => (
+                  <button
+                    key={c}
+                    onClick={() => handleUpdateSelectedSketch({ fillColor: c })}
+                    className={`w-3.5 h-3.5 rounded-full border transition-transform hover:scale-125 cursor-pointer flex items-center justify-center ${selectedSketch.fillColor === c ? 'ring-1 ring-offset-1 ring-indigo-500 scale-110' : 'border-neutral-200 dark:border-zinc-700'}`}
+                    style={{ backgroundColor: c === 'none' ? 'transparent' : c }}
+                    title={`Fill: ${c}`}
+                  >
+                    {c === 'none' && <span className="text-[8px] leading-none text-neutral-400 font-bold">×</span>}
+                  </button>
                 ))}
               </div>
 
@@ -3051,32 +3073,6 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
           </div>
         </div>
       )}
-
-      {/* Precision Overlay */}
-      <PrecisionOverlay 
-        isVisible={!!selectedSketchId && tool === 'select'} 
-        activeNodeId={selectedSketchId || undefined} 
-        onNudge={(dx, dy) => {
-          if (!selectedSketchId) return;
-          const target = sketches.find(s => s.id === selectedSketchId);
-          if (!target || target.locked) return;
-          const updated = sketches.map(s => {
-            if (s.id !== selectedSketchId) return s;
-            if (s.type === 'rectangle' && s.props) {
-              return { ...s, props: { ...s.props, x: s.props.x + dx, y: s.props.y + dy } };
-            } else if (s.type === 'circle' && s.props) {
-              return { ...s, props: { ...s.props, cx: s.props.cx + dx, cy: s.props.cy + dy } };
-            } else if (s.path) {
-              const translatedPath = s.path.replace(/([0-9.-]+),([0-9.-]+)/g, (match, px, py) => {
-                return `${Number(px) + dx},${Number(py) + dy}`;
-              });
-              return { ...s, path: translatedPath };
-            }
-            return s;
-          });
-          updateSketchesWithHistory(updated, true);
-        }}
-      />
 
       {/* AI Preview Slider Overlay */}
       <AiPreviewSlider 

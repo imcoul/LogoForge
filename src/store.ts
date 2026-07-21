@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { get, set } from 'idb-keyval';
 import { User } from 'firebase/auth';
-import { collection, query, where, getDocs, getDoc, setDoc, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, setDoc, doc, deleteDoc, disableNetwork } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './services/firebase';
 import { BrandGuide, RefinementSuggestion } from './services/geminiService';
 import { syncProjectToPostgres, syncProjectToSupabase, deleteProjectFromPostgres, deleteProjectFromSupabase, loadProjectsFromSupabase } from './utils/dbBackupClient';
@@ -12,15 +12,16 @@ const pendingCloudUpdates: Record<string, Partial<Project>> = {};
 
 let isCloudSyncSuspended = false;
 
-const handleCloudErrorGracefully = (err: any) => {
+export const handleCloudErrorGracefully = (err: any) => {
   const errMsg = err instanceof Error ? err.message : String(err);
-  console.error("Cloud write failed:", errMsg);
-  if (
+  const isQuota = 
     errMsg.includes('resource-exhausted') || 
     errMsg.includes('Quota limit exceeded') || 
     errMsg.includes('quota') || 
-    (err && err.code === 'resource-exhausted')
-  ) {
+    (err && err.code === 'resource-exhausted');
+
+  if (isQuota) {
+    console.warn("Cloud operation failed due to Firestore Quota limit:", errMsg);
     if (!isCloudSyncSuspended) {
       isCloudSyncSuspended = true;
       try {
@@ -28,6 +29,16 @@ const handleCloudErrorGracefully = (err: any) => {
       } catch (e) {
         console.warn("Failed to set isCloudSyncSuspended in store state", e);
       }
+      
+      // Call disableNetwork to stop any write stream background connections
+      try {
+        disableNetwork(db).catch(dnsErr => {
+          console.warn("Failed to cleanly disable Firestore network:", dnsErr);
+        });
+      } catch (dnsErr) {
+        console.warn("Failed to call disableNetwork:", dnsErr);
+      }
+
       console.warn("⚠️ Firestore Daily Quota Exceeded. Safely falling back to Local Offline-first Storage (IndexedDB)!");
       try {
         window.dispatchEvent(new CustomEvent('cloud-sync-suspended', { 
@@ -40,6 +51,8 @@ const handleCloudErrorGracefully = (err: any) => {
       }
     }
     return true; // Quota exceeded handled
+  } else {
+    console.error("Cloud write failed:", errMsg);
   }
   return false; // Not a quota issue
 };

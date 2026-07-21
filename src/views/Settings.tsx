@@ -14,7 +14,7 @@ import {
   Info,
   Database
 } from 'lucide-react';
-import { useAppStore, prepareForFirestore } from '../store';
+import { useAppStore, prepareForFirestore, handleCloudErrorGracefully } from '../store';
 import { db } from '../services/firebase';
 import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { useToast } from '../components/Toast';
@@ -57,7 +57,10 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
       });
       setAllUsers(list);
     } catch (err) {
-      console.error('Failed to fetch users:', err);
+      const isQuota = handleCloudErrorGracefully(err);
+      if (!isQuota) {
+        console.error('Failed to fetch users:', err);
+      }
     } finally {
       setIsUsersLoading(false);
     }
@@ -218,8 +221,8 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
   };
 
   return (
-    <div className="flex-1 p-12 overflow-y-auto">
-      <div className="max-w-2xl mx-auto">
+    <div className="flex-1 p-6 md:p-12 overflow-y-auto w-full">
+      <div className="max-w-2xl mx-auto w-full">
         <FigmaExportModal 
           isOpen={isFigmaModalOpen} 
           onClose={() => setIsFigmaModalOpen(false)} 

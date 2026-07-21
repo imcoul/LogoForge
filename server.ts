@@ -13,6 +13,7 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
+  app.set("trust proxy", 1);
   const PORT = 3000;
 
   // Strict CORS configuration
@@ -57,7 +58,8 @@ async function startServer() {
     max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
     standardHeaders: true, 
     legacyHeaders: false, 
-    message: { error: "Too many requests to the AI proxy, please try again later." }
+    message: { error: "Too many requests to the AI proxy, please try again later." },
+    validate: { default: false }
   });
 
   app.use("/api/gemini", geminiLimiter, geminiRouter);

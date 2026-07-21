@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles, Wand2, RefreshCw, Palette, Download, Move, Upload, BookOpen, Image as ImageIcon, ChevronRight, FolderArchive, MessageSquare, FileText, Music, LayoutDashboard, Share2, Plus, Trash2, Globe, Moon, Sun, Layers, GraduationCap, Settings as SettingsIcon, Check, CheckCircle, Info, HelpCircle, ShieldCheck, Terminal, Code, Lock, Unlock, Hammer, Search, Filter, Cloud, Copy, Target, Users, ShieldAlert, ArrowRight, X, Loader2, Send, Zap } from 'lucide-react';
 import { generateLogoImage, generateBrandGuide, analyzeRefinementContext, generateSonicPhilosophy, generateDesignRationale, generateAICriticComment, analyzeCompetitor, generateEcosystemAsset } from './services/geminiService';
-import { useAppStore, Project, Mockup } from './store';
+import { useAppStore, Project, Mockup, handleCloudErrorGracefully } from './store';
 import { auth, signInWithGoogle, logout, db } from './services/firebase';
 import { collection, getDocs, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import { syncProjectToPostgres, syncProjectToSupabase } from './utils/dbBackupClient';
@@ -954,7 +954,10 @@ export default function App() {
       });
       setAllUsers(list);
     } catch (err) {
-      console.error('Failed to fetch users:', err);
+      const isQuota = handleCloudErrorGracefully(err);
+      if (!isQuota) {
+        console.error('Failed to fetch users:', err);
+      }
     } finally {
       setIsUsersLoading(false);
     }
@@ -1683,7 +1686,7 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
       };
 
       ws.onerror = (err) => {
-        console.error('[Collab] WebSocket error:', err);
+        console.warn('[Collab] WebSocket stream is currently offline or unreachable in this container/preview network:', err);
       };
 
       setSocket(ws);

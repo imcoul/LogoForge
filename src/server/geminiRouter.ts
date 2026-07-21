@@ -2,7 +2,42 @@ import express from "express";
 import { GoogleGenAI, Type } from "@google/genai";
 import { Command } from '../types';
 
+function handleAIError(res: express.Response, err: any, customMessage = "An internal server error occurred during AI generation.") {
+  const errMsg = err?.message || String(err);
+  const isQuota = errMsg.includes('quota') || 
+                  errMsg.includes('Quota exceeded') || 
+                  errMsg.includes('RESOURCE_EXHAUSTED') || 
+                  (err?.status === 429) ||
+                  JSON.stringify(err).includes('RESOURCE_EXHAUSTED') ||
+                  JSON.stringify(err).includes('Quota exceeded');
+                  
+  if (isQuota) {
+    return res.status(429).json({ 
+      error: "Gemini API Quota Exceeded. You have exceeded the free tier rate limits. Please try again later or add your own Gemini API Key in Settings > Secrets to resume immediately." 
+    });
+  }
+  return res.status(500).json({ error: customMessage, details: errMsg });
+}
+
 const router = express.Router();
+
+// Startup validation contract for free models
+console.log("==========================================");
+console.log("=== Connected Models Startup Validation ===");
+const keysToValidate = {
+  STEPFUN_API_KEY: process.env.STEPFUN_API_KEY,
+  POOLSIDE_API_KEY: process.env.POOLSIDE_API_KEY,
+  TENCENT_API_KEY: process.env.TENCENT_API_KEY,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+};
+Object.entries(keysToValidate).forEach(([key, val]) => {
+  if (val) {
+    console.log(`[Startup] Validation: ${key} is CONFIGURED (${val.substring(0, 4)}...${val.substring(val.length - 4)})`);
+  } else {
+    console.warn(`[Startup] Validation Warning: ${key} is MISSING`);
+  }
+});
+console.log("==========================================");
 
 const getClient = (req: express.Request) => {
   const customKey = req.headers['x-custom-api-key'] as string;
@@ -13,7 +48,105 @@ const getClient = (req: express.Request) => {
   return new GoogleGenAI({ apiKey });
 };
 
+// Unified custom LLM call executor supporting OpenAI-compatible formats
+async function callCustomModel(
+  apiKey: string,
+  endpoint: string,
+  modelName: string,
+  options: {
+    prompt: string;
+    systemInstruction?: string;
+    responseMimeType?: string;
+    responseSchema?: any;
+    inlineData?: { data: string; mimeType: string };
+    inlineDataArray?: { data: string; mimeType: string }[];
+  }
+): Promise<{ text: string }> {
+  const messages: any[] = [];
+  if (options.systemInstruction) {
+    messages.push({ role: 'system', content: options.systemInstruction });
+  }
+
+  let userContent: any = options.prompt;
+  if (options.inlineData || options.inlineDataArray) {
+    // Create OpenAI compatible vision payload
+    const contentList: any[] = [{ type: 'text', text: options.prompt }];
+    if (options.inlineData) {
+      contentList.push({
+        type: 'image_url',
+        image_url: { url: `data:${options.inlineData.mimeType};base64,${options.inlineData.data}` }
+      });
+    }
+    if (options.inlineDataArray) {
+      options.inlineDataArray.forEach((item) => {
+        contentList.push({
+          type: 'image_url',
+          image_url: { url: `data:${item.mimeType};base64,${item.data}` }
+        });
+      });
+    }
+    userContent = contentList;
+  }
+
+  messages.push({ role: 'user', content: userContent });
+
+  const body: any = {
+    model: modelName,
+    messages,
+    temperature: 0.2,
+  };
+
+  if (options.responseMimeType === 'application/json') {
+    body.response_format = { type: 'json_object' };
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data: any = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error?.message || `Failed to call custom model ${modelName}`);
+  }
+
+  const textContent = data.choices?.[0]?.message?.content;
+  if (!textContent) {
+    throw new Error(`Empty response from model ${modelName}`);
+  }
+
+  return { text: textContent };
+}
+
 // Unified helper supporting standard Gemini client and third-party custom LLMs
+import { modelRegistry } from "../config/modelRegistry";
+
+function getPromptHash(prompt: string): string {
+  let hash = 0;
+  for (let i = 0; i < prompt.length; i++) {
+    hash = (hash << 5) - hash + prompt.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(16);
+}
+
+function getGenerationMetadata(modelId: string, modelName: string, prompt: string, temperature = 0.2) {
+  return {
+    model: {
+      id: modelId,
+      name: modelRegistry[modelId]?.name || modelId,
+      version: modelName,
+      promptHash: getPromptHash(prompt),
+      temperature
+    },
+    generationId: Math.random().toString(36).substring(2, 15)
+  };
+}
+
 async function generateAIContent(
   req: express.Request,
   options: {
@@ -25,93 +158,63 @@ async function generateAIContent(
     inlineData?: { data: string; mimeType: string };
     inlineDataArray?: { data: string; mimeType: string }[];
   }
-): Promise<{ text: string }> {
-  const activeModel = req.headers['x-active-model'] as string || 'gemini';
+): Promise<{ text: string; _meta?: any }> {
+  const modelPreference = (
+    req.headers['x-model-preference'] as string || 
+    req.headers['x-active-model'] as string || 
+    'gemini'
+  ).toLowerCase();
+
+  let activeModel = modelPreference;
+  let activeEntry = modelRegistry[activeModel] || modelRegistry.gemini;
+
+  // Feature Flag gating check
+  if (activeModel !== 'gemini' && process.env[activeEntry.featureFlagKey] === 'false') {
+    console.warn(`[Feature Gate] Model ${activeModel} is currently disabled via feature flag (${activeEntry.featureFlagKey}=false). Gating and falling back to Gemini...`);
+    activeModel = 'gemini';
+    activeEntry = modelRegistry.gemini;
+  }
+
+  // Validate API Key presence
+  const apiKey = activeModel === 'gemini' 
+    ? (req.headers['x-custom-api-key'] as string || process.env.GEMINI_API_KEY || '')
+    : (req.headers[`x-${activeModel}-key`] as string || process.env[activeEntry.envKey] || '');
+
+  if (activeModel !== 'gemini' && !apiKey) {
+    console.warn(`[Key Validation] API key for custom model '${activeModel}' is missing. Automatically falling back to Gemini...`);
+    activeModel = 'gemini';
+    activeEntry = modelRegistry.gemini;
+  }
 
   if (activeModel && activeModel !== 'gemini') {
-    let apiKey = '';
     let endpoint = '';
     let modelName = '';
 
     if (activeModel === 'stepfun') {
-      apiKey = req.headers['x-stepfun-key'] as string || process.env.STEPFUN_API_KEY || '';
-      endpoint = req.headers['x-stepfun-endpoint'] as string || 'https://api.stepfun.com/v1/chat/completions';
-      modelName = 'step-3.7-flash';
+      endpoint = req.headers['x-stepfun-endpoint'] as string || activeEntry.endpoint;
+      modelName = activeEntry.defaultModelName;
     } else if (activeModel === 'poolside') {
-      apiKey = req.headers['x-poolside-key'] as string || process.env.POOLSIDE_API_KEY || '';
-      endpoint = req.headers['x-poolside-endpoint'] as string || 'https://api.poolside.ai/v1/chat/completions';
-      modelName = 'laguna-m.1';
+      endpoint = req.headers['x-poolside-endpoint'] as string || activeEntry.endpoint;
+      modelName = activeEntry.defaultModelName;
     } else if (activeModel === 'tencent') {
-      apiKey = req.headers['x-tencent-key'] as string || process.env.TENCENT_API_KEY || '';
-      endpoint = req.headers['x-tencent-endpoint'] as string || 'https://api.hunyuan.tencent.com/v1/chat/completions';
-      modelName = 'hy3';
+      endpoint = req.headers['x-tencent-endpoint'] as string || activeEntry.endpoint;
+      modelName = activeEntry.defaultModelName;
     }
 
-    if (!apiKey) {
-      throw new Error(`API key for custom model '${activeModel}' is not configured. Please add it in Settings.`);
+    try {
+      console.log(`[Generation] Invoking custom model: ${activeModel} (${modelName})`);
+      const result = await callCustomModel(apiKey, endpoint, modelName, options);
+      const meta = getGenerationMetadata(activeModel, modelName, options.prompt);
+      return { text: result.text, _meta: meta };
+    } catch (err: any) {
+      console.error(`[Fallback Trigger] Primary custom model ${activeModel} failed:`, err.message || err);
+      console.warn(`[Fallback] Quota exceeded or error returned by ${activeModel}. Initiating automatic fallback to Gemini...`);
+      activeModel = 'gemini';
+      activeEntry = modelRegistry.gemini;
     }
-
-    const messages: any[] = [];
-    if (options.systemInstruction) {
-      messages.push({ role: 'system', content: options.systemInstruction });
-    }
-
-    let userContent: any = options.prompt;
-    if (options.inlineData || options.inlineDataArray) {
-      // Create OpenAI compatible vision payload
-      const contentList: any[] = [{ type: 'text', text: options.prompt }];
-      if (options.inlineData) {
-        contentList.push({
-          type: 'image_url',
-          image_url: { url: `data:${options.inlineData.mimeType};base64,${options.inlineData.data}` }
-        });
-      }
-      if (options.inlineDataArray) {
-        options.inlineDataArray.forEach((item) => {
-          contentList.push({
-            type: 'image_url',
-            image_url: { url: `data:${item.mimeType};base64,${item.data}` }
-          });
-        });
-      }
-      userContent = contentList;
-    }
-
-    messages.push({ role: 'user', content: userContent });
-
-    const body: any = {
-      model: modelName,
-      messages,
-      temperature: 0.2,
-    };
-
-    if (options.responseMimeType === 'application/json') {
-      body.response_format = { type: 'json_object' };
-    }
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    const data: any = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error?.message || `Failed to call custom model ${modelName}`);
-    }
-
-    const textContent = data.choices?.[0]?.message?.content;
-    if (!textContent) {
-      throw new Error(`Empty response from model ${modelName}`);
-    }
-
-    return { text: textContent };
   }
 
-  // Gemini Client call fallback
+  // Gemini Client call / Fallback implementation
   const client = getClient(req);
   const contentsParts: any[] = [{ text: options.prompt }];
   if (options.inlineData) {
@@ -123,17 +226,88 @@ async function generateAIContent(
     });
   }
 
-  const response = await client.models.generateContent({
-    model: options.model,
-    contents: { parts: contentsParts },
-    config: {
-      systemInstruction: options.systemInstruction,
-      responseMimeType: options.responseMimeType,
-      responseSchema: options.responseSchema,
-    } as any,
-  });
+  let modelToUse = options.model;
+  let response;
+  try {
+    response = await client.models.generateContent({
+      model: modelToUse,
+      contents: { parts: contentsParts },
+      config: {
+        systemInstruction: options.systemInstruction,
+        responseMimeType: options.responseMimeType,
+        responseSchema: options.responseSchema,
+      } as any,
+    });
+    const meta = getGenerationMetadata('gemini', modelToUse, options.prompt);
+    return { text: response.text || '', _meta: meta };
+  } catch (err: any) {
+    const isQuotaError = err?.status === 429 || 
+                         err?.message?.includes('quota') || 
+                         err?.message?.includes('RESOURCE_EXHAUSTED') || 
+                         err?.message?.includes('Quota exceeded') ||
+                         JSON.stringify(err)?.includes('RESOURCE_EXHAUSTED') ||
+                         JSON.stringify(err)?.includes('Quota exceeded');
+                         
+    if (isQuotaError) {
+      const stepfunKey = req.headers['x-stepfun-key'] as string || process.env.STEPFUN_API_KEY || '';
+      const poolsideKey = req.headers['x-poolside-key'] as string || process.env.POOLSIDE_API_KEY || '';
+      const tencentKey = req.headers['x-tencent-key'] as string || process.env.TENCENT_API_KEY || '';
 
-  return { text: response.text || '' };
+      if (stepfunKey && process.env.ENABLE_STEPFUN !== 'false') {
+        console.warn(`[Gemini] Quota exceeded on ${modelToUse}. Falling back to connected StepFun free model preset...`);
+        try {
+          const endpoint = req.headers['x-stepfun-endpoint'] as string || 'https://api.stepfun.com/v1/chat/completions';
+          const result = await callCustomModel(stepfunKey, endpoint, 'step-3.7-flash', options);
+          const meta = getGenerationMetadata('stepfun', 'step-3.7-flash', options.prompt);
+          return { text: result.text, _meta: meta };
+        } catch (fallbackErr) {
+          console.error(`[Fallback] StepFun fallback failed:`, fallbackErr);
+        }
+      }
+      
+      if (poolsideKey && process.env.ENABLE_POOLSIDE !== 'false') {
+        console.warn(`[Gemini] Quota exceeded on ${modelToUse}. Falling back to connected Poolside free model preset...`);
+        try {
+          const endpoint = req.headers['x-poolside-endpoint'] as string || 'https://api.poolside.ai/v1/chat/completions';
+          const result = await callCustomModel(poolsideKey, endpoint, 'laguna-m.1', options);
+          const meta = getGenerationMetadata('poolside', 'laguna-m.1', options.prompt);
+          return { text: result.text, _meta: meta };
+        } catch (fallbackErr) {
+          console.error(`[Fallback] Poolside fallback failed:`, fallbackErr);
+        }
+      }
+
+      if (tencentKey && process.env.ENABLE_TENCENT !== 'false') {
+        console.warn(`[Gemini] Quota exceeded on ${modelToUse}. Falling back to connected Tencent free model preset...`);
+        try {
+          const endpoint = req.headers['x-tencent-endpoint'] as string || 'https://api.hunyuan.tencent.com/v1/chat/completions';
+          const result = await callCustomModel(tencentKey, endpoint, 'hy3', options);
+          const meta = getGenerationMetadata('tencent', 'hy3', options.prompt);
+          return { text: result.text, _meta: meta };
+        } catch (fallbackErr) {
+          console.error(`[Fallback] Tencent fallback failed:`, fallbackErr);
+        }
+      }
+
+      if (modelToUse !== 'gemini-3.5-flash') {
+        console.warn(`[Gemini] Quota exceeded for model ${modelToUse}. Retrying fallback with free gemini-3.5-flash...`);
+        modelToUse = 'gemini-3.5-flash';
+        response = await client.models.generateContent({
+          model: modelToUse,
+          contents: { parts: contentsParts },
+          config: {
+            systemInstruction: options.systemInstruction,
+            responseMimeType: options.responseMimeType,
+            responseSchema: options.responseSchema,
+          } as any,
+        });
+        const meta = getGenerationMetadata('gemini', 'gemini-3.5-flash', options.prompt);
+        return { text: response.text || '', _meta: meta };
+      }
+    }
+
+    throw err;
+  }
 }
 
 router.post("/interpreter", async (req, res) => {
@@ -148,13 +322,17 @@ router.post("/interpreter", async (req, res) => {
     });
 
     if (response.text) {
-      res.json(JSON.parse(response.text.trim()));
+      const parsed = JSON.parse(response.text.trim());
+      res.json({
+        ...parsed,
+        _meta: response._meta
+      });
     } else {
       throw new Error("No command generated");
     }
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: "Command interpretation failed." });
+    handleAIError(res, err, "Command interpretation failed.");
   }
 });
 
@@ -168,15 +346,42 @@ router.post("/generate-logo", async (req, res) => {
         prompt = `Generate a creative variation of a professional, minimalist vector-style logo for: "${companyDescription}". Explore a different layout, distinct visual metaphor, alternative shape geometry, and new color harmony while honoring the original brief. The logo MUST be isolated on a pure white background. Flat colors, clear simple shapes. No complex realistic details, no text.`;
     }
     
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: { parts: [{ text: prompt }] },
-      config: {
-        outputMimeType: "image/png",
-        aspectRatio: "1:1",
-        personGeneration: "DONT_ALLOW"
-      } as any
-    });
+    let modelToUse = 'gemini-2.5-flash-image';
+    let response;
+    try {
+      response = await client.models.generateContent({
+        model: modelToUse,
+        contents: { parts: [{ text: prompt }] },
+        config: {
+          outputMimeType: "image/png",
+          aspectRatio: "1:1",
+          personGeneration: "DONT_ALLOW"
+        } as any
+      });
+    } catch (err: any) {
+      const isQuotaError = err?.status === 429 || 
+                           err?.message?.includes('quota') || 
+                           err?.message?.includes('RESOURCE_EXHAUSTED') || 
+                           err?.message?.includes('Quota exceeded') ||
+                           JSON.stringify(err)?.includes('RESOURCE_EXHAUSTED') ||
+                           JSON.stringify(err)?.includes('Quota exceeded');
+                           
+      if (isQuotaError) {
+        console.warn(`[Gemini] Logo image generation hit quota on ${modelToUse}. Falling back to gemini-3.1-flash-lite-image...`);
+        modelToUse = 'gemini-3.1-flash-lite-image';
+        response = await client.models.generateContent({
+          model: modelToUse,
+          contents: { parts: [{ text: prompt }] },
+          config: {
+            outputMimeType: "image/png",
+            aspectRatio: "1:1",
+            personGeneration: "DONT_ALLOW"
+          } as any
+        });
+      } else {
+        throw err;
+      }
+    }
 
     const anyResponse = response as any;
     if (anyResponse.inlineData) {
@@ -186,7 +391,7 @@ router.post("/generate-logo", async (req, res) => {
     }
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+    handleAIError(res, err, "An internal server error occurred during AI generation.");
   }
 });
 
@@ -228,13 +433,17 @@ router.post("/analyze-refinement", async (req, res) => {
     });
 
     if (response.text) {
-      res.json(JSON.parse(response.text.trim()));
+      const parsed = JSON.parse(response.text.trim());
+      res.json({
+        ...parsed,
+        _meta: response._meta
+      });
     } else {
       throw new Error("No content generated");
     }
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+    handleAIError(res, err, "An internal server error occurred during AI generation.");
   }
 });
 
@@ -273,13 +482,17 @@ router.post("/generate-brand-guide", async (req, res) => {
     });
 
     if (response.text) {
-      res.json(JSON.parse(response.text.trim()));
+      const parsed = JSON.parse(response.text.trim());
+      res.json({
+        ...parsed,
+        _meta: response._meta
+      });
     } else {
       throw new Error("No content generated");
     }
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+    handleAIError(res, err, "An internal server error occurred during AI generation.");
   }
 });
 
@@ -294,13 +507,13 @@ router.post("/generate-sonic", async (req, res) => {
     });
 
     if (response.text) {
-      res.json({ text: response.text.trim() });
+      res.json({ text: response.text.trim(), _meta: response._meta });
     } else {
       throw new Error("No sonic philosophy generated");
     }
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+    handleAIError(res, err, "An internal server error occurred during AI generation.");
   }
 });
 
@@ -314,10 +527,10 @@ router.post("/generate-rationale", async (req, res) => {
       prompt
     });
 
-    res.json({ text: response.text?.trim() || "Rationale could not be generated." });
+    res.json({ text: response.text?.trim() || "Rationale could not be generated.", _meta: response._meta });
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+    handleAIError(res, err, "An internal server error occurred during AI generation.");
   }
 });
 
@@ -341,10 +554,10 @@ router.post("/generate-critic", async (req, res) => {
       inlineData
     });
 
-    res.json({ text: response.text?.trim() || "Terrific start. Consider checking color values for balanced contrast." });
+    res.json({ text: response.text?.trim() || "Terrific start. Consider checking color values for balanced contrast.", _meta: response._meta });
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+    handleAIError(res, err, "An internal server error occurred during AI generation.");
   }
 });
 
@@ -367,10 +580,10 @@ router.post("/analyze-competitor", async (req, res) => {
       inlineData
     });
 
-    res.json({ text: response.text?.trim() || "Analysis could not be generated." });
+    res.json({ text: response.text?.trim() || "Analysis could not be generated.", _meta: response._meta });
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+    handleAIError(res, err, "An internal server error occurred during AI generation.");
   }
 });
 
@@ -384,10 +597,10 @@ router.post("/generate-ecosystem", async (req, res) => {
       prompt
     });
 
-    res.json({ text: response.text?.trim() || "Asset could not be generated." });
+    res.json({ text: response.text?.trim() || "Asset could not be generated.", _meta: response._meta });
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: "An internal server error occurred during AI generation." });
+    handleAIError(res, err, "An internal server error occurred during AI generation.");
   }
 });
 
@@ -395,7 +608,9 @@ const ALLOWED_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.5-pro',
   'gemini-2.0-flash',
-  'gemini-3.1-pro-preview'
+  'gemini-3.1-pro-preview',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite-image'
 ];
 
 // Simple in-memory audit log for demonstration. In production, save to a DB table.
@@ -461,7 +676,22 @@ router.post("/generate", async (req, res) => {
       status: 'failed',
       error: err.message || 'Unknown error'
     });
-    res.status(500).json({ error: err.message || "AI Generation failed." });
+    
+    const errMsg = err?.message || String(err);
+    const isQuota = errMsg.includes('quota') || 
+                    errMsg.includes('Quota exceeded') || 
+                    errMsg.includes('RESOURCE_EXHAUSTED') || 
+                    (err?.status === 429) ||
+                    JSON.stringify(err).includes('RESOURCE_EXHAUSTED') ||
+                    JSON.stringify(err).includes('Quota exceeded');
+                    
+    if (isQuota) {
+      res.status(429).json({ 
+        error: "Gemini API Quota Exceeded. You have exceeded the free tier rate limits. Please try again later or add your own Gemini API Key in Settings > Secrets to resume immediately." 
+      });
+    } else {
+      res.status(500).json({ error: err.message || "AI Generation failed." });
+    }
   }
 });
 
