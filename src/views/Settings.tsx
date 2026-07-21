@@ -484,7 +484,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                     <p className="text-xs text-neutral-500">Export active colors, typography and SVGs as tokens.</p>
                   </div>
                 </div>
-                <button onClick={() => setIsFigmaModalOpen(true)} className="bg-[#800080] hover:opacity-95 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors cursor-pointer">
+                <button onClick={() => setIsFigmaModalOpen(true)} className="bg-brand-lead hover:opacity-95 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors cursor-pointer">
                   Export Tokens
                 </button>
               </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Modal } from "./ui/Modal";
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, Check, X, Layers, Info, Eye, EyeOff, Sliders, RefreshCw } from 'lucide-react';
 import { vectorizeImage } from '../utils/vectorizer';
@@ -86,23 +87,8 @@ export const VectorizePreviewModal: React.FC<VectorizePreviewModalProps> = ({
   const activeVariant = variants.find(v => v.key === selectedVariantKey);
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/85 backdrop-blur-md"
-        id="r2v-preview-modal-backdrop"
-      >
-        <motion.div
-          initial={{ scale: 0.95, opacity: 0, y: 15 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          exit={{ scale: 0.95, opacity: 0, y: 15 }}
-          transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-          className="bg-zinc-900 border border-zinc-800 text-white rounded-3xl shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[90vh]"
-          id="r2v-preview-modal-container"
-          onClick={(e) => e.stopPropagation()}
-        >
+    <Modal isOpen={isOpen} onClose={onClose} titleId="vectorize-title" className="max-w-4xl max-h-[90dvh]" hideCloseButton={true}>
+<div className="flex flex-col h-full overflow-hidden">
           {/* Header */}
           <div className="px-6 py-4 bg-zinc-900/50 border-b border-zinc-800 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -304,8 +290,7 @@ export const VectorizePreviewModal: React.FC<VectorizePreviewModalProps> = ({
               </button>
             </div>
           )}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        </div>
+    </Modal>
   );
 };

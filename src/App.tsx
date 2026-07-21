@@ -11,7 +11,7 @@ import { syncProjectToPostgres, syncProjectToSupabase } from './utils/dbBackupCl
 import { KeyboardManager } from './components/KeyboardManager';
 import { vectorizeImage } from './utils/vectorizer';
 import { TouchGesturesHelp } from './components/TouchGesturesHelp';
-import { Sheet } from './components/Sheet';
+import { MobileSheet } from './components/MobileSheet';
 import { StudioControls } from './components/StudioControls';
 import { TemplateLibrary } from './components/TemplateLibrary';
 import { SVGPathEditor } from './components/SVGPathEditor';

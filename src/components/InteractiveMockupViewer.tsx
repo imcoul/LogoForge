@@ -1,4 +1,5 @@
 import React from 'react';
+
 import { motion } from 'motion/react';
 import { Sliders, RotateCw, Layers, Compass, Wand2 } from 'lucide-react';
 import { Project } from '../store';
@@ -465,5 +466,7 @@ export const InteractiveMockupViewer: React.FC<InteractiveMockupViewerProps> = (
         </div>
       </div>
     </div>
+
   );
 };
+

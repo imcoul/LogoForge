@@ -374,7 +374,7 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-[99] flex items-center justify-center p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 bg-black/60 z-modal flex items-center justify-center p-4 backdrop-blur-sm">
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

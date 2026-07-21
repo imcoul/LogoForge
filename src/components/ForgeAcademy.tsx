@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, BookOpen, Sparkles, Layers, PenTool, HelpCircle, ArrowRight, CheckCircle, Sliders } from 'lucide-react';
+import { Modal } from './ui/Modal';
 
 interface ForgeAcademyProps {
   isOpen: boolean;
@@ -9,20 +10,23 @@ interface ForgeAcademyProps {
 export const ForgeAcademy: React.FC<ForgeAcademyProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<'whiteboard' | 'precision' | 'workflow'>('whiteboard');
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      titleId="forge-academy-title"
+      className="max-w-3xl max-h-[85dvh]"
+      hideCloseButton={true}
+    >
+      <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="p-6 border-b border-neutral-150 dark:border-zinc-800 flex items-center justify-between bg-neutral-50 dark:bg-zinc-950">
+        <div className="p-6 border-b border-neutral-150 dark:border-zinc-800 flex items-center justify-between bg-neutral-50 dark:bg-zinc-950 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-500 text-white rounded-2xl shadow-md shadow-indigo-500/20">
+            <div className="p-2.5 bg-indigo-500 text-white rounded-2xl shadow-md shadow-indigo-500/20 shrink-0">
               <BookOpen size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-display font-bold text-neutral-900 dark:text-white">Forge Design Academy</h2>
+              <h2 id="forge-academy-title" className="text-xl font-display font-bold text-neutral-900 dark:text-white">Forge Design Academy</h2>
               <p className="text-xs text-neutral-500">Master the Whiteboard, Precision Studio & Bi-Directional Workflow</p>
             </div>
           </div>
@@ -224,7 +228,7 @@ export const ForgeAcademy: React.FC<ForgeAcademyProps> = ({ isOpen, onClose }) =
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-neutral-150 dark:border-zinc-800 flex justify-end bg-neutral-50 dark:bg-zinc-950">
+        <div className="p-4 border-t border-neutral-150 dark:border-zinc-800 flex justify-end bg-neutral-50 dark:bg-zinc-950 shrink-0">
           <button 
             onClick={onClose} 
             className="px-5 py-2.5 bg-neutral-200 dark:bg-zinc-800 hover:bg-neutral-300 dark:hover:bg-zinc-700 text-neutral-700 dark:text-zinc-200 rounded-2xl text-xs font-black uppercase tracking-wider cursor-pointer transition-all"
@@ -234,6 +238,6 @@ export const ForgeAcademy: React.FC<ForgeAcademyProps> = ({ isOpen, onClose }) =
         </div>
 
       </div>
-    </div>
+    </Modal>
   );
 };

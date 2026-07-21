@@ -45,7 +45,7 @@ import { WhiteboardCanvas } from '../components/WhiteboardCanvas';
 import { InteractiveMockupViewer } from '../components/InteractiveMockupViewer';
 import { TouchGesturesHelp } from '../components/TouchGesturesHelp';
 import { VectorizePreviewModal } from '../components/VectorizePreviewModal';
-import { Sheet } from '../components/Sheet';
+import { MobileSheet } from '../components/MobileSheet';
 import { StudioControls } from '../components/StudioControls';
 import { KeyboardManager } from '../components/KeyboardManager';
 

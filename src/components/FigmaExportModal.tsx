@@ -18,6 +18,7 @@ import {
   pushVariablesToFigma 
 } from '../utils/figmaExport';
 import { useToast } from './Toast';
+import { Modal } from './ui/Modal';
 
 interface FigmaExportModalProps {
   isOpen: boolean;
@@ -121,13 +122,19 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-zinc-950 w-full max-w-4xl h-[90vh] rounded-3xl border border-neutral-200 dark:border-zinc-800 shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      titleId="figma-export-title"
+      className="max-w-4xl max-h-[90dvh]"
+      hideCloseButton={true}
+    >
+      <div className="flex flex-col h-full">
         
         {/* Header */}
         <div className="p-6 border-b border-neutral-150 dark:border-zinc-900 flex items-center justify-between bg-neutral-50 dark:bg-zinc-900/30">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#800080]/10 rounded-xl flex items-center justify-center border border-[#800080]/20 text-[#800080] dark:text-purple-400">
+            <div className="w-10 h-10 bg-brand-lead/10 rounded-xl flex items-center justify-center border border-brand-lead/20 text-brand-lead dark:text-purple-400">
               <FileJson size={20} />
             </div>
             <div>
@@ -211,7 +218,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
             {/* API Parameters Card */}
             <div className="bg-neutral-50 dark:bg-zinc-900/40 p-5 rounded-2xl border border-neutral-200 dark:border-zinc-900">
               <h3 className="text-sm font-bold font-display text-neutral-800 dark:text-white mb-4 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[#800080]" />
+                <span className="w-2 h-2 rounded-full bg-brand-lead" />
                 Figma Live API Connection
               </h3>
               
@@ -225,13 +232,13 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
                     placeholder="figd_..."
                     value={figmaToken}
                     onChange={(e) => setFigmaToken(e.target.value)}
-                    className="w-full bg-white dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#800080] text-neutral-800 dark:text-zinc-100"
+                    className="w-full bg-white dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-brand-lead text-neutral-800 dark:text-zinc-100"
                   />
                   <a 
                     href="https://www.figma.com/developers/api#access-tokens" 
                     target="_blank" 
                     rel="noreferrer" 
-                    className="inline-flex items-center gap-1 text-[10px] text-neutral-400 hover:text-[#800080] mt-1 hover:underline"
+                    className="inline-flex items-center gap-1 text-[10px] text-neutral-400 hover:text-brand-lead mt-1 hover:underline"
                   >
                     Generate a Figma Token <ExternalLink size={10} />
                   </a>
@@ -246,7 +253,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
                     placeholder="e.g. 7mY6bTzK..."
                     value={figmaFileId}
                     onChange={(e) => setFigmaFileId(e.target.value)}
-                    className="w-full bg-white dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#800080] text-neutral-800 dark:text-zinc-100"
+                    className="w-full bg-white dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-brand-lead text-neutral-800 dark:text-zinc-100"
                   />
                   <p className="text-[10px] text-neutral-400 mt-1">
                     Found in your Figma file URL: <code>figma.com/file/<strong>[FILE_KEY]</strong>/title</code>
@@ -263,7 +270,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
                   <button
                     onClick={handleTestConnection}
                     disabled={isTesting}
-                    className="py-2.5 bg-[#800080] hover:opacity-90 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    className="py-2.5 bg-brand-lead hover:opacity-90 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     {isTesting ? <RefreshCw className="animate-spin" size={12} /> : null}
                     Verify Connection
@@ -315,7 +322,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
                 <button
                   onClick={handlePushVariables}
                   disabled={isPushing}
-                  className="w-full py-3 bg-gradient-to-r from-[#800080] to-[#40e0d0] hover:opacity-95 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  className="w-full py-3 bg-gradient-to-r from-brand-lead to-[#40e0d0] hover:opacity-95 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-md"
                 >
                   {isPushing ? (
                     <RefreshCw className="animate-spin" size={14} />
@@ -352,6 +359,6 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
         </div>
 
       </div>
-    </div>
+    </Modal>
   );
 };

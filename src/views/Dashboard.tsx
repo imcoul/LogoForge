@@ -916,9 +916,9 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
               <h3 className="text-xl font-bold text-neutral-900 dark:text-white">Delete {projectToDelete ? 'Brand Space' : 'Brand Spaces'}</h3>
               <p className="text-sm text-neutral-500 dark:text-zinc-400">
                 Are you sure you want to permanently delete {projectToDelete ? (
-                  <span className="font-bold text-neutral-900 dark:text-white">"{projects.find(p => p.id === projectToDelete)?.name}"</span>
+                  <span className="font-bold text-neutral-900 truncate max-w-full dark:text-white">"{projects.find(p => p.id === projectToDelete)?.name}"</span>
                 ) : (
-                  <span className="font-bold text-neutral-900 dark:text-white">{projectsToDelete.length} selected brand spaces</span>
+                  <span className="font-bold text-neutral-900 truncate max-w-full dark:text-white">{projectsToDelete.length} selected brand spaces</span>
                 )}? This action is irreversible and all logo history, annotations, and brand assets will be lost.
               </p>
               <div className="flex justify-end gap-3 pt-2">

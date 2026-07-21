@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { Sparkles, Download, Shield, Eye, HelpCircle } from 'lucide-react';
+import { Modal } from './ui/Modal';
 
 interface WhacanudoProps {
   onClose: () => void;
@@ -110,8 +111,8 @@ export const Whacanudo: React.FC<WhacanudoProps> = ({ onClose }) => {
     }
   };
 
-  const currentLang = i18n.language === 'ar' ? 'ar' : i18n.language === 'fr' ? 'fr' : 'en';
-  const c = dict[currentLang] || dict.en;
+  const baseLang = i18n.language ? i18n.language.split('-')[0] : 'en';
+  const c = dict[baseLang] || dict.en;
 
   // Comprehensive PRD Data
   interface Feature {
@@ -223,17 +224,23 @@ ${features.map(f => formatFeature(f)).join('\n')}
     a.click();
   };
 
-  const isRTL = currentLang === 'ar';
+  const isRTL = baseLang === 'ar';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" dir={isRTL ? 'rtl' : 'ltr'}>
-      <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      titleId="whacanudo-title"
+      className="max-w-2xl max-h-[85dvh]"
+      hideCloseButton={true}
+    >
+      <div dir={isRTL ? 'rtl' : 'ltr'} className="flex flex-col h-full">
         {/* Modal Header */}
         <div className="p-6 border-b border-neutral-200 dark:border-zinc-800 flex justify-between items-center bg-neutral-50 dark:bg-zinc-900/50">
           <div className="flex items-center gap-3">
-            <Sparkles className="text-amber-500" size={24} />
+            <Sparkles className="text-amber-500 shrink-0" size={24} />
             <div>
-              <h3 className="text-lg font-bold text-neutral-900 dark:text-white">{c.title}</h3>
+              <h3 id="whacanudo-title" className="text-lg font-bold text-neutral-900 dark:text-white">{c.title}</h3>
               <p className="text-xs text-neutral-500">
                 {isServer ? c.server_note : c.designer_note}
               </p>
@@ -241,7 +248,7 @@ ${features.map(f => formatFeature(f)).join('\n')}
           </div>
           <button
             onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 dark:hover:text-white text-sm font-bold p-1"
+            className="text-neutral-500 hover:text-neutral-800 dark:hover:text-white text-sm font-bold p-1 cursor-pointer"
           >
             ✕
           </button>
@@ -249,7 +256,7 @@ ${features.map(f => formatFeature(f)).join('\n')}
 
         {/* Modal Tabs for Server role */}
         {isServer && (
-          <div className="flex bg-neutral-100 dark:bg-zinc-800 border-b border-neutral-200 dark:border-zinc-800">
+          <div className="flex bg-neutral-100 dark:bg-zinc-800 border-b border-neutral-200 dark:border-zinc-800 shrink-0">
             <button
               onClick={() => setActivePrdTab('overview')}
               className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 ${activePrdTab === 'overview' ? 'border-brand-lead text-brand-lead dark:border-indigo-400 dark:text-indigo-400 bg-white dark:bg-zinc-900' : 'border-transparent text-neutral-500'}`}
@@ -266,7 +273,7 @@ ${features.map(f => formatFeature(f)).join('\n')}
         )}
 
         {/* Modal Content */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
           {(!isServer || activePrdTab === 'overview') ? (
             <>
               {/* Mission Statement */}
@@ -284,7 +291,7 @@ ${features.map(f => formatFeature(f)).join('\n')}
                   {c.features.map((feat: any, idx: number) => (
                     <div key={idx} className="p-4 rounded-2xl border border-neutral-100 dark:border-zinc-800 bg-white dark:bg-zinc-900/50">
                       <h5 className="text-xs font-bold text-neutral-900 dark:text-white mb-1 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
                         {feat.name}
                       </h5>
                       <p className="text-[11px] text-neutral-500 leading-relaxed">{feat.desc}</p>
@@ -354,7 +361,7 @@ ${features.map(f => formatFeature(f)).join('\n')}
               {/* PRD Text Block */}
               <div className="space-y-2">
                 <span className="text-xs font-bold text-neutral-400 uppercase tracking-widest block">Product Specifications Sheet Preview</span>
-                <pre className="p-4 bg-zinc-950 text-emerald-400 font-mono text-[10px] leading-relaxed rounded-2xl overflow-x-auto border border-zinc-800 select-all max-h-72">
+                <pre className="p-4 bg-zinc-950 text-emerald-400 font-mono text-[10px] leading-relaxed rounded-2xl overflow-x-auto custom-scrollbar border border-zinc-800 select-all max-h-72">
                   {detailedPRD}
                 </pre>
               </div>
@@ -363,7 +370,7 @@ ${features.map(f => formatFeature(f)).join('\n')}
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 bg-neutral-50 dark:bg-zinc-900 border-t border-neutral-200 dark:border-zinc-800 flex justify-end">
+        <div className="p-4 bg-neutral-50 dark:bg-zinc-900 border-t border-neutral-200 dark:border-zinc-800 flex justify-end shrink-0">
           <button
             onClick={onClose}
             className="px-5 py-2 bg-neutral-900 text-white dark:bg-white dark:text-black rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors cursor-pointer"
@@ -372,6 +379,7 @@ ${features.map(f => formatFeature(f)).join('\n')}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
+

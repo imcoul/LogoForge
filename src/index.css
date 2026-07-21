@@ -21,6 +21,46 @@
   --color-indigo-800: #4d004d;
   --color-indigo-900: #330033;
   --color-indigo-950: #1a001a;
+
+  --z-index-dropdown: 40;
+  --z-index-sticky: 50;
+  --z-index-modal: 60;
+  --z-index-overlay: 70;
+  --z-index-toast: 80;
+  --z-index-max: 9999;
+}
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility custom-scrollbar {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-slate-300);
+    border-radius: 4px;
+  }
+  .dark &::-webkit-scrollbar-thumb {
+    background: var(--color-slate-600);
+  }
 }
 
 body {
