@@ -1,3 +1,9 @@
+import { DesignChecklist } from './components/ui/DesignChecklist';
+import { CustomWaveformPlayer } from './components/ui/CustomWaveformPlayer';
+import { Tooltip } from './components/ui/Tooltip';
+import { ANIMATIONS } from './components/ui/ANIMATIONS';
+import { sanitizeSVG } from './components/ui/sanitizeSVG';
+import { safeFormatDate } from './components/ui/safeFormatDate';
 import Markdown from 'react-markdown';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -29,21 +35,7 @@ import { InteractiveMockupViewer } from './components/InteractiveMockupViewer';
 import { VectorizePreviewModal } from './components/VectorizePreviewModal';
 import DOMPurify from 'dompurify';
 
-const sanitizeSVG = (svg: string | null): string => {
-  if (!svg) return '';
-  return DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true },
-    ADD_TAGS: ['style'],
-  });
-};
 
-const ANIMATIONS = {
-  float: { animate: { y: [0, -15, 0] }, transition: { duration: 3, repeat: Infinity, ease: "easeInOut" as const } },
-  pulse: { animate: { scale: [1, 1.05, 1], rotate: [0, 2, -2, 0] }, transition: { duration: 2.5, repeat: Infinity, ease: "easeInOut" as const } },
-  spin: { animate: { rotate: 360 }, transition: { duration: 8, repeat: Infinity, ease: "linear" as const } },
-  pop: { animate: { scale: [0.8, 1.1, 1] }, transition: { duration: 0.5, type: "spring" as const, bounce: 0.6, repeat: Infinity, repeatDelay: 1 } },
-  flip: { animate: { rotateY: 360 }, transition: { duration: 3, repeat: Infinity, ease: "easeInOut" as const, repeatDelay: 1 } }
-};
 
 type AnimationType = keyof typeof ANIMATIONS;
 type ViewMode = 'dashboard' | 'studio' | 'course' | 'settings';
@@ -53,246 +45,6 @@ type WorkbenchSubTab = 'sketch' | 'precision';
 type IdentitySubTab = 'guidelines' | 'mockups' | 'collateral';
 type StrategySubTab = 'rivals' | 'sonic';
 type StudioTab = 'preview' | 'guide' | 'refine' | 'sonic' | 'comments' | 'precision' | 'mockups' | 'competitor' | 'ecosystem' | 'draw'; // keep it temporarily for backwards comp or gradual replacement
-
-interface TooltipProps {
-  content: React.ReactNode;
-  trigger: React.ReactNode;
-}
-
-const Tooltip = ({ content, trigger }: TooltipProps) => {
-  const [isVisible, setIsVisible] = useState(false);
-
-  return (
-    <div 
-      className="relative inline-block"
-      onMouseEnter={() => setIsVisible(true)}
-      onMouseLeave={() => setIsVisible(false)}
-      onFocus={() => setIsVisible(true)}
-      onBlur={() => setIsVisible(false)}
-      onClick={(e) => {
-        e.stopPropagation();
-        setIsVisible(!isVisible);
-      }}
-    >
-      {trigger}
-      <AnimatePresence>
-        {isVisible && (
-          <motion.div
-            initial={{ opacity: 0, y: 5, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 5, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-4 bg-zinc-950 dark:bg-zinc-900 text-white dark:text-zinc-100 text-xs rounded-2xl shadow-xl border border-neutral-800 dark:border-zinc-800 pointer-events-none text-left leading-relaxed flex flex-col gap-1.5"
-          >
-            {content}
-            {/* Tooltip arrow */}
-            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-zinc-950 dark:border-t-zinc-900" />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-const DesignChecklist = () => {
-  const [checks, setChecks] = useState<Record<string, boolean>>({});
-  
-  const items = [
-    { 
-      id: 'scalability', 
-      label: 'Scalability', 
-      desc: 'Logo remains legible when scaled down to 16x16px (favicon size).',
-      tip: 'Avoid ultra-thin lines, intricate patterns, or tiny secondary text. Try viewing the design as a small browser tab icon.' 
-    },
-    { 
-      id: 'contrast', 
-      label: 'High Contrast', 
-      desc: 'Passes WCAG AA contrast ratio (at least 4.5:1) against primary backgrounds.',
-      tip: 'Check your foreground and background color hex codes. Adjust shades or values to maximize distinction.' 
-    },
-    { 
-      id: 'monochrome', 
-      label: 'Monochrome Readability', 
-      desc: 'Design holds up perfectly in pure black and pure white.',
-      tip: 'Do not rely entirely on color hue to separate elements. Ensure overlapping elements have distinct light/dark value contrasts.' 
-    },
-    { 
-      id: 'balance', 
-      label: 'Visual Balance', 
-      desc: 'Optical weight is balanced; no single element overpowers the composition.',
-      tip: 'Try squinting or blurring your vision. If one element or area pops out disproportionately, adjust scale or spacing.' 
-    },
-    { 
-      id: 'simplicity', 
-      label: 'Simplicity', 
-      desc: 'Removes unnecessary details to remain memorable and easy to reproduce.',
-      tip: 'Experiment with removing single lines or decoration details. If the brand message still carries, leave them out.' 
-    },
-  ];
-
-  const toggleCheck = (id: string) => setChecks(prev => ({ ...prev, [id]: !prev[id] }));
-  const resetChecks = () => setChecks({});
-  const hasChecks = Object.values(checks).some(checked => checked);
-
-  return (
-    <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800 mt-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-        <h3 className="text-xl font-bold font-display flex items-center gap-2">
-          <CheckCircle size={20} className="text-brand-lead"/> Design Best Practices
-        </h3>
-        <button 
-          onClick={resetChecks}
-          disabled={!hasChecks}
-          className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 self-start sm:self-auto ${
-            hasChecks 
-              ? 'text-neutral-600 dark:text-zinc-400 hover:text-brand-lead dark:hover:text-brand-lead hover:bg-neutral-50 dark:hover:bg-zinc-800 cursor-pointer' 
-              : 'text-neutral-300 dark:text-zinc-700 cursor-not-allowed opacity-50'
-          }`}
-        >
-          <RefreshCw size={12} />
-          Reset All
-        </button>
-      </div>
-      <p className="text-sm text-neutral-500 mb-6">Verify your logo against professional industry standards. Hover or tap the info icon for quick tips.</p>
-      <div className="space-y-4">
-        {items.map(item => (
-          <div key={item.id} className="flex items-center justify-between p-4 rounded-xl border border-neutral-100 dark:border-zinc-800 hover:border-brand-lead transition-colors cursor-pointer" onClick={() => toggleCheck(item.id)}>
-            <div className="flex items-center gap-4">
-              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${checks[item.id] ? 'bg-brand-lead border-brand-lead text-white' : 'border-neutral-300 dark:border-zinc-700'}`}>
-                {checks[item.id] && <Check size={14} />}
-              </div>
-              <span className={`font-bold transition-colors ${checks[item.id] ? 'text-neutral-400 dark:text-zinc-500 line-through font-medium' : ''}`}>
-                {item.label}
-              </span>
-            </div>
-            
-            <Tooltip
-              content={
-                <>
-                  <p className="font-semibold text-neutral-200 dark:text-zinc-100 mb-1">{item.desc}</p>
-                  <p className="text-brand-service font-medium">💡 Fix Tip: {item.tip}</p>
-                </>
-              }
-              trigger={
-                <button className="p-1.5 text-neutral-400 hover:text-brand-lead dark:text-zinc-500 dark:hover:text-brand-lead transition-colors rounded-lg hover:bg-neutral-100 dark:hover:bg-zinc-800">
-                  <Info size={16} />
-                </button>
-              }
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const CustomWaveformPlayer: React.FC<{ base64Data: string; name: string }> = ({ base64Data, name }) => {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-
-  useEffect(() => {
-    const audio = new Audio(base64Data);
-    audioRef.current = audio;
-
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleLoadedMetadata = () => setDuration(audio.duration || 0);
-    const handleEnded = () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-    };
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    audio.addEventListener('ended', handleEnded);
-
-    return () => {
-      audio.pause();
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      audio.removeEventListener('ended', handleEnded);
-    };
-  }, [base64Data]);
-
-  const togglePlay = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play().catch(err => console.error(err));
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!audioRef.current) return;
-    const val = parseFloat(e.target.value);
-    audioRef.current.currentTime = val;
-    setCurrentTime(val);
-  };
-
-  return (
-    <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-neutral-100 dark:border-zinc-800 shadow-sm flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-indigo-50 dark:bg-zinc-800 text-indigo-600 rounded-lg">
-            <Music size={16} />
-          </div>
-          <span className="font-bold text-sm text-neutral-800 dark:text-zinc-200 truncate max-w-[200px]">{name}</span>
-        </div>
-        <span className="text-[10px] font-mono text-neutral-400">
-          {Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, '0')} / {Math.floor(duration / 60)}:{(Math.floor(duration % 60)).toString().padStart(2, '0')}
-        </span>
-      </div>
-
-      <div className="flex items-center gap-4">
-        <button 
-          onClick={togglePlay}
-          className="w-10 h-10 rounded-full bg-brand-lead hover:bg-brand-lead/90 text-white flex items-center justify-center shadow-md transition-all shrink-0 hover:scale-105 cursor-pointer"
-        >
-          {isPlaying ? (
-            <div className="flex gap-1 items-center justify-center">
-              <div className="w-1 h-3 bg-white rounded-full animate-bounce" style={{ animationDuration: '0.6s' }} />
-              <div className="w-1.5 h-4 bg-white rounded-full animate-bounce" style={{ animationDuration: '0.4s' }} />
-              <div className="w-1 h-3 bg-white rounded-full animate-bounce" style={{ animationDuration: '0.5s' }} />
-            </div>
-          ) : (
-            <ChevronRight size={18} className="translate-x-0.5 text-white fill-white" />
-          )}
-        </button>
-
-        {/* Custom Visualizer Bars */}
-        <div className="flex-1 flex items-center gap-1 h-10 overflow-hidden px-1">
-          {Array.from({ length: 24 }).map((_, i) => {
-            // Generate some nice heights
-            const baseHeight = 12 + Math.sin(i * 0.5) * 8;
-            // Add jitter if playing
-            const actHeight = isPlaying ? baseHeight + (Math.random() * 12 - 6) : baseHeight;
-            return (
-              <div 
-                key={i} 
-                className={`w-1 rounded-full transition-all duration-300 ${isPlaying ? 'bg-indigo-600 dark:bg-indigo-500' : 'bg-neutral-200 dark:bg-zinc-800'}`}
-                style={{ 
-                  height: `${Math.max(4, Math.min(32, actHeight))}px`,
-                }}
-              />
-            );
-          })}
-        </div>
-      </div>
-
-      <input 
-        type="range"
-        min={0}
-        max={duration || 100}
-        value={currentTime}
-        onChange={handleScrub}
-        className="w-full h-1 bg-neutral-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-      />
-    </div>
-  );
-};
 
 // --- PRODUCT REQUIREMENT DOCUMENT (PRD) DATA & EXPORT UTILITIES ---
 export interface FeaturePrdSpec {
@@ -889,19 +641,6 @@ const exportFullPDF = (features: PrdFeature[], addToast: (t: any, m: string) => 
   }
 };
 
-const safeFormatDate = (dateVal: any, lang: string): string => {
-  try {
-    const d = new Date(dateVal);
-    if (isNaN(d.getTime())) return 'No Date';
-    return d.toLocaleDateString(lang === 'fr' ? 'fr-FR' : lang === 'ar' ? 'ar-EG' : 'en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch {
-    return 'No Date';
-  }
-};
 
 export default function App() {
 
@@ -1351,7 +1090,11 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
   // --- Parallel Spikes Hooks & Handlers ---
   
   // Custom update and broadcast coordination
+  const lastGhostSync = useRef<number>(0);
   const handleGhostSync = (ghostData: any) => {
+    const now = Date.now();
+    if (now - lastGhostSync.current < 50) return;
+    lastGhostSync.current = now;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(
         JSON.stringify({
@@ -2469,7 +2212,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
           title="Whacanudo"
         >
           <HelpCircle size={24} className="text-amber-500 animate-pulse group-hover:scale-110 transition-transform" />
-          <span className="absolute left-full ml-2 px-2 py-1 bg-zinc-950 text-white text-[10px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+          <span className="absolute left-full ml-2 px-2 py-1 bg-zinc-950 text-white text-[10px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-modal">
             Whacanudo
           </span>
         </button>
@@ -2498,7 +2241,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                   {user.displayName?.charAt(0) || user.email?.charAt(0) || 'U'}
                 </div>
               )}
-              <span className="absolute left-full ml-3 px-2.5 py-1 bg-zinc-950 text-white text-[10px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50 shadow-md">
+              <span className="absolute left-full ml-3 px-2.5 py-1 bg-zinc-950 text-white text-[10px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-modal shadow-md">
                 Sign Out ({user.displayName || 'User'})
               </span>
             </button>
@@ -2509,7 +2252,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
               title="Sign in with Google"
             >
               <Lock size={24} />
-              <span className="absolute left-full ml-3 px-2.5 py-1 bg-zinc-950 text-white text-[10px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50 shadow-md">
+              <span className="absolute left-full ml-3 px-2.5 py-1 bg-zinc-950 text-white text-[10px] font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-modal shadow-md">
                 Sign In with Google
               </span>
             </button>
@@ -2589,7 +2332,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 md:p-8 overflow-y-auto"
+              className="fixed inset-0 bg-black/85 backdrop-blur-md z-modal flex items-center justify-center p-4 md:p-8 overflow-y-auto"
               onClick={() => setIsWhacanudoOpen(false)}
             >
             <motion.div

@@ -132,7 +132,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
       <div className="flex flex-col h-full">
         
         {/* Header */}
-        <div className="p-6 border-b border-neutral-150 dark:border-zinc-900 flex items-center justify-between bg-neutral-50 dark:bg-zinc-900/30">
+        <div className="p-6 border-b border-neutral-200 dark:border-zinc-900 flex items-center justify-between bg-neutral-50 dark:bg-zinc-900/30">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-brand-lead/10 rounded-xl flex items-center justify-center border border-brand-lead/20 text-brand-lead dark:text-purple-400">
               <FileJson size={20} />
@@ -189,7 +189,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
               </div>
             </div>
 
-            <div className="flex-1 relative bg-neutral-950 rounded-2xl border border-neutral-850 overflow-hidden flex flex-col shadow-inner">
+            <div className="flex-1 relative bg-neutral-950 rounded-2xl border border-neutral-900 overflow-hidden flex flex-col shadow-inner">
               <div className="absolute top-3 right-3 z-10 flex gap-2">
                 <button
                   onClick={handleCopy}
@@ -204,7 +204,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
               </pre>
             </div>
             
-            <div className="mt-3 flex items-start gap-2 p-3 bg-neutral-50 dark:bg-zinc-900/40 rounded-xl border border-neutral-150 dark:border-zinc-900/60 text-[11px] text-neutral-500">
+            <div className="mt-3 flex items-start gap-2 p-3 bg-neutral-50 dark:bg-zinc-900/40 rounded-xl border border-neutral-200 dark:border-zinc-900/60 text-[11px] text-neutral-500">
               <HelpCircle size={14} className="shrink-0 text-[#40e0d0] mt-0.5" />
               <p>
                 <strong>Import Instructions:</strong> Copy this JSON and use plugins like <em>Tokens Studio for Figma</em> or <em>Design Tokens</em> inside Figma to automatically build variables, styles, and asset directories instantly!
@@ -281,7 +281,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
 
             {/* Test Results Display */}
             {testResult && (
-              <div className={`p-4 rounded-2xl border text-xs flex items-start gap-3 animate-in slide-in-from-top-2 duration-150 ${
+              <div className={`p-4 rounded-2xl border text-xs flex items-start gap-3 duration-150 ${
                 testResult.success 
                   ? 'bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-900/40 text-green-800 dark:text-green-300'
                   : 'bg-red-50/50 dark:bg-red-950/20 border-red-200 dark:border-red-900/40 text-red-800 dark:text-red-300'
@@ -306,7 +306,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
 
             {/* Direct Sync command Card */}
             {testResult?.success && (
-              <div className="bg-[#40e0d0]/5 dark:bg-[#40e0d0]/5 p-5 rounded-2xl border border-[#40e0d0]/20 space-y-4 animate-in fade-in duration-200">
+              <div className="bg-[#40e0d0]/5 dark:bg-[#40e0d0]/5 p-5 rounded-2xl border border-[#40e0d0]/20 space-y-4 duration-200">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-800 dark:text-white">
                     Direct Variable Sync (Push)
@@ -333,7 +333,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
                 </button>
 
                 {pushResult && (
-                  <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 animate-in slide-in-from-top-2 duration-150 ${
+                  <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 duration-150 ${
                     pushResult.success 
                       ? 'bg-green-50 dark:bg-green-950/20 border-green-150 text-green-800 dark:text-green-300'
                       : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 text-amber-800 dark:text-amber-300'
@@ -354,7 +354,7 @@ export const FigmaExportModal: React.FC<FigmaExportModalProps> = ({ isOpen, onCl
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-neutral-150 dark:border-zinc-900 bg-neutral-50 dark:bg-zinc-900/20 text-center text-[11px] text-neutral-400">
+        <div className="p-4 border-t border-neutral-200 dark:border-zinc-900 bg-neutral-50 dark:bg-zinc-900/20 text-center text-[11px] text-neutral-400">
           Built by Srvel — Serve. Grow. Lead.
         </div>
 

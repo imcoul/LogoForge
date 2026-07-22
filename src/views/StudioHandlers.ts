@@ -141,7 +141,11 @@ export function useStudioHandlers() {
   }, [activeProject?.id]);
 
   // Synchronize and mirror updates
+  const lastGhostSync = useRef<number>(0);
   const handleGhostSync = (ghostData: any) => {
+    const now = Date.now();
+    if (now - lastGhostSync.current < 50) return; // throttle to ~20fps
+    lastGhostSync.current = now;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(
         JSON.stringify({

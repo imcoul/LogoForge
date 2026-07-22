@@ -1,3 +1,5 @@
+import { sanitizeSVG } from '../components/ui/sanitizeSVG';
+import { safeFormatDate } from '../components/ui/safeFormatDate';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
@@ -34,27 +36,7 @@ interface DashboardProps {
   setIsGoogleDriveOpen: (open: boolean) => void;
 }
 
-const sanitizeSVG = (svg: string | null): string => {
-  if (!svg) return '';
-  return DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true },
-    ADD_TAGS: ['style'],
-  });
-};
 
-const safeFormatDate = (dateVal: any, lang: string): string => {
-  try {
-    const d = new Date(dateVal);
-    if (isNaN(d.getTime())) return 'No Date';
-    return d.toLocaleDateString(lang === 'fr' ? 'fr-FR' : lang === 'ar' ? 'ar-EG' : 'en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch {
-    return 'No Date';
-  }
-};
 
 export const Dashboard: React.FC<DashboardProps> = ({
   setView,
@@ -322,7 +304,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
         </div>
 
         {/* Active vs Archived Brands Tab Control */}
-        <div className="flex border-b border-neutral-200 dark:border-zinc-850 mb-8 gap-6">
+        <div className="flex border-b border-neutral-200 dark:border-zinc-900 mb-8 gap-6">
           <button
             onClick={() => { setDashboardTab('active'); setIsBulkSelectMode(false); setSelectedProjectIds([]); }}
             className={`pb-3.5 text-xs font-black tracking-widest uppercase relative transition-all cursor-pointer ${dashboardTab === 'active' ? 'text-indigo-600 dark:text-indigo-400 font-black' : 'text-neutral-400 dark:text-zinc-500 hover:text-neutral-700 dark:hover:text-zinc-300'}`}
@@ -513,7 +495,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                   const thirtyOneDaysAgo = Date.now() - 31 * 24 * 60 * 60 * 1000;
                                   await updateProject(proj.id, { updatedAt: thirtyOneDaysAgo, archived: true });
                                 }} 
-                                className="p-2 bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 hover:bg-amber-100 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
+                                className="p-2 bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 hover:bg-amber-100 rounded-lg opacity-100 transition-all cursor-pointer" 
                                 title="Simulate 30-Day Inactivity (Trigger Auto-Archive)"
                               >
                                 <RefreshCw size={14} className="animate-pulse" />
@@ -527,7 +509,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                   e.stopPropagation(); 
                                   await updateProject(proj.id, { archived: false, updatedAt: Date.now() });
                                 }} 
-                                className="p-2 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
+                                className="p-2 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 rounded-lg opacity-100 transition-all cursor-pointer" 
                                 title="Retrieve & Restore Active Brand"
                               >
                                 <CheckCircle size={14} />
@@ -538,7 +520,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                   e.stopPropagation(); 
                                   await updateProject(proj.id, { archived: true, updatedAt: Date.now() });
                                 }} 
-                                className="p-2 bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
+                                className="p-2 bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 rounded-lg opacity-100 transition-all cursor-pointer" 
                                 title="Archive Brand Space"
                               >
                                 <FolderArchive size={14} />
@@ -551,7 +533,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                 await cloneProject(proj.id);
                                 toast('Project cloned successfully!', 'success');
                               }} 
-                              className="p-2 bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 hover:bg-amber-100 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
+                              className="p-2 bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 hover:bg-amber-100 rounded-lg opacity-100 transition-all cursor-pointer" 
                               title="Clone Project"
                             >
                               <Copy size={14} />
@@ -561,7 +543,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                                 e.stopPropagation(); 
                                 setProjectToDelete(proj.id);
                               }} 
-                              className="p-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer" 
+                              className="p-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg opacity-100 transition-all cursor-pointer" 
                               title="Delete Project Permanent"
                             >
                               <Trash2 size={14} />
@@ -583,7 +565,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                         )}
 
                         {/* Logo display container */}
-                        <div className="aspect-square rounded-2xl bg-neutral-100 dark:bg-zinc-950 flex items-center justify-center mb-6 overflow-hidden border border-neutral-200 dark:border-zinc-850 p-4">
+                        <div className="aspect-square rounded-2xl bg-neutral-100 dark:bg-zinc-950 flex items-center justify-center mb-6 overflow-hidden border border-neutral-200 dark:border-zinc-900 p-4">
                           {proj.logoUrl ? (
                             <div className="relative w-full h-full flex items-center justify-center">
                               <img 
@@ -668,7 +650,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-neutral-900 text-white dark:bg-zinc-950 border border-neutral-800 dark:border-zinc-800 rounded-2xl px-6 py-4 shadow-2xl flex items-center gap-6 z-40 max-w-lg w-full justify-between"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-neutral-900 text-white dark:bg-zinc-950 border border-neutral-800 dark:border-zinc-800 rounded-2xl px-6 py-4 shadow-2xl flex items-center gap-6 z-dropdown max-w-lg w-full justify-between"
           >
             <div className="flex flex-col">
               <span className="text-xs font-bold text-neutral-300">
@@ -687,19 +669,19 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                     .map(p => p.id);
                   setSelectedProjectIds(visibleProjectIds);
                 }}
-                className="px-3 py-1.5 bg-neutral-850 hover:bg-neutral-800 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer text-neutral-300"
+                className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer text-neutral-300"
               >
                 Select All
               </button>
               <button
                 onClick={() => setShowBulkRename(true)}
-                className="px-3 py-1.5 bg-neutral-850 hover:bg-neutral-800 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer text-neutral-300"
+                className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer text-neutral-300"
               >
                 Rename
               </button>
               <button
                 onClick={() => setShowBulkTag(true)}
-                className="px-3 py-1.5 bg-neutral-850 hover:bg-neutral-800 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer text-neutral-300"
+                className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer text-neutral-300"
               >
                 Tag
               </button>
@@ -726,7 +708,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       {/* Bulk Rename Modal */}
       <AnimatePresence>
         {showBulkRename && (
-          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="fixed inset-0 bg-black/60 z-max flex items-center justify-center p-4 backdrop-blur-sm">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -768,7 +750,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       {/* Bulk Tag Modal */}
       <AnimatePresence>
         {showBulkTag && (
-          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="fixed inset-0 bg-black/60 z-max flex items-center justify-center p-4 backdrop-blur-sm">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -810,7 +792,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       {/* Onboarding Interactive Tour Overlay Portal */}
       <AnimatePresence>
         {tourStep !== null && (
-          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="fixed inset-0 bg-black/60 z-max flex items-center justify-center p-4 backdrop-blur-sm">
             {(() => {
               const steps = [
                 {
@@ -855,7 +837,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
 
                   {/* Helper instruction highlighting element location */}
                   {step.targetId && (
-                    <div className="mt-2 p-2 bg-neutral-50 dark:bg-zinc-950 rounded-xl border border-neutral-100 dark:border-zinc-850 text-[10px] font-mono text-neutral-500 dark:text-zinc-400 flex items-center gap-1.5">
+                    <div className="mt-2 p-2 bg-neutral-50 dark:bg-zinc-950 rounded-xl border border-neutral-100 dark:border-zinc-900 text-[10px] font-mono text-neutral-500 dark:text-zinc-400 flex items-center gap-1.5">
                       <Info size={12} className="text-indigo-500 shrink-0" />
                       Look for this element: <span className="font-bold text-indigo-600 dark:text-indigo-400">Pulsing in the {step.position === 'top-right' ? 'top-right of the header' : 'left navigation rail'}</span>
                     </div>
@@ -906,7 +888,7 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
       {/* High Fidelity animated modal confirmation overlay instead of blocking windows */}
       <AnimatePresence>
         {(projectToDelete || projectsToDelete.length > 0) && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 bg-black/60 z-modal flex items-center justify-center p-4 backdrop-blur-sm">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }} 
               animate={{ opacity: 1, scale: 1 }}

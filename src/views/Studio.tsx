@@ -1,3 +1,8 @@
+import { CustomWaveformPlayer } from '../components/ui/CustomWaveformPlayer';
+import { DesignChecklist } from '../components/ui/DesignChecklist';
+import { Tooltip } from '../components/ui/Tooltip';
+import { ANIMATIONS } from '../components/ui/ANIMATIONS';
+import { sanitizeSVG } from '../components/ui/sanitizeSVG';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
@@ -49,274 +54,10 @@ import { MobileSheet } from '../components/MobileSheet';
 import { StudioControls } from '../components/StudioControls';
 import { KeyboardManager } from '../components/KeyboardManager';
 
-const sanitizeSVG = (svg: string | null): string => {
-  if (!svg) return '';
-  return DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true },
-    ADD_TAGS: ['style'],
-  });
-};
 
-const ANIMATIONS = {
-  float: { animate: { y: [0, -15, 0] }, transition: { duration: 3, repeat: Infinity, ease: 'easeInOut' as const } },
-  pulse: {
-    animate: { scale: [1, 1.05, 1], rotate: [0, 2, -2, 0] },
-    transition: { duration: 2.5, repeat: Infinity, ease: 'easeInOut' as const },
-  },
-  spin: { animate: { rotate: 360 }, transition: { duration: 8, repeat: Infinity, ease: 'linear' as const } },
-  pop: {
-    animate: { scale: [0.8, 1.1, 1] },
-    transition: { duration: 0.5, type: 'spring' as const, bounce: 0.6, repeat: Infinity, repeatDelay: 1 },
-  },
-  flip: { animate: { rotateY: 360 }, transition: { duration: 3, repeat: Infinity, ease: 'easeInOut' as const, repeatDelay: 1 } },
-};
 
 type AnimationType = keyof typeof ANIMATIONS;
 
-interface TooltipProps {
-  content: React.ReactNode;
-  trigger: React.ReactNode;
-}
-
-const Tooltip = ({ content, trigger }: TooltipProps) => {
-  const [isVisible, setIsVisible] = useState(false);
-
-  return (
-    <div
-      className="relative inline-block"
-      onMouseEnter={() => setIsVisible(true)}
-      onMouseLeave={() => setIsVisible(false)}
-      onFocus={() => setIsVisible(true)}
-      onBlur={() => setIsVisible(false)}
-      onClick={(e) => {
-        e.stopPropagation();
-        setIsVisible(!isVisible);
-      }}
-    >
-      {trigger}
-      <AnimatePresence>
-        {isVisible && (
-          <motion.div
-            initial={{ opacity: 0, y: 5, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 5, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-4 bg-zinc-950 dark:bg-zinc-900 text-white dark:text-zinc-100 text-xs rounded-2xl shadow-xl border border-neutral-800 dark:border-zinc-800 pointer-events-none text-left leading-relaxed flex flex-col gap-1.5"
-          >
-            {content}
-            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-zinc-950 dark:border-t-zinc-900" />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-const DesignChecklist = () => {
-  const [checks, setChecks] = useState<Record<string, boolean>>({});
-
-  const items = [
-    {
-      id: 'scalability',
-      label: 'Scalability',
-      desc: 'Logo remains legible when scaled down to 16x16px (favicon size).',
-      tip: 'Avoid ultra-thin lines, intricate patterns, or tiny secondary text. Try viewing the design as a small browser tab icon.',
-    },
-    {
-      id: 'contrast',
-      label: 'High Contrast',
-      desc: 'Passes WCAG AA contrast ratio (at least 4.5:1) against primary backgrounds.',
-      tip: 'Check your foreground and background color hex codes. Adjust shades or values to maximize distinction.',
-    },
-    {
-      id: 'monochrome',
-      label: 'Monochrome Readability',
-      desc: 'Design holds up perfectly in pure black and pure white.',
-      tip: 'Do not rely entirely on color hue to separate elements. Ensure overlapping elements have distinct light/dark value contrasts.',
-    },
-    {
-      id: 'balance',
-      label: 'Visual Balance',
-      desc: 'Optical weight is balanced; no single element overpowers the composition.',
-      tip: 'Try squinting or blurring your vision. If one element or area pops out disproportionately, adjust scale or spacing.',
-    },
-    {
-      id: 'simplicity',
-      label: 'Simplicity',
-      desc: 'Removes unnecessary details to remain memorable and easy to reproduce.',
-      tip: 'Experiment with removing single lines or decoration details. If the brand message still carries, leave them out.',
-    },
-  ];
-
-  const toggleCheck = (id: string) => setChecks((prev) => ({ ...prev, [id]: !prev[id] }));
-  const resetChecks = () => setChecks({});
-  const hasChecks = Object.values(checks).some((checked) => checked);
-
-  return (
-    <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-neutral-200 dark:border-zinc-800 mt-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-        <h3 className="text-xl font-bold font-display flex items-center gap-2">
-          <CheckCircle size={20} className="text-brand-lead" /> Design Best Practices
-        </h3>
-        <button
-          onClick={resetChecks}
-          disabled={!hasChecks}
-          className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 self-start sm:self-auto ${
-            hasChecks
-              ? 'text-neutral-600 dark:text-zinc-400 hover:text-brand-lead dark:hover:text-brand-lead hover:bg-neutral-50 dark:hover:bg-zinc-800 cursor-pointer'
-              : 'text-neutral-300 dark:text-zinc-700 cursor-not-allowed opacity-50'
-          }`}
-        >
-          <RefreshCw size={12} />
-          Reset All
-        </button>
-      </div>
-      <p className="text-sm text-neutral-500 mb-6">Verify your logo against professional industry standards. Hover or tap the info icon for quick tips.</p>
-      <div className="space-y-4">
-        {items.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-center justify-between p-4 rounded-xl border border-neutral-100 dark:border-zinc-800 hover:border-brand-lead transition-colors cursor-pointer"
-            onClick={() => toggleCheck(item.id)}
-          >
-            <div className="flex items-center gap-4">
-              <div
-                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                  checks[item.id] ? 'bg-brand-lead border-brand-lead text-white' : 'border-neutral-300 dark:border-zinc-700'
-                }`}
-              >
-                {checks[item.id] && <Check size={14} />}
-              </div>
-              <span className={`font-bold transition-colors ${checks[item.id] ? 'text-neutral-400 dark:text-zinc-500 line-through font-medium' : ''}`}>
-                {item.label}
-              </span>
-            </div>
-
-            <Tooltip
-              content={
-                <>
-                  <p className="font-semibold text-neutral-200 dark:text-zinc-100 mb-1">{item.desc}</p>
-                  <p className="text-brand-service font-medium">💡 Fix Tip: {item.tip}</p>
-                </>
-              }
-              trigger={
-                <button className="p-1.5 text-neutral-400 hover:text-brand-lead dark:text-zinc-500 dark:hover:text-brand-lead transition-colors rounded-lg hover:bg-neutral-100 dark:hover:bg-zinc-800">
-                  <Info size={16} />
-                </button>
-              }
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const CustomWaveformPlayer: React.FC<{ base64Data: string; name: string }> = ({ base64Data, name }) => {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-
-  useEffect(() => {
-    const audio = new Audio(base64Data);
-    audioRef.current = audio;
-
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleLoadedMetadata = () => setDuration(audio.duration || 0);
-    const handleEnded = () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-    };
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    audio.addEventListener('ended', handleEnded);
-
-    return () => {
-      audio.pause();
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      audio.removeEventListener('ended', handleEnded);
-    };
-  }, [base64Data]);
-
-  const togglePlay = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play().catch((err) => console.error(err));
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!audioRef.current) return;
-    const val = parseFloat(e.target.value);
-    audioRef.current.currentTime = val;
-    setCurrentTime(val);
-  };
-
-  return (
-    <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-neutral-100 dark:border-zinc-800 shadow-sm flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-indigo-50 dark:bg-zinc-800 text-indigo-600 rounded-lg">
-            <Music size={16} />
-          </div>
-          <span className="font-bold text-sm text-neutral-800 dark:text-zinc-200 truncate max-w-[200px]">{name}</span>
-        </div>
-        <span className="text-[10px] font-mono text-neutral-400">
-          {Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, '0')} / {Math.floor(duration / 60)}:
-          {(Math.floor(duration % 60)).toString().padStart(2, '0')}
-        </span>
-      </div>
-
-      <div className="flex items-center gap-4">
-        <button
-          onClick={togglePlay}
-          className="w-10 h-10 rounded-full bg-brand-lead hover:bg-brand-lead/90 text-white flex items-center justify-center shadow-md transition-all shrink-0 hover:scale-105 cursor-pointer"
-        >
-          {isPlaying ? (
-            <div className="flex gap-1 items-center justify-center">
-              <div className="w-1 h-3 bg-white rounded-full animate-bounce" style={{ animationDuration: '0.6s' }} />
-              <div className="w-1.5 h-4 bg-white rounded-full animate-bounce" style={{ animationDuration: '0.4s' }} />
-              <div className="w-1 h-3 bg-white rounded-full animate-bounce" style={{ animationDuration: '0.5s' }} />
-            </div>
-          ) : (
-            <ChevronRight size={18} className="translate-x-0.5 text-white fill-white" />
-          )}
-        </button>
-
-        <div className="flex-1 flex items-center gap-1 h-10 overflow-hidden px-1">
-          {Array.from({ length: 24 }).map((_, i) => {
-            const baseHeight = 12 + Math.sin(i * 0.5) * 8;
-            const actHeight = isPlaying ? baseHeight + (Math.random() * 12 - 6) : baseHeight;
-            return (
-              <div
-                key={i}
-                className={`w-1 rounded-full transition-all duration-300 ${isPlaying ? 'bg-indigo-600 dark:bg-indigo-500' : 'bg-neutral-200 dark:bg-zinc-800'}`}
-                style={{
-                  height: `${Math.max(4, Math.min(32, actHeight))}px`,
-                }}
-              />
-            );
-          })}
-        </div>
-      </div>
-
-      <input
-        type="range"
-        min={0}
-        max={duration || 100}
-        value={currentTime}
-        onChange={handleScrub}
-        className="w-full h-1 bg-neutral-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-      />
-    </div>
-  );
-};
 
 interface StudioViewProps {
   setView: (view: 'dashboard' | 'studio' | 'course' | 'settings') => void;
@@ -476,7 +217,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
       />
 
       <div className="min-h-screen bg-neutral-100 dark:bg-zinc-950 text-neutral-800 dark:text-zinc-200 flex flex-col md:pl-24 transition-colors duration-300">
-        <header className="px-6 py-5 md:px-12 flex justify-between items-center border-b border-neutral-200/50 dark:border-zinc-900 bg-white/70 dark:bg-zinc-950/70 backdrop-blur-md sticky top-0 z-40">
+        <header className="px-6 py-5 md:px-12 flex justify-between items-center border-b border-neutral-200/50 dark:border-zinc-900 bg-white/70 dark:bg-zinc-950/70 backdrop-blur-md sticky top-0 z-dropdown">
           <div className="flex items-center gap-4">
             <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent">Studio Workspace</span>
             {activeProject && (
@@ -489,7 +230,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
             {/* Live Collaboration Signal & Connection Status Pill */}
             <div className="flex items-center gap-1.5 bg-neutral-50 dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 p-1 px-2.5 rounded-full select-none">
               {/* Connection Status Dot */}
-              <div className="flex items-center gap-1.5 border-r border-neutral-200 dark:border-zinc-850 pr-2.5">
+              <div className="flex items-center gap-1.5 border-r border-neutral-200 dark:border-zinc-900 pr-2.5">
                 <span className={`w-1.5 h-1.5 rounded-full ${socket && socket.readyState === WebSocket.OPEN ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`} />
                 <span className="text-[10px] font-mono font-bold text-neutral-500 dark:text-zinc-400 uppercase tracking-wider">
                   {socket && socket.readyState === WebSocket.OPEN ? 'Live' : 'Cloud'}
@@ -643,7 +384,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
 
                     {/* Right Panel: Canvas & Variations */}
                     <div className="lg:col-span-3 space-y-6">
-                      <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-8 flex flex-col items-center justify-center min-h-[420px] shadow-sm relative group overflow-hidden">
+                      <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-8 flex flex-col items-center justify-center min-h-[40vh] shadow-sm relative group overflow-hidden">
                         {isGenerating ? (
                           <div className="flex flex-col items-center gap-3.5 text-center">
                             <RefreshCw className="w-10 h-10 animate-spin text-indigo-500" />
@@ -902,7 +643,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                         {Object.entries(remoteCursors).map(([uid, cur]) => {
                           const c = cur as any;
                           return (
-                            <div key={uid} className="absolute pointer-events-none transition-all duration-75 z-40" style={{ left: `${c.x}%`, top: `${c.y}%` }}>
+                            <div key={uid} className="absolute pointer-events-none transition-all duration-75 z-dropdown" style={{ left: `${c.x}%`, top: `${c.y}%` }}>
                               <div className="w-3.5 h-3.5 rounded-full border-2 border-white shadow-md animate-bounce" style={{ backgroundColor: c.color }} />
                               <span
                                 className="text-[9px] text-white px-1.5 py-0.5 rounded-md font-mono font-bold shrink-0 block -mt-1 ml-2 shadow"
@@ -918,7 +659,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                         {(activeProject.stickyNotes || []).map((note) => (
                           <div
                             key={note.id}
-                            className="absolute z-30 group p-2.5 rounded-xl shadow-lg border border-neutral-300 dark:border-neutral-700 max-w-[140px] text-[10px] leading-snug font-bold"
+                            className="absolute z-dropdown group p-2.5 rounded-xl shadow-lg border border-neutral-300 dark:border-neutral-700 max-w-[140px] text-[10px] leading-snug font-bold"
                             style={{ left: `${note.x}%`, top: `${note.y}%`, backgroundColor: note.color, color: '#18181B' }}
                           >
                             <p>{note.text}</p>
@@ -937,7 +678,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                         ))}
 
                         {isAddingSticky && (
-                          <div className="absolute top-4 left-4 bg-yellow-100 dark:bg-yellow-950/80 border border-yellow-300 dark:border-yellow-800 text-yellow-800 dark:text-yellow-300 px-3.5 py-2 rounded-xl text-xs font-bold animate-pulse z-40">
+                          <div className="absolute top-4 left-4 bg-yellow-100 dark:bg-yellow-950/80 border border-yellow-300 dark:border-yellow-800 text-yellow-800 dark:text-yellow-300 px-3.5 py-2 rounded-xl text-xs font-bold animate-pulse z-dropdown">
                             🎯 Click anywhere on the logo canvas to drop your note.
                           </div>
                         )}
@@ -1506,7 +1247,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
       {/* Real-time Collaboration Side Drawer Overlay */}
       <AnimatePresence>
         {isCollabDrawerOpen && (
-          <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="fixed inset-0 z-modal flex justify-end">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

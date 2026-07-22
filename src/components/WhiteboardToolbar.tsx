@@ -40,7 +40,7 @@ export const WhiteboardToolbar: React.FC<ToolbarProps> = ({
                         className={`p-1.5 sm:p-2 rounded-lg shrink-0 transition-all ${
                           tool === 'sweeping-eraser' 
                             ? 'bg-indigo-500 text-white shadow-sm scale-102' 
-                            : 'hover:bg-zinc-250 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
+                            : 'hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
                         }`} 
                         title="Object Eraser: Deletes full shapes on contact"
                       >
@@ -51,7 +51,7 @@ export const WhiteboardToolbar: React.FC<ToolbarProps> = ({
                         className={`p-1.5 sm:p-2 rounded-lg shrink-0 transition-all ${
                           tool === 'slice-eraser' 
                             ? 'bg-emerald-500 text-white shadow-sm scale-102' 
-                            : 'hover:bg-zinc-250 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
+                            : 'hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
                         }`} 
                         title="Slice Eraser: Erases points and splits path segments"
                       >
@@ -62,7 +62,7 @@ export const WhiteboardToolbar: React.FC<ToolbarProps> = ({
                         className={`p-1.5 sm:p-2 rounded-lg shrink-0 transition-all ${
                           tool === 'duster-eraser' 
                             ? 'bg-rose-500 text-white shadow-sm scale-102 animate-pulse' 
-                            : 'hover:bg-zinc-250 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
+                            : 'hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
                         }`} 
                         title="Canvas Duster: Wipes the entire board"
                       >

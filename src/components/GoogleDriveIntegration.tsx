@@ -28,6 +28,7 @@ import {
 import { useAppStore, Project } from '../store';
 import { User } from 'firebase/auth';
 import { useToast } from './Toast';
+import { Modal } from './ui/Modal';
 
 interface GoogleDriveIntegrationProps {
   isOpen: boolean;
@@ -374,13 +375,7 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-modal flex items-center justify-center p-4 backdrop-blur-sm">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl max-w-2xl w-full h-[80vh] flex flex-col overflow-hidden shadow-2xl text-neutral-800 dark:text-zinc-100"
-      >
+    <Modal isOpen={isOpen} onClose={onClose} titleId="gdrive-title" className="max-w-2xl w-full flex flex-col p-0 overflow-hidden shadow-2xl h-full max-h-[85dvh] md:h-[600px]">
         {/* Modal Header */}
         <div className="px-6 py-5 border-b border-neutral-100 dark:border-zinc-800 flex items-center justify-between bg-neutral-50/50 dark:bg-zinc-900/50 shrink-0">
           <div className="flex items-center gap-3">
@@ -408,7 +403,7 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
         {needsAuth ? (
           /* Login View */
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-white dark:bg-zinc-900 overflow-y-auto">
-            <div className="w-16 h-16 bg-neutral-50 dark:bg-zinc-950 rounded-2xl flex items-center justify-center border border-neutral-200 dark:border-zinc-850 mb-6 shadow-sm">
+            <div className="w-16 h-16 bg-neutral-50 dark:bg-zinc-950 rounded-2xl flex items-center justify-center border border-neutral-200 dark:border-zinc-900 mb-6 shadow-sm">
               <Cloud size={32} className="text-neutral-400" />
             </div>
             <h3 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">Connect Google Drive</h3>
@@ -490,7 +485,7 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
             </div>
 
             {/* View Mode Tabs */}
-            <div className="px-6 border-b border-neutral-100 dark:border-zinc-850 flex gap-4 shrink-0">
+            <div className="px-6 border-b border-neutral-100 dark:border-zinc-900 flex gap-4 shrink-0">
               <button
                 onClick={() => { setActiveTab('import'); setErrorMsg(null); }}
                 className={`py-3 text-xs font-bold uppercase tracking-wider relative transition-all cursor-pointer ${activeTab === 'import' ? 'text-indigo-600 dark:text-indigo-400' : 'text-neutral-400 hover:text-neutral-600'}`}
@@ -527,7 +522,7 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
                       placeholder="Search files on Google Drive..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full bg-neutral-50 dark:bg-zinc-950 border border-neutral-250 dark:border-zinc-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs font-medium text-neutral-800 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full bg-neutral-50 dark:bg-zinc-950 border border-neutral-300 dark:border-zinc-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs font-medium text-neutral-800 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
 
@@ -602,7 +597,7 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
                 /* EXPORT WORKFLOW */
                 <div className="space-y-6">
                   {!activeProject ? (
-                    <div className="py-16 text-center text-neutral-400 space-y-2 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-850 p-6">
+                    <div className="py-16 text-center text-neutral-400 space-y-2 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-900 p-6">
                       <AlertTriangle className="w-10 h-10 mx-auto text-amber-500" />
                       <h4 className="font-bold text-sm text-neutral-800 dark:text-zinc-300">No Active Brand Selected</h4>
                       <p className="text-xs max-w-sm mx-auto">
@@ -612,7 +607,7 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
                   ) : (
                     <div className="space-y-6 text-left">
                       {/* Active Project Card */}
-                      <div className="bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-850 rounded-2xl p-5 flex items-center gap-5">
+                      <div className="bg-neutral-50 dark:bg-zinc-950 border border-neutral-200 dark:border-zinc-900 rounded-2xl p-5 flex items-center gap-5">
                         <div className="w-16 h-16 bg-white dark:bg-zinc-900 rounded-xl border border-neutral-100 dark:border-zinc-800 flex items-center justify-center p-2.5 shadow-sm shrink-0 overflow-hidden">
                           {activeProject.logoUrl ? (
                             <img src={activeProject.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain" />
@@ -658,7 +653,7 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
                                 value={destinationFolder}
                                 onChange={(e) => setDestinationFolder(e.target.value)}
                                 placeholder="e.g. Forgel Logos"
-                                className="w-full bg-neutral-50 dark:bg-zinc-900 border border-neutral-250 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 text-neutral-800 dark:text-zinc-200"
+                                className="w-full bg-neutral-50 dark:bg-zinc-900 border border-neutral-300 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 text-neutral-800 dark:text-zinc-200"
                               />
                             </div>
                           </div>
@@ -735,7 +730,7 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
 
                       {/* Success Link */}
                       {exportSuccess && (
-                        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-150 dark:border-emerald-900 rounded-2xl flex items-center justify-between text-xs font-medium text-emerald-800 dark:text-emerald-400 animate-fadeIn">
+                        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-150 dark:border-emerald-900 rounded-2xl flex items-center justify-between text-xs font-medium text-emerald-800 dark:text-emerald-400 ">
                           <span className="flex items-center gap-1.5">
                             <Check size={14} className="stroke-[3]" />
                             <span>Export succeeded! File is available in your Drive.</span>
@@ -758,7 +753,6 @@ ${bg.logoUsage?.doNot?.map(item => `  - ${item}`).join('\n') || '  - Distort vec
             </div>
           </div>
         )}
-      </motion.div>
-    </div>
+      </Modal>
   );
 };

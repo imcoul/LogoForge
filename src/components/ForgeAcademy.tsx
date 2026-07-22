@@ -20,7 +20,7 @@ export const ForgeAcademy: React.FC<ForgeAcademyProps> = ({ isOpen, onClose }) =
     >
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="p-6 border-b border-neutral-150 dark:border-zinc-800 flex items-center justify-between bg-neutral-50 dark:bg-zinc-950 shrink-0">
+        <div className="p-6 border-b border-neutral-200 dark:border-zinc-800 flex items-center justify-between bg-neutral-50 dark:bg-zinc-950 shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-indigo-500 text-white rounded-2xl shadow-md shadow-indigo-500/20 shrink-0">
               <BookOpen size={20} />
@@ -39,7 +39,7 @@ export const ForgeAcademy: React.FC<ForgeAcademyProps> = ({ isOpen, onClose }) =
         </div>
 
         {/* Tab Selection */}
-        <div className="flex border-b border-neutral-150 dark:border-zinc-800 p-2 gap-1 bg-white dark:bg-zinc-900">
+        <div className="flex border-b border-neutral-200 dark:border-zinc-800 p-2 gap-1 bg-white dark:bg-zinc-900">
           <button
             onClick={() => setActiveTab('whiteboard')}
             className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${activeTab === 'whiteboard' ? 'bg-indigo-500 text-white shadow-md' : 'text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100 dark:hover:bg-zinc-800'}`}
@@ -65,7 +65,7 @@ export const ForgeAcademy: React.FC<ForgeAcademyProps> = ({ isOpen, onClose }) =
           
           {/* TAB 1: Whiteboard Canvas */}
           {activeTab === 'whiteboard' && (
-            <div className="space-y-6 animate-in fade-in duration-150">
+            <div className="space-y-6 duration-150">
               <div className="space-y-2">
                 <h3 className="text-lg font-bold text-neutral-800 dark:text-zinc-100">Welcome to the Freeform Whiteboard!</h3>
                 <p className="text-sm text-neutral-500 leading-relaxed">
@@ -123,7 +123,7 @@ export const ForgeAcademy: React.FC<ForgeAcademyProps> = ({ isOpen, onClose }) =
 
           {/* TAB 2: Precision SVG Studio */}
           {activeTab === 'precision' && (
-            <div className="space-y-6 animate-in fade-in duration-150">
+            <div className="space-y-6 duration-150">
               <div className="space-y-2">
                 <h3 className="text-lg font-bold text-neutral-800 dark:text-zinc-100">Welcome to Precision SVG Studio!</h3>
                 <p className="text-sm text-neutral-500 leading-relaxed">
@@ -179,7 +179,7 @@ export const ForgeAcademy: React.FC<ForgeAcademyProps> = ({ isOpen, onClose }) =
 
           {/* TAB 3: Bi-Directional Workflow */}
           {activeTab === 'workflow' && (
-            <div className="space-y-6 animate-in fade-in duration-150">
+            <div className="space-y-6 duration-150">
               <div className="space-y-2">
                 <h3 className="text-lg font-bold text-neutral-800 dark:text-zinc-100">The Power of the Hybrid Bridge</h3>
                 <p className="text-sm text-neutral-500 leading-relaxed">
@@ -228,7 +228,7 @@ export const ForgeAcademy: React.FC<ForgeAcademyProps> = ({ isOpen, onClose }) =
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-neutral-150 dark:border-zinc-800 flex justify-end bg-neutral-50 dark:bg-zinc-950 shrink-0">
+        <div className="p-4 border-t border-neutral-200 dark:border-zinc-800 flex justify-end bg-neutral-50 dark:bg-zinc-950 shrink-0">
           <button 
             onClick={onClose} 
             className="px-5 py-2.5 bg-neutral-200 dark:bg-zinc-800 hover:bg-neutral-300 dark:hover:bg-zinc-700 text-neutral-700 dark:text-zinc-200 rounded-2xl text-xs font-black uppercase tracking-wider cursor-pointer transition-all"

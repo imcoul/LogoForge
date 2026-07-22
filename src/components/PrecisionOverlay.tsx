@@ -44,7 +44,7 @@ export function PrecisionOverlay({ onNudge, activeNodeId, loupeImageUrl, isVisib
         initial={{ opacity: 0, y: 50 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 50 }}
-        className="fixed bottom-24 right-6 z-50 flex flex-col items-center gap-4 md:hidden pointer-events-auto"
+        className="fixed bottom-24 right-6 z-modal flex flex-col items-center gap-4 md:hidden pointer-events-auto"
       >
         {/* Loupe Preview */}
         {loupeImageUrl && (

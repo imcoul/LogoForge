@@ -22,7 +22,7 @@ export function AiPreviewSlider({ isVisible, onAccept, onDiscard, metadata }: Ai
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 20 }}
-        className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 rounded-3xl p-4 shadow-2xl w-[400px]"
+        className="absolute bottom-6 left-1/2 -translate-x-1/2 z-modal bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 rounded-3xl p-4 shadow-2xl w-full max-w-sm"
       >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2 text-indigo-500 font-bold uppercase tracking-wider text-xs">

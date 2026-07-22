@@ -1,84 +1,9 @@
-import { sanitizeSVG } from './ui/sanitizeSVG';
-import React from 'react';
+import re
+with open('src/components/InteractiveMockupViewer.tsx', 'r') as f:
+    c = f.read()
 
-import { motion } from 'motion/react';
-import { Sliders, RotateCw, Layers, Compass, Wand2 } from 'lucide-react';
-import { Project } from '../store';
-
-interface InteractiveMockupViewerProps {
-  activeProject: Project;
-  selectedTemplate: 'card' | 'splash' | 'billboard';
-  setSelectedTemplate: (val: 'card' | 'splash' | 'billboard') => void;
-  cardBg: 'cream' | 'charcoal' | 'forest';
-  setCardBg: (val: 'cream' | 'charcoal' | 'forest') => void;
-  mockupRotateX: number;
-  setMockupRotateX: (val: number) => void;
-  mockupRotateY: number;
-  setMockupRotateY: (val: number) => void;
-  mockupRotateZ: number;
-  setMockupRotateZ: (val: number) => void;
-  mockupScale: number;
-  setMockupScale: (val: number) => void;
-  mockupPerspective: number;
-  setMockupPerspective: (val: number) => void;
-  mockupBlendMode: 'normal' | 'multiply' | 'screen' | 'overlay' | 'difference' | 'color-dodge';
-  setMockupBlendMode: (val: 'normal' | 'multiply' | 'screen' | 'overlay' | 'difference' | 'color-dodge') => void;
-}
-
-export const InteractiveMockupViewer: React.FC<InteractiveMockupViewerProps> = ({
-  activeProject,
-  selectedTemplate,
-  setSelectedTemplate,
-  cardBg,
-  setCardBg,
-  mockupRotateX,
-  setMockupRotateX,
-  mockupRotateY,
-  setMockupRotateY,
-  mockupRotateZ,
-  setMockupRotateZ,
-  mockupScale,
-  setMockupScale,
-  mockupPerspective,
-  setMockupPerspective,
-  mockupBlendMode,
-  setMockupBlendMode,
-}) => {
-  const applyPresetAngle = (preset: 'front' | 'isometric' | 'tilt' | 'dramatic') => {
-    switch (preset) {
-      case 'front':
-        setMockupRotateX(0);
-        setMockupRotateY(0);
-        setMockupRotateZ(0);
-        setMockupScale(1.0);
-        setMockupPerspective(1200);
-        break;
-      case 'isometric':
-        setMockupRotateX(15);
-        setMockupRotateY(-20);
-        setMockupRotateZ(5);
-        setMockupScale(1.0);
-        setMockupPerspective(1200);
-        break;
-      case 'tilt':
-        setMockupRotateX(5);
-        setMockupRotateY(15);
-        setMockupRotateZ(-2);
-        setMockupScale(1.0);
-        setMockupPerspective(1200);
-        break;
-      case 'dramatic':
-        setMockupRotateX(25);
-        setMockupRotateY(-35);
-        setMockupRotateZ(10);
-        setMockupScale(1.05);
-        setMockupPerspective(1000);
-        break;
-    }
-  };
-
-  
-
+# Since it was truncated right after applyPresetAngle...
+c += """
   return (
     <div className="flex flex-col h-full bg-neutral-50 dark:bg-zinc-950">
       <div className="flex-1 relative overflow-hidden flex items-center justify-center p-8 perspective-[1200px]" style={{ perspective: `${mockupPerspective}px` }}>
@@ -94,11 +19,11 @@ export const InteractiveMockupViewer: React.FC<InteractiveMockupViewerProps> = (
         >
           {selectedTemplate === 'card' && (
             <div className={`absolute inset-0 flex items-center justify-center ${cardBg === 'cream' ? 'bg-[#fcfbf9]' : cardBg === 'charcoal' ? 'bg-[#1a1a1a]' : 'bg-[#1a2f23]'}`}>
-              {activeProject?.svgSource ? (
+              {activeProject?.logoSvg ? (
                 <div 
                   className="w-1/2 h-1/2 flex items-center justify-center"
                   style={{ mixBlendMode: mockupBlendMode }}
-                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.svgSource) }} 
+                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.logoSvg) }} 
                 />
               ) : (
                 <div className="text-neutral-400 dark:text-zinc-500 font-medium">No logo selected</div>
@@ -107,11 +32,11 @@ export const InteractiveMockupViewer: React.FC<InteractiveMockupViewerProps> = (
           )}
           {selectedTemplate === 'splash' && (
             <div className={`absolute inset-0 flex flex-col items-center justify-center ${cardBg === 'cream' ? 'bg-[#fcfbf9]' : cardBg === 'charcoal' ? 'bg-[#1a1a1a]' : 'bg-[#1a2f23]'}`}>
-              {activeProject?.svgSource ? (
+              {activeProject?.logoSvg ? (
                 <div 
                   className="w-1/3 h-1/3 flex items-center justify-center mb-8"
                   style={{ mixBlendMode: mockupBlendMode }}
-                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.svgSource) }} 
+                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.logoSvg) }} 
                 />
               ) : null}
               <div className="w-1/2 h-4 bg-black/10 dark:bg-white/10 rounded-full animate-pulse" />
@@ -119,11 +44,11 @@ export const InteractiveMockupViewer: React.FC<InteractiveMockupViewerProps> = (
           )}
           {selectedTemplate === 'billboard' && (
             <div className={`absolute inset-0 flex items-end justify-start p-12 ${cardBg === 'cream' ? 'bg-[#fcfbf9]' : cardBg === 'charcoal' ? 'bg-[#1a1a1a]' : 'bg-[#1a2f23]'}`}>
-              {activeProject?.svgSource ? (
+              {activeProject?.logoSvg ? (
                 <div 
                   className="w-1/4 h-1/4 flex items-center justify-center"
                   style={{ mixBlendMode: mockupBlendMode }}
-                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.svgSource) }} 
+                  dangerouslySetInnerHTML={{ __html: sanitizeSVG(activeProject.logoSvg) }} 
                 />
               ) : null}
             </div>
@@ -191,3 +116,6 @@ export const InteractiveMockupViewer: React.FC<InteractiveMockupViewerProps> = (
     </div>
   );
 };
+"""
+with open('src/components/InteractiveMockupViewer.tsx', 'w') as f:
+    f.write(c)

@@ -1,3 +1,4 @@
+import { sanitizeSVG } from './ui/sanitizeSVG';
 // SVGPathEditor.tsx - Premium Mobile-First SVG Vector Path Editor & Drawing Sketchpad
 import React, { useState, useEffect, useRef } from 'react';
 import { 
@@ -12,13 +13,6 @@ import { useAppStore } from '../store';
 import { ForgeAcademy } from './ForgeAcademy';
 import { PrecisionOverlay } from './PrecisionOverlay';
 
-const sanitizeSVG = (svg: string | null): string => {
-  if (!svg) return '';
-  return DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true },
-    ADD_TAGS: ['style'],
-  });
-};
 
 interface SVGPathEditorProps {
   onGhostSync?: (ghostData: any) => void;
@@ -2010,13 +2004,13 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   }
 
   return (
-    <div className={`border border-neutral-200 dark:border-zinc-800 relative transition-all ${isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen rounded-none p-6 md:p-8 overflow-y-auto bg-white dark:bg-zinc-950 flex flex-col' : 'bg-white dark:bg-zinc-900 rounded-3xl p-5 md:p-6 space-y-6 shadow-xs'}`}>
+    <div className={`border border-neutral-200 dark:border-zinc-800 relative transition-all ${isFullscreen ? 'fixed inset-0 z-modal w-screen h-screen rounded-none p-6 md:p-8 overflow-y-auto bg-white dark:bg-zinc-950 flex flex-col' : 'bg-white dark:bg-zinc-900 rounded-3xl p-5 md:p-6 space-y-6 shadow-xs'}`}>
       
       {/* Floating Exit Fullscreen Button */}
       {isFullscreen && (
         <button
           onClick={toggleFullscreen}
-          className="fixed top-6 right-6 z-55 flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold uppercase tracking-widest text-[10px] px-4 py-2.5 rounded-full shadow-2xl transition-all cursor-pointer hover:scale-105 active:scale-95 border border-rose-400"
+          className="fixed top-6 right-6 z-overlay flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold uppercase tracking-widest text-[10px] px-4 py-2.5 rounded-full shadow-2xl transition-all cursor-pointer hover:scale-105 active:scale-95 border border-rose-400"
         >
           <Minimize2 size={13} />
           Exit Fullscreen
@@ -2025,7 +2019,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       
       {/* Floating Two-Finger Gesture Toast Indicator */}
       {gestureToast && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-4 py-2 rounded-full text-xs font-black shadow-2xl z-50 animate-bounce flex items-center gap-1.5 border border-indigo-400">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-4 py-2 rounded-full text-xs font-black shadow-2xl z-modal animate-bounce flex items-center gap-1.5 border border-indigo-400">
           <Zap size={12} className="animate-spin" />
           {gestureToast}
         </div>
@@ -2039,7 +2033,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       />
 
       {/* Header controls with tabs */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-neutral-100 dark:border-zinc-855">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-neutral-100 dark:border-zinc-900">
         <div className="flex items-center gap-3">
           <div>
             <h3 className="text-sm font-black tracking-widest uppercase text-neutral-800 dark:text-zinc-200 flex items-center gap-2">
@@ -2052,7 +2046,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           {/* Academy Guide toggle */}
           <button
             onClick={() => setAcademyOpen(true)}
-            className="p-1.5 hover:bg-neutral-100 dark:hover:bg-zinc-850 text-indigo-500 hover:text-indigo-600 rounded-lg flex items-center gap-1 text-[10px] font-bold uppercase border border-indigo-100 dark:border-zinc-800 cursor-pointer"
+            className="p-1.5 hover:bg-neutral-100 dark:hover:bg-zinc-900 text-indigo-500 hover:text-indigo-600 rounded-lg flex items-center gap-1 text-[10px] font-bold uppercase border border-indigo-100 dark:border-zinc-800 cursor-pointer"
             title="Open Design Academy"
           >
             <BookOpen size={12} /> Tutorial
@@ -2098,7 +2092,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 {/* Gestures guide helper */}
                 <div className="group relative">
                   <HelpCircle size={12} className="text-neutral-300 dark:text-zinc-700 cursor-help" />
-                  <div className="absolute left-0 bottom-full mb-2 w-48 p-2.5 bg-zinc-950 text-white text-[9px] rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 leading-relaxed font-mono">
+                  <div className="absolute left-0 bottom-full mb-2 w-48 p-2.5 bg-zinc-950 text-white text-[9px] rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-modal leading-relaxed font-mono">
                     💡 <span className="text-indigo-400 font-bold">Touch Gestures:</span> Pinch with 2 fingers to zoom/pan. Swipe 2 fingers horizontally to Undo/Redo!
                   </div>
                 </div>
@@ -2157,7 +2151,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 {/* Immersive Fullscreen toggle */}
                 <button
                   onClick={toggleFullscreen}
-                  className={`p-1.5 rounded-lg border cursor-pointer transition-colors ${isFullscreen ? 'bg-indigo-500 border-indigo-400 text-white' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-200 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400'}`}
+                  className={`p-1.5 rounded-lg border cursor-pointer transition-colors ${isFullscreen ? 'bg-indigo-500 border-indigo-400 text-white' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-200 dark:border-zinc-900 text-neutral-600 dark:text-zinc-400'}`}
                   title="Toggle Fullscreen"
                 >
                   {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
@@ -2184,7 +2178,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
-              className={`relative w-[70vh] h-[70vh] max-w-full max-h-full mx-auto rounded-2xl border-2 bg-neutral-50 dark:bg-zinc-950 overflow-hidden shadow-inner flex items-center justify-center cursor-crosshair touch-none transition-all ${tutorialStep === 0 ? 'ring-4 ring-indigo-500 ring-offset-4 dark:ring-offset-zinc-900 animate-pulse border-indigo-400' : 'border-dashed border-neutral-200 dark:border-zinc-800'}`}
+              className={`relative w-full max-w-2xl aspect-square max-w-full max-h-full mx-auto rounded-2xl border-2 bg-neutral-50 dark:bg-zinc-950 overflow-hidden shadow-inner flex items-center justify-center cursor-crosshair touch-none transition-all ${tutorialStep === 0 ? 'ring-4 ring-indigo-500 ring-offset-4 dark:ring-offset-zinc-900 animate-pulse border-indigo-400' : 'border-dashed border-neutral-200 dark:border-zinc-800'}`}
             >
               {/* Dynamic Zoom & Pan Transform Layer */}
               <div 
@@ -2218,7 +2212,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* Precision Nodes Overlay for Reshaping */}
                 {drawTool === 'select' && (
-                  <svg className="absolute inset-0 w-full h-full z-30" viewBox={`0 0 ${gridSize} ${gridSize}`}>
+                  <svg className="absolute inset-0 w-full h-full z-dropdown" viewBox={`0 0 ${gridSize} ${gridSize}`}>
                     {renderPrecisionNodes()}
                   </svg>
                 )}
@@ -2242,14 +2236,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 {penPoints.map((pt, pIdx) => (
                   <div
                     key={pIdx}
-                    className="absolute w-3 h-3 rounded-full bg-indigo-600 border border-white -translate-x-1/2 -translate-y-1/2 shadow pointer-events-none z-30 animate-pulse"
+                    className="absolute w-3 h-3 rounded-full bg-indigo-600 border border-white -translate-x-1/2 -translate-y-1/2 shadow pointer-events-none z-dropdown animate-pulse"
                     style={{ left: `${(pt.x / gridSize) * 100}%`, top: `${(pt.y / gridSize) * 100}%` }}
                   />
                 ))}
 
                 {/* Auto Cubic Bezier Curve Points overlay */}
                 {drawTool === 'bezier' && bezierPoints.map((pt, pIdx) => (
-                  <div key={pIdx} className="absolute -translate-x-1/2 -translate-y-1/2 z-40" style={{ left: `${(pt.x / gridSize) * 100}%`, top: `${(pt.y / gridSize) * 100}%` }}>
+                  <div key={pIdx} className="absolute -translate-x-1/2 -translate-y-1/2 z-dropdown" style={{ left: `${(pt.x / gridSize) * 100}%`, top: `${(pt.y / gridSize) * 100}%` }}>
                     {/* Visual anchor node with index label */}
                     <div className="w-5 h-5 rounded-full bg-emerald-500 border-2 border-white shadow flex items-center justify-center text-[8px] font-black text-white">
                       {pIdx + 1}
@@ -2283,12 +2277,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               </div>
 
               {/* Draw instructions watermark */}
-              <div className="absolute bottom-3 left-3 bg-white/90 dark:bg-zinc-900/90 border border-neutral-200/50 dark:border-zinc-800 rounded-lg px-2.5 py-1 text-[9px] font-mono text-neutral-500 font-semibold pointer-events-none shadow-xs z-30">
+              <div className="absolute bottom-3 left-3 bg-white/90 dark:bg-zinc-900/90 border border-neutral-200/50 dark:border-zinc-800 rounded-lg px-2.5 py-1 text-[9px] font-mono text-neutral-500 font-semibold pointer-events-none shadow-xs z-dropdown">
                 {drawTool === 'brush' ? '✍️ Brush: Swipe to draw freehand' : drawTool === 'bezier' ? '🟢 Smooth Bezier: Tap canvas to link curves' : drawTool === 'pen' ? '🎯 Pen: Tap to add sharp line paths' : drawTool === 'select' ? '🔍 Reshape: Drag anchor nodes directly to edit' : '💫 Shapes: Stamp vector presets'}
               </div>
 
               {/* Floating Undo/Redo quick action on Touch Draw Board */}
-              <div className="absolute top-3 right-3 flex bg-white/90 dark:bg-zinc-900/90 border border-neutral-200/50 dark:border-zinc-800 rounded-xl p-1 gap-1 z-30 shadow-md">
+              <div className="absolute top-3 right-3 flex bg-white/90 dark:bg-zinc-900/90 border border-neutral-200/50 dark:border-zinc-800 rounded-xl p-1 gap-1 z-dropdown shadow-md">
                 <button
                   onClick={handleUndo}
                   disabled={undoStack.length === 0}
@@ -2310,7 +2304,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
             {/* Bezier Draw Custom Toolbar */}
             {drawTool === 'bezier' && (
-              <div className="flex flex-col sm:flex-row gap-3 p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/60 rounded-2xl justify-between items-center animate-fadeIn">
+              <div className="flex flex-col sm:flex-row gap-3 p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/60 rounded-2xl justify-between items-center ">
                 <div className="space-y-1 text-center sm:text-left">
                   <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-400 uppercase tracking-wider block">Bezier Canvas Curve Generator</span>
                   <p className="text-[10px] text-neutral-500 font-medium">{bezierPoints.length} anchors placed. Tap canvas to design beautiful organic curves.</p>
@@ -2375,7 +2369,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             <div className="grid grid-cols-5 gap-1" id="tour-tool-selection">
               <button
                 onClick={() => { setDrawTool('brush'); setPenPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'brush' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'brush' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-900 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <Paintbrush size={15} />
                 <span className="text-[8px] font-black uppercase tracking-tight">Brush Free</span>
@@ -2383,7 +2377,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
               <button
                 onClick={() => { setDrawTool('bezier'); setPenPoints([]); setBrushPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'bezier' ? 'bg-emerald-600 border-emerald-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 1 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'bezier' ? 'bg-emerald-600 border-emerald-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-900 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <Circle size={15} />
                 <span className="text-[8px] font-black uppercase tracking-tight">Bezier</span>
@@ -2391,7 +2385,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
               <button
                 onClick={() => { setDrawTool('pen'); setBrushPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'pen' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-indigo-500 animate-pulse border-indigo-400 bg-indigo-50 dark:bg-zinc-900 text-indigo-600' : ''} ${drawTool === 'pen' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-900 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <MousePointer size={15} />
                 <span className="text-[8px] font-black uppercase tracking-tight">Sharp Pen</span>
@@ -2399,7 +2393,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
               <button
                 onClick={() => { setDrawTool('shapes'); setPenPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'shapes' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${tutorialStep === 2 ? 'ring-4 ring-emerald-500 animate-pulse border-emerald-400 bg-emerald-50 dark:bg-zinc-900 text-emerald-600' : ''} ${drawTool === 'shapes' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-900 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
               >
                 <Sparkles size={15} />
                 <span className="text-[8px] font-black uppercase tracking-tight">Shapes</span>
@@ -2407,7 +2401,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
               <button
                 onClick={() => { setDrawTool('select'); setPenPoints([]); setBrushPoints([]); setBezierPoints([]); triggerHaptic(15); }}
-                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${drawTool === 'select' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-850 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
+                className={`py-3 px-1 rounded-2xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${drawTool === 'select' ? 'bg-indigo-600 border-indigo-600 text-white shadow' : 'bg-neutral-50 dark:bg-zinc-950 border-neutral-100 dark:border-zinc-900 text-neutral-600 dark:text-zinc-400 hover:bg-neutral-100'}`}
                 title="Reshape existing layers and drag anchor points directly"
               >
                 <Move size={15} />
@@ -2417,7 +2411,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
             {/* Context Tool Details (Color/Shape pickers) */}
             {drawTool === 'shapes' ? (
-              <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-150 dark:border-zinc-850 space-y-3">
+              <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-900 space-y-3">
                 <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-widest block">Insert Vector Brand Preset</span>
                 <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
                   {shapePresets.map((shape) => (
@@ -2432,7 +2426,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-150 dark:border-zinc-855 space-y-4">
+              <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-900 space-y-4">
                 {/* Stroke Weight */}
                 <div className="space-y-1.5">
                   <div className="flex justify-between items-center text-[10px] font-bold text-neutral-400">
@@ -2445,7 +2439,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                     max="16"
                     value={activeStrokeWidth}
                     onChange={(e) => setActiveStrokeWidth(Number(e.target.value))}
-                    className="w-full accent-indigo-500 h-1.5 bg-neutral-200 dark:bg-zinc-850 rounded-lg cursor-pointer"
+                    className="w-full accent-indigo-500 h-1.5 bg-neutral-200 dark:bg-zinc-900 rounded-lg cursor-pointer"
                   />
                 </div>
 
@@ -2472,7 +2466,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 </div>
 
                 {/* Fill Color */}
-                <div className="space-y-2 pt-2 border-t border-neutral-200/50 dark:border-zinc-850">
+                <div className="space-y-2 pt-2 border-t border-neutral-200/50 dark:border-zinc-900">
                   <span className="text-[10px] font-bold text-neutral-400 block uppercase">Fill Color (shapes / bezier paths)</span>
                   <div className="grid grid-cols-4 gap-1.5">
                     {colorsList.map((col) => (
@@ -2496,7 +2490,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             )}
 
             {/* Background Canvas Settings */}
-            <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-150 dark:border-zinc-850 space-y-2.5">
+            <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-900 space-y-2.5">
               <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-widest block">Canvas background color</span>
               <div className="flex flex-wrap gap-2">
                 {['#FBFBF8', '#0F172A', '#09090B', '#10B981', '#6366F1'].map((col) => (
@@ -2513,12 +2507,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fadeIn">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 ">
           
           {/* Magnifier Loupe Overlay Portal (shown when node is dragged) */}
           {draggedNode !== null && loupeCoords !== null && (
             <div 
-              className="fixed pointer-events-none z-50 rounded-full border-3 border-indigo-600 bg-white dark:bg-zinc-950 shadow-2xl overflow-hidden flex items-center justify-center animate-pulse"
+              className="fixed pointer-events-none z-modal rounded-full border-3 border-indigo-600 bg-white dark:bg-zinc-950 shadow-2xl overflow-hidden flex items-center justify-center animate-pulse"
               style={{
                 width: '100px',
                 height: '100px',
@@ -2528,7 +2522,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             >
               {/* Zoomed-in crop viewport centered on coordinate being tuned */}
               <div 
-                className="w-24 h-24 flex items-center justify-center bg-neutral-150 dark:bg-zinc-950"
+                className="w-24 h-24 flex items-center justify-center bg-neutral-200 dark:bg-zinc-950"
               >
                 <svg 
                   viewBox={`${loupeCoords.x - 20} ${loupeCoords.y - 20} 40 40`} 
@@ -2572,7 +2566,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                   <div
                     key={idx}
                     onClick={() => { setSelectedPathIndex(idx); triggerHaptic(10); }}
-                    className={`w-full text-left p-3 rounded-2xl border text-xs transition-all flex items-center justify-between cursor-pointer ${selectedPathIndex === idx ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-neutral-900 dark:text-white' : 'border-neutral-100 dark:border-zinc-855 hover:bg-neutral-50 text-neutral-500'}`}
+                    className={`w-full text-left p-3 rounded-2xl border text-xs transition-all flex items-center justify-between cursor-pointer ${selectedPathIndex === idx ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-neutral-900 dark:text-white' : 'border-neutral-100 dark:border-zinc-900 hover:bg-neutral-50 text-neutral-500'}`}
                   >
                     <div className="flex items-center gap-2.5 truncate">
                       <div className="w-5 h-5 rounded bg-neutral-100 dark:bg-zinc-950 flex items-center justify-center text-[9px] font-mono font-bold">
@@ -2611,7 +2605,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
             {/* Translation and coordinate shifts */}
             {parsedPaths.length > 0 && (
-              <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-150 dark:border-zinc-855 space-y-3.5">
+              <div className="p-4 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-900 space-y-3.5">
                 <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-widest block">Position translate</span>
                 
                 {/* Drag-and-Move Interactive Translation Toggle */}
@@ -2667,7 +2661,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             {/* Precision Toolbox card */}
             <div 
               id="tour-precision-toolbox" 
-              className={`p-4 bg-neutral-50 dark:bg-zinc-950 border rounded-2xl space-y-3.5 transition-all ${tutorialStep === 4 ? 'ring-4 ring-emerald-500 ring-offset-4 dark:ring-offset-zinc-900 animate-pulse border-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-neutral-150 dark:border-zinc-855'}`}
+              className={`p-4 bg-neutral-50 dark:bg-zinc-950 border rounded-2xl space-y-3.5 transition-all ${tutorialStep === 4 ? 'ring-4 ring-emerald-500 ring-offset-4 dark:ring-offset-zinc-900 animate-pulse border-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-neutral-200 dark:border-zinc-900'}`}
             >
               <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-widest block">Precision Toolbox</span>
               
@@ -2709,14 +2703,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               {/* Precision Mode FAB */}
               <button
                 onClick={() => { setIsPrecisionMode(!isPrecisionMode); triggerHaptic(15); }}
-                className={`absolute bottom-4 right-4 p-3 rounded-full shadow-2xl z-50 transition-all cursor-pointer flex items-center justify-center border ${isPrecisionMode ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-white dark:bg-zinc-800 text-indigo-600 border-indigo-200 dark:border-zinc-700'}`}
+                className={`absolute bottom-4 right-4 p-3 rounded-full shadow-2xl z-modal transition-all cursor-pointer flex items-center justify-center border ${isPrecisionMode ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-white dark:bg-zinc-800 text-indigo-600 border-indigo-200 dark:border-zinc-700'}`}
               >
                 <Maximize2 size={20} />
               </button>
               
               {/* Precision Mode UI Controls Overlay */}
               {isPrecisionMode && (
-                <div className="absolute inset-4 z-40 bg-zinc-950/80 dark:bg-zinc-950/90 backdrop-blur-md rounded-2xl p-4 flex flex-col justify-end pointer-events-auto">
+                <div className="absolute inset-4 z-dropdown bg-zinc-950/80 dark:bg-zinc-950/90 backdrop-blur-md rounded-2xl p-4 flex flex-col justify-end pointer-events-auto">
                    {(() => {
                      const selNodeObj = selectedNode ? nodes.find(n => n.id === selectedNode.nodeId) : null;
                      if (!selNodeObj) {
@@ -2760,7 +2754,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                                  className={`px-2 py-0.5 text-[9px] font-mono rounded transition-colors ${
                                    precisionStep === step
                                      ? 'bg-indigo-500 text-white'
-                                     : 'bg-zinc-900 hover:bg-zinc-850 text-zinc-400'
+                                     : 'bg-zinc-900 hover:bg-zinc-900 text-zinc-400'
                                  }`}
                                >
                                  {step.toFixed(1)}px
@@ -2845,7 +2839,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* Snapping Grid Helper Lines */}
                 {draggedNode !== null && snappingLines && (
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-30" viewBox={`0 0 ${gridSize} ${gridSize}`}>
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-dropdown" viewBox={`0 0 ${gridSize} ${gridSize}`}>
                     {snappingLines.x !== undefined && (
                       <g>
                         <line 
@@ -2901,14 +2895,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 {/* Draggable Anchor Nodes & Control lines */}
                 {nodes.length > 0 && (
-                  <svg className="absolute inset-0 w-full h-full z-40" viewBox={`0 0 ${gridSize} ${gridSize}`}>
+                  <svg className="absolute inset-0 w-full h-full z-dropdown" viewBox={`0 0 ${gridSize} ${gridSize}`}>
                     {renderPrecisionNodes()}
                   </svg>
                 )}
               </div>
 
               {/* Instructions badge */}
-              <div className="absolute bottom-3 left-3 bg-white/90 dark:bg-zinc-900/90 border border-neutral-200/50 dark:border-zinc-800 rounded-lg px-2.5 py-1 text-[9px] font-mono text-neutral-500 font-semibold pointer-events-none shadow-xs z-30">
+              <div className="absolute bottom-3 left-3 bg-white/90 dark:bg-zinc-900/90 border border-neutral-200/50 dark:border-zinc-800 rounded-lg px-2.5 py-1 text-[9px] font-mono text-neutral-500 font-semibold pointer-events-none shadow-xs z-dropdown">
                 🎯 Drag circle nodes to position coordinates
               </div>
 
@@ -2923,7 +2917,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
                 return (
                   <div 
-                    className="absolute z-50 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 rounded-2xl p-3 shadow-2xl space-y-2 text-left w-48 text-xs font-semibold"
+                    className="absolute z-modal bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 rounded-2xl p-3 shadow-2xl space-y-2 text-left w-48 text-xs font-semibold"
                     style={{ 
                       left: `${Math.min(85, Math.max(15, (coords.x / gridSize) * 100))}%`, 
                       top: `${Math.min(85, Math.max(15, (coords.y / gridSize) * 100))}%`,
@@ -2953,7 +2947,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                               className={`py-1 text-[10px] font-bold rounded-lg border transition-all cursor-pointer ${
                                 node.type.toUpperCase() === t
                                   ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-400'
-                                  : 'bg-white hover:bg-neutral-50 dark:bg-zinc-900 dark:hover:bg-zinc-855 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-300'
+                                  : 'bg-white hover:bg-neutral-50 dark:bg-zinc-900 dark:hover:bg-zinc-900 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-300'
                               }`}
                             >
                               {t}
@@ -2975,7 +2969,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                           className={`w-full py-1.5 px-2 flex items-center gap-1.5 rounded-lg border text-[10px] transition-all cursor-pointer ${
                             lockedAngles[`${contextMenuNode.nodeId}-${contextMenuNode.valIdx}`]?.type === 'angle'
                               ? 'bg-amber-50 border-amber-200 text-amber-600 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-400 font-bold font-mono'
-                              : 'bg-white hover:bg-neutral-50 dark:bg-zinc-900 dark:hover:bg-zinc-855 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-300 font-mono'
+                              : 'bg-white hover:bg-neutral-50 dark:bg-zinc-900 dark:hover:bg-zinc-900 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-300 font-mono'
                           }`}
                         >
                           {lockedAngles[`${contextMenuNode.nodeId}-${contextMenuNode.valIdx}`]?.type === 'angle' ? '🔓 Unlock Angle' : '🔒 Lock Angle'}
@@ -2988,7 +2982,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                           className={`w-full py-1.5 px-2 flex items-center gap-1.5 rounded-lg border text-[10px] transition-all cursor-pointer ${
                             lockedAngles[`${contextMenuNode.nodeId}-${contextMenuNode.valIdx}`]?.type === 'length'
                               ? 'bg-amber-50 border-amber-200 text-amber-600 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-400 font-bold font-mono'
-                              : 'bg-white hover:bg-neutral-50 dark:bg-zinc-900 dark:hover:bg-zinc-855 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-300 font-mono'
+                              : 'bg-white hover:bg-neutral-50 dark:bg-zinc-900 dark:hover:bg-zinc-900 border-neutral-200 dark:border-zinc-800 text-neutral-600 dark:text-zinc-300 font-mono'
                           }`}
                         >
                           {lockedAngles[`${contextMenuNode.nodeId}-${contextMenuNode.valIdx}`]?.type === 'length' ? '🔓 Unlock Length' : '📏 Lock Length'}
@@ -3038,14 +3032,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             </div>
 
             {nodes.length === 0 ? (
-              <div className="p-8 text-center bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-dashed border-neutral-200 dark:border-zinc-855">
+              <div className="p-8 text-center bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-dashed border-neutral-200 dark:border-zinc-900">
                 <p className="text-xs text-neutral-500">No active path layer selected. Select a path layer to view and adjust coordinate nodes.</p>
               </div>
             ) : (
               <div className="space-y-4">
                 <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
                   {nodes.map((node) => (
-                    <div key={node.id} className="p-3 bg-neutral-50 dark:bg-zinc-950 rounded-xl border border-neutral-200 dark:border-zinc-855 flex flex-col justify-between gap-2.5">
+                    <div key={node.id} className="p-3 bg-neutral-50 dark:bg-zinc-950 rounded-xl border border-neutral-200 dark:border-zinc-900 flex flex-col justify-between gap-2.5">
                       <div className="flex justify-between items-center">
                         <span className="text-[9px] font-bold uppercase text-indigo-600 dark:text-indigo-400 font-mono bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md">
                           CMD: {node.type}
@@ -3064,7 +3058,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                               <div 
                                 onMouseDown={(e) => handleNodeDragStart(e, node.id, vIdx, val)}
                                 onTouchStart={(e) => handleNodeDragStart(e, node.id, vIdx, val)}
-                                className="flex-1 min-w-0 bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-850 hover:border-indigo-400 rounded px-2 py-1 text-[10px] font-mono text-neutral-800 dark:text-zinc-200 cursor-ew-resize flex justify-between items-center shadow-xs transition-colors"
+                                className="flex-1 min-w-0 bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-900 hover:border-indigo-400 rounded px-2 py-1 text-[10px] font-mono text-neutral-800 dark:text-zinc-200 cursor-ew-resize flex justify-between items-center shadow-xs transition-colors"
                               >
                                 <span>{val}</span>
                                 <span className="text-[7px] text-neutral-400 uppercase font-black tracking-tight">DRAG</span>
@@ -3093,7 +3087,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
       {/* Interactive Gesture Map Overlay Modal */}
       {showGestureMap && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-modal p-4 ">
           <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-6 max-w-lg w-full space-y-6 shadow-2xl relative">
             <button
               onClick={() => { setShowGestureMap(false); triggerHaptic(10); }}
@@ -3230,7 +3224,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
         const currentStep = tutorialSteps[tutorialStep];
 
         return (
-          <div className="fixed bottom-6 right-6 z-55 max-w-sm w-full bg-zinc-950 text-white border border-indigo-500/40 rounded-3xl p-5 shadow-2xl animate-fadeIn space-y-4 pointer-events-auto backdrop-blur-md bg-zinc-950/95 flex flex-col justify-between">
+          <div className="fixed bottom-6 right-6 z-overlay max-w-sm w-full bg-zinc-950 text-white border border-indigo-500/40 rounded-3xl p-5 shadow-2xl  space-y-4 pointer-events-auto backdrop-blur-md bg-zinc-950/95 flex flex-col justify-between">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[9px] bg-indigo-500 text-white px-2 py-0.5 rounded-full font-mono font-black uppercase tracking-wider">

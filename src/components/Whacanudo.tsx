@@ -111,7 +111,7 @@ export const Whacanudo: React.FC<WhacanudoProps> = ({ onClose }) => {
     }
   };
 
-  const baseLang = i18n.language ? i18n.language.split('-')[0] : 'en';
+  const baseLang = i18n?.language ? i18n.language.split('-')[0] : 'en';
   const c = dict[baseLang] || dict.en;
 
   // Comprehensive PRD Data

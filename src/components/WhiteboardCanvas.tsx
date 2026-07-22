@@ -1387,11 +1387,11 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
   const centerY = canvasRef.current ? canvasRef.current.clientHeight / 2 : 200;
 
   return (
-    <div className={`bg-white dark:bg-black border border-neutral-200 dark:border-zinc-800 flex flex-col gap-4 ${fullscreen ? 'fixed inset-0 z-50 w-screen h-screen p-6 rounded-none' : 'relative rounded-3xl p-4 w-full h-[540px]'}`}>
+    <div className={`bg-white dark:bg-black border border-neutral-200 dark:border-zinc-800 flex flex-col gap-4 ${fullscreen ? 'fixed inset-0 z-modal w-screen h-screen p-6 rounded-none' : 'relative rounded-3xl p-4 w-full h-full min-h-[50vh]'}`}>
         
         {/* Animated Banner Notification */}
         {bridgeNotification && (
-          <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-indigo-600 border border-indigo-400 text-white px-4 py-2 rounded-2xl text-xs font-black shadow-2xl z-50 flex items-center gap-2 animate-in fade-in slide-in-from-top-4">
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-indigo-600 border border-indigo-400 text-white px-4 py-2 rounded-2xl text-xs font-black shadow-2xl z-modal flex items-center gap-2 slide-in-from-top-4">
             <Sparkles size={14} className="text-amber-300 animate-pulse" />
             {bridgeNotification}
           </div>
@@ -1415,7 +1415,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
       {/* Grid, Snap, Guidelines Floating Overlay Controls */}
       {mode === 'drawing' && (
-        <div className="absolute bottom-6 left-6 z-30 flex items-center gap-1.5 bg-white/90 dark:bg-zinc-900/90 backdrop-blur border border-neutral-200 dark:border-zinc-800 p-1.5 rounded-2xl shadow-lg">
+        <div className="absolute bottom-6 left-6 z-dropdown flex items-center gap-1.5 bg-white/90 dark:bg-zinc-900/90 backdrop-blur border border-neutral-200 dark:border-zinc-800 p-1.5 rounded-2xl shadow-lg">
           <button
             onClick={() => setShowGrid(!showGrid)}
             className={`p-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${showGrid ? 'bg-indigo-500 text-white' : 'hover:bg-neutral-100 dark:hover:bg-zinc-800 text-neutral-600 dark:text-zinc-400'}`}
@@ -2322,7 +2322,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
           {/* COMPACT INLINE MINI-INSPECTOR */}
           {selectedSketchId && selectedSketch && (
             <div 
-              className={`absolute bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 shadow-xl px-3.5 py-1.5 flex flex-wrap items-center gap-3 z-40 transition-all duration-300 rounded-2xl sm:rounded-full max-w-[280px] sm:max-w-none md:max-w-none gap-y-2 ${
+              className={`absolute bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-neutral-200 dark:border-zinc-800 shadow-xl px-3.5 py-1.5 flex flex-wrap items-center gap-3 z-dropdown transition-all duration-300 rounded-2xl sm:rounded-full max-w-[280px] sm:max-w-none md:max-w-none gap-y-2 ${
                 dragOffset && (dragOffset.x !== 0 || dragOffset.y !== 0)
                   ? 'opacity-25 pointer-events-none scale-95'
                   : 'opacity-100 scale-100 pointer-events-auto'
@@ -2402,8 +2402,8 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
           {/* FIGMA-STYLE FLOATING PROPERTY PANEL */}
           {selectedSketchId && selectedSketch && showOptionsPanel && (!dragOffset || (dragOffset.x === 0 && dragOffset.y === 0)) && (
-            <div className="absolute right-4 top-4 bottom-16 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border border-neutral-200 dark:border-zinc-800 rounded-2xl w-64 shadow-2xl z-40 p-4 space-y-4 overflow-y-auto animate-in slide-in-from-right-8 duration-200">
-              <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-zinc-850">
+            <div className="absolute right-4 top-4 bottom-16 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border border-neutral-200 dark:border-zinc-800 rounded-2xl w-64 shadow-2xl z-dropdown p-4 space-y-4 overflow-y-auto duration-200">
+              <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-zinc-900">
                 <div className="flex items-center gap-1.5">
                   <Settings size={14} className="text-indigo-500 animate-spin" style={{ animationDuration: '6s' }} />
                   <span className="text-[10px] uppercase font-mono font-black text-neutral-500">Properties</span>
@@ -2417,7 +2417,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
               </div>
 
               {/* Title & Dimensions description */}
-              <div className="flex items-center justify-between bg-neutral-50 dark:bg-zinc-900 p-2.5 rounded-xl border border-neutral-150 dark:border-zinc-800">
+              <div className="flex items-center justify-between bg-neutral-50 dark:bg-zinc-900 p-2.5 rounded-xl border border-neutral-200 dark:border-zinc-800">
                 <div className="overflow-hidden">
                   <span className="text-xs font-bold block text-neutral-800 dark:text-zinc-100 truncate">{selectedSketch.name}</span>
                   <span className="text-[9px] font-mono font-bold text-neutral-400 uppercase">{selectedSketch.type || 'freehand path'}</span>
@@ -2427,7 +2427,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                   className={`p-1.5 px-2.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     selectedSketch.locked 
                       ? 'bg-red-500/10 hover:bg-red-500/15 text-red-500 border-red-500/30 dark:border-red-500/20' 
-                      : 'bg-neutral-50 hover:bg-neutral-100 dark:bg-zinc-850 text-neutral-500 border-neutral-250 dark:border-zinc-800 hover:text-indigo-500'
+                      : 'bg-neutral-50 hover:bg-neutral-100 dark:bg-zinc-900 text-neutral-500 border-neutral-300 dark:border-zinc-800 hover:text-indigo-500'
                   }`}
                   title={selectedSketch.locked ? "Unlock element" : "Lock element"}
                 >
@@ -2475,7 +2475,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       onChange={(e) => handleUpdateSelectedSketch({ fillOpacity: Number(e.target.value) }, true)}
                       onMouseUp={() => saveSketch(sketches, false)}
                       onTouchEnd={() => saveSketch(sketches, false)}
-                      className="w-full h-1 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
+                      className="w-full h-1 bg-neutral-200 dark:bg-zinc-900 rounded accent-indigo-500 cursor-pointer"
                     />
                   </div>
                 )}
@@ -2508,7 +2508,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                     onChange={(e) => handleUpdateSelectedSketch({ strokeWidth: Number(e.target.value) }, true)}
                     onMouseUp={() => saveSketch(sketches, false)}
                     onTouchEnd={() => saveSketch(sketches, false)}
-                    className="w-full h-1 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
+                    className="w-full h-1 bg-neutral-200 dark:bg-zinc-900 rounded accent-indigo-500 cursor-pointer"
                   />
                 </div>
                 
@@ -2529,7 +2529,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
               {/* Rectangle-specific Corner Rounding & Sizing */}
               {selectedSketch.type === 'rectangle' && selectedSketch.props && (
-                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-850/50">
+                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-900/50">
                   <label className="text-[9px] font-mono font-black text-neutral-400 uppercase block">Corner Rounding</label>
                   <div className="flex justify-between text-[9px] font-mono text-neutral-400">
                     <span>Radius</span>
@@ -2543,7 +2543,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                     onChange={(e) => handleUpdateSelectedProps({ rx: Number(e.target.value) }, true)}
                     onMouseUp={() => saveSketch(sketches, false)}
                     onTouchEnd={() => saveSketch(sketches, false)}
-                    className="w-full h-1 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
+                    className="w-full h-1 bg-neutral-200 dark:bg-zinc-900 rounded accent-indigo-500 cursor-pointer"
                   />
 
                   <div className="grid grid-cols-2 gap-2 pt-1.5">
@@ -2589,7 +2589,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
               {/* Circle Ellipse Sizing */}
               {selectedSketch.type === 'circle' && selectedSketch.props && (
-                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-850/50">
+                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-900/50">
                   <label className="text-[9px] font-mono font-black text-neutral-400 uppercase block">Radii Coordinates</label>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -2634,7 +2634,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
               {/* Line Style Options */}
               {selectedSketch.type === 'line' && (
-                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-850/50">
+                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-900/50">
                   <label className="text-[9px] font-mono font-black text-neutral-400 uppercase block">Line Coordinates</label>
                   <div className="grid grid-cols-2 gap-2 mb-2">
                     <div>
@@ -2728,7 +2728,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       className={`py-1.5 px-3 rounded-lg text-[10px] font-bold text-center cursor-pointer transition-colors ${
                         selectedSketch.props?.lineStyle === 'straight' || (!selectedSketch.props?.lineStyle && !selectedSketch.path?.includes('Q'))
                           ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/10'
-                          : 'bg-neutral-150 dark:bg-zinc-900 text-neutral-750 dark:text-zinc-350 hover:bg-neutral-200 dark:hover:bg-zinc-800'
+                          : 'bg-neutral-200 dark:bg-zinc-900 text-neutral-750 dark:text-zinc-400 hover:bg-neutral-200 dark:hover:bg-zinc-800'
                       }`}
                     >
                       Straight Line
@@ -2767,7 +2767,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       className={`py-1.5 px-3 rounded-lg text-[10px] font-bold text-center cursor-pointer transition-colors ${
                         selectedSketch.props?.lineStyle === 'curved' || (selectedSketch.path?.includes('Q'))
                           ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/10'
-                          : 'bg-neutral-150 dark:bg-zinc-900 text-neutral-750 dark:text-zinc-350 hover:bg-neutral-200 dark:hover:bg-zinc-800'
+                          : 'bg-neutral-200 dark:bg-zinc-900 text-neutral-750 dark:text-zinc-400 hover:bg-neutral-200 dark:hover:bg-zinc-800'
                       }`}
                     >
                       Flexible Rope / Curve
@@ -2804,7 +2804,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       className={`py-1.5 px-3 rounded-lg text-[10px] font-bold text-center cursor-pointer transition-colors ${
                         selectedSketch.props?.lineStyle === 'elbow'
                           ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/10'
-                          : 'bg-neutral-150 dark:bg-zinc-900 text-neutral-750 dark:text-zinc-350 hover:bg-neutral-200 dark:hover:bg-zinc-800'
+                          : 'bg-neutral-200 dark:bg-zinc-900 text-neutral-750 dark:text-zinc-400 hover:bg-neutral-200 dark:hover:bg-zinc-800'
                       }`}
                     >
                       Elbow Connector / Orthogonal
@@ -2815,7 +2815,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
               {/* Path/Freehand Coordinate Inputs */}
               {selectedSketch.type === 'path' && (
-                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-850/50">
+                <div className="space-y-1.5 pt-1 border-t border-neutral-100 dark:border-zinc-900/50">
                   <label className="text-[9px] font-mono font-black text-neutral-400 uppercase block">Path Coordinates</label>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -2856,7 +2856,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
               {/* Vector Operations & Masking Section */}
               {sketches.length > 1 && (
-                <div className="space-y-2 pt-2 border-t border-neutral-100 dark:border-zinc-850/50">
+                <div className="space-y-2 pt-2 border-t border-neutral-100 dark:border-zinc-900/50">
                   <label className="text-[9px] font-mono font-black text-neutral-400 uppercase tracking-widest block">Vector Ops & Masking</label>
                   <span className="text-[9px] font-mono text-neutral-400 block leading-tight">Combine with another element:</span>
                   <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
@@ -2865,12 +2865,12 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       .map(other => {
                         const isMaskingSelected = selectedSketch.maskId === other.id;
                         return (
-                          <div key={other.id} className="flex flex-col gap-1 p-1.5 rounded bg-zinc-50 dark:bg-zinc-900 border border-neutral-150 dark:border-zinc-850">
+                          <div key={other.id} className="flex flex-col gap-1 p-1.5 rounded bg-zinc-50 dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-900">
                             <div className="flex justify-between items-center">
                               <span className="text-[10px] font-mono text-neutral-600 dark:text-zinc-400 truncate max-w-[120px]">
                                 {other.type.toUpperCase()} ({other.id.slice(0,4)})
                               </span>
-                              <div className="w-2.5 h-2.5 rounded-full border border-neutral-350" style={{ backgroundColor: other.color || '#fff' }} />
+                              <div className="w-2.5 h-2.5 rounded-full border border-neutral-400" style={{ backgroundColor: other.color || '#fff' }} />
                             </div>
                             
                             <div className="grid grid-cols-2 gap-1 mt-1">
@@ -2917,7 +2917,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
               {/* Stroke Vectorization Action */}
               {(selectedSketch.type === 'path' || selectedSketch.type === 'rectangle' || selectedSketch.type === 'line') && (
-                <div className="pt-2.5 border-t border-neutral-100 dark:border-zinc-850/50">
+                <div className="pt-2.5 border-t border-neutral-100 dark:border-zinc-900/50">
                   <button
                     onClick={handleVectorizeStroke}
                     className="w-full py-1.5 bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/30 dark:hover:bg-violet-900/40 text-violet-600 dark:text-violet-400 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-colors"
@@ -2929,7 +2929,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
               )}
 
               {/* Duplication, Deletion & Bridges */}
-              <div className="pt-3 border-t border-neutral-100 dark:border-zinc-850/60 space-y-2">
+              <div className="pt-3 border-t border-neutral-100 dark:border-zinc-900/60 space-y-2">
                 <button
                   onClick={handlePushToSvgEditor}
                   className="w-full py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-all active:scale-95 shadow-md shadow-indigo-500/20"
@@ -2983,8 +2983,8 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
       {/* Editing Sketch modal */}
       {editingSketch && (
-        <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center backdrop-blur-xs p-4">
-            <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-neutral-200 dark:border-zinc-800 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-modal bg-black bg-opacity-50 flex items-center justify-center backdrop-blur-sm p-4">
+            <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-neutral-200 dark:border-zinc-800 max-w-sm w-full shadow-2xl duration-150">
                 <h3 className="font-bold text-neutral-800 dark:text-zinc-100 mb-2">Rename Sketch</h3>
                 <input 
                     className="border border-neutral-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950 rounded-xl w-full text-xs font-bold mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-800 dark:text-zinc-100"
@@ -3009,7 +3009,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       />
 
       {/* AI Whiteboard Copilot Trigger Button */}
-      <div className="absolute left-4 bottom-4 z-40">
+      <div className="absolute left-4 bottom-4 z-dropdown">
         <button
           onClick={() => setIsAiPanelOpen(!isAiPanelOpen)}
           className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-wider shadow-lg transition-transform active:scale-95 cursor-pointer"
@@ -3021,9 +3021,9 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
       {/* AI WHITEBOARD COPILOT POPUP */}
       {isAiPanelOpen && (
-        <div className="absolute left-4 bottom-16 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border border-neutral-200 dark:border-zinc-800 rounded-3xl w-72 shadow-2xl z-40 p-5 space-y-4 animate-in slide-in-from-left-8 duration-200">
-          <div className="flex items-center justify-between border-b border-neutral-100 dark:border-zinc-850 pb-2">
-            <div className="flex items-center gap-1.5 text-neutral-850 dark:text-white">
+        <div className="absolute left-4 bottom-16 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border border-neutral-200 dark:border-zinc-800 rounded-3xl w-72 shadow-2xl z-dropdown p-5 space-y-4 duration-200">
+          <div className="flex items-center justify-between border-b border-neutral-100 dark:border-zinc-900 pb-2">
+            <div className="flex items-center gap-1.5 text-neutral-900 dark:text-white">
               <Sparkles size={15} className="text-indigo-500 animate-pulse" />
               <span className="text-xs font-bold font-display">AI Whiteboard Copilot</span>
             </div>
@@ -3045,7 +3045,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
               rows={4}
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
-              className="w-full text-xs p-3 bg-neutral-50 dark:bg-zinc-900 border border-neutral-250 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-800 dark:text-zinc-100 placeholder-neutral-400"
+              className="w-full text-xs p-3 bg-neutral-50 dark:bg-zinc-900 border border-neutral-300 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-neutral-800 dark:text-zinc-100 placeholder-neutral-400"
             />
 
             <div className="flex items-center justify-between text-[9px] font-mono font-bold text-neutral-400 uppercase">

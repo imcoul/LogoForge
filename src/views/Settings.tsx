@@ -273,7 +273,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
               </div>
 
               {settings.activeModel === 'stepfun' && (
-                <div className="p-4 bg-indigo-50/50 dark:bg-zinc-950/50 border border-indigo-100 dark:border-zinc-850 rounded-2xl space-y-3">
+                <div className="p-4 bg-indigo-50/50 dark:bg-zinc-950/50 border border-indigo-100 dark:border-zinc-900 rounded-2xl space-y-3">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">⚡ StepFun Configuration</span>
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-neutral-500 mb-1">StepFun API Key</label>
@@ -299,7 +299,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
               )}
 
               {settings.activeModel === 'poolside' && (
-                <div className="p-4 bg-indigo-50/50 dark:bg-zinc-950/50 border border-indigo-100 dark:border-zinc-850 rounded-2xl space-y-3">
+                <div className="p-4 bg-indigo-50/50 dark:bg-zinc-950/50 border border-indigo-100 dark:border-zinc-900 rounded-2xl space-y-3">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">⚡ Poolside Configuration</span>
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-neutral-500 mb-1">Poolside API Key</label>
@@ -325,7 +325,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
               )}
 
               {settings.activeModel === 'tencent' && (
-                <div className="p-4 bg-indigo-50/50 dark:bg-zinc-950/50 border border-indigo-100 dark:border-zinc-850 rounded-2xl space-y-3">
+                <div className="p-4 bg-indigo-50/50 dark:bg-zinc-950/50 border border-indigo-100 dark:border-zinc-900 rounded-2xl space-y-3">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">⚡ Tencent Hy3 Configuration</span>
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-neutral-500 mb-1">Tencent API Key</label>
@@ -407,7 +407,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                   step="0.1"
                   value={settings.assistantTemperature !== undefined ? settings.assistantTemperature : 0.2}
                   onChange={(e) => updateSettings({ assistantTemperature: Number(e.target.value) })}
-                  className="w-full h-1.5 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
+                  className="w-full h-1.5 bg-neutral-200 dark:bg-zinc-900 rounded accent-indigo-500 cursor-pointer"
                 />
                 <p className="text-[10px] text-neutral-400 mt-1.5">Higher values increase creativity/variety, lower values keep outputs deterministic.</p>
               </div>
@@ -424,7 +424,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                   step="1"
                   value={settings.assistantTopK !== undefined ? settings.assistantTopK : 40}
                   onChange={(e) => updateSettings({ assistantTopK: Number(e.target.value) })}
-                  className="w-full h-1.5 bg-neutral-200 dark:bg-zinc-850 rounded accent-indigo-500 cursor-pointer"
+                  className="w-full h-1.5 bg-neutral-200 dark:bg-zinc-900 rounded accent-indigo-500 cursor-pointer"
                 />
                 <p className="text-[10px] text-neutral-400 mt-1.5">Limits the token pool to the top-K most probable choices during generation.</p>
               </div>
@@ -538,7 +538,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
 
               {/* PostgreSQL configuration */}
               {((settings.backupMode === 'postgres' || settings.backupMode === 'both')) && (
-                <div className="p-5 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-850 space-y-4">
+                <div className="p-5 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-900 space-y-4">
                   <div className="flex items-center justify-between border-b border-neutral-200 dark:border-zinc-800 pb-2">
                     <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-700 dark:text-zinc-300">PostgreSQL Settings</h3>
                     <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md font-mono">🐘 Relational</span>
@@ -580,7 +580,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
 
               {/* Supabase configuration */}
               {((settings.backupMode === 'supabase' || settings.backupMode === 'both')) && (
-                <div className="p-5 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-850 space-y-4">
+                <div className="p-5 bg-neutral-50 dark:bg-zinc-950 rounded-2xl border border-neutral-200 dark:border-zinc-900 space-y-4">
                   <div className="flex items-center justify-between border-b border-neutral-200 dark:border-zinc-800 pb-2">
                     <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-700 dark:text-zinc-300">Supabase Settings</h3>
                     <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-md font-mono">⚡ Supabase</span>
@@ -693,7 +693,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                                       <div className="font-medium text-neutral-800 dark:text-zinc-200 flex items-center gap-1.5">
                                         {u.displayName || 'No Name'}
                                         {isSelf && (
-                                          <span className="text-[10px] bg-neutral-100 dark:bg-zinc-850 text-neutral-600 dark:text-zinc-400 px-2 py-0.5 rounded font-mono font-bold uppercase">You</span>
+                                          <span className="text-[10px] bg-neutral-100 dark:bg-zinc-900 text-neutral-600 dark:text-zinc-400 px-2 py-0.5 rounded font-mono font-bold uppercase">You</span>
                                         )}
                                       </div>
                                       <div className="text-[11px] text-neutral-400">{u.email}</div>
@@ -754,7 +754,7 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
                   </div>
                 )}
                 
-                <div className="flex gap-2 items-start text-[11px] text-neutral-400 bg-neutral-50 dark:bg-zinc-950/20 p-3.5 rounded-2xl border border-neutral-150 dark:border-zinc-800">
+                <div className="flex gap-2 items-start text-[11px] text-neutral-400 bg-neutral-50 dark:bg-zinc-950/20 p-3.5 rounded-2xl border border-neutral-200 dark:border-zinc-800">
                   <Info size={14} className="shrink-0 text-neutral-400 mt-0.5" />
                   <div>
                     <strong>Administrative Guidelines:</strong>

@@ -1,34 +1,34 @@
 import re
 import os
+import glob
 
-# 1. FileUploader.tsx
-p = 'src/components/FileUploader.tsx'
-if os.path.exists(p):
-    with open(p, 'r') as f: c = f.read()
-    c = c.replace('className="w-full max-w-md', 'className="w-full max-w-md min-w-[320px]')
-    with open(p, 'w') as f: f.write(c)
+def replace_in_file(path, old, new):
+    with open(path, 'r') as f:
+        c = f.read()
+    if old in c:
+        with open(path, 'w') as f:
+            f.write(c.replace(old, new))
+        print(f"Replaced in {path}")
 
-# 2. Dashboard.tsx
-p = 'src/views/Dashboard.tsx'
-if os.path.exists(p):
-    with open(p, 'r') as f: c = f.read()
-    c = c.replace('className="font-bold text-neutral-900', 'className="font-bold text-neutral-900 truncate max-w-full')
-    c = c.replace('className="text-xs text-neutral-500 line-clamp-2"', 'className="text-xs text-neutral-500 line-clamp-2 truncate max-w-full"')
-    with open(p, 'w') as f: f.write(c)
+# WhiteboardCanvas
+replace_in_file('src/components/WhiteboardCanvas.tsx', 'h-[540px]', 'h-full min-h-[50vh]')
 
-# 3. SVGPathEditor.tsx
-p = 'src/components/SVGPathEditor.tsx'
-if os.path.exists(p):
-    with open(p, 'r') as f: c = f.read()
-    c = c.replace('overflow-auto bg-neutral-100', 'overflow-auto bg-neutral-100 touch-pan-x touch-pan-y')
-    c = c.replace('style={{ backgroundImage:', 'style={{ WebkitOverflowScrolling: "touch", backgroundImage:')
-    with open(p, 'w') as f: f.write(c)
+# SVGPathEditor
+replace_in_file('src/components/SVGPathEditor.tsx', 'w-[70vh] h-[70vh]', 'w-full max-w-2xl aspect-square')
 
-# 4. AiPreviewSlider.tsx
-p = 'src/components/AiPreviewSlider.tsx'
-if os.path.exists(p):
-    with open(p, 'r') as f: c = f.read()
-    c = c.replace('p-4 space-y-4', 'p-4 pb-safe space-y-4')
-    with open(p, 'w') as f: f.write(c)
+# AiPreviewSlider
+replace_in_file('src/components/AiPreviewSlider.tsx', 'w-[400px]', 'w-full max-w-sm')
 
-print("Done phase 2")
+# Studio.tsx
+replace_in_file('src/views/Studio.tsx', 'min-h-[420px]', 'min-h-[40vh]')
+
+# Modals h-[80vh] and h-[90vh]
+for f in glob.glob('src/components/**/*.tsx', recursive=True):
+    with open(f, 'r') as file: c = file.read()
+    orig = c
+    c = re.sub(r'\bh-\[80vh\]\b', 'h-[80dvh]', c)
+    c = re.sub(r'\bh-\[90vh\]\b', 'h-[90dvh]', c)
+    if orig != c:
+        with open(f, 'w') as file: file.write(c)
+        print(f"Replaced vh to dvh in {f}")
+

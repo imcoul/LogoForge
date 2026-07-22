@@ -1,6 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
-
 @variant dark (&:where(.dark, .dark *));
 
 @theme {
@@ -10,7 +9,6 @@
   --color-brand-service: #40e0d0;
   --color-brand-growth: #ffff80;
   --color-brand-lead: #800080;
-
   --color-indigo-100: #f2e6f2;
   --color-indigo-200: #e6cce6;
   --color-indigo-300: #d9b3d9;
@@ -67,3 +65,7 @@ body {
   font-family: var(--font-sans);
 }
 
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
