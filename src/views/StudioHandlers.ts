@@ -161,7 +161,7 @@ export function useStudioHandlers() {
     const start = performance.now();
     setIsSaving(true);
 
-    let nextUpdates = { ...updates };
+    const nextUpdates = { ...updates };
     if (updates.svgSource && updates.svgSource !== activeProject?.svgSource) {
       const history = activeProject?.logoHistory || [];
       if (activeProject?.svgSource) {

@@ -178,9 +178,34 @@ every feature would otherwise have to be implemented three times, once per artwo
 
 Each phase states its exit criteria as a **gate** — an objective, runnable check.
 
-## Phase 0 — Safety net and baseline (1 week)
+## Phase 0 — Safety net and baseline (1 week) — IN PROGRESS
 
 You cannot refactor safely with the editors untested. Build the net first.
+
+### Status as of 2026-08-05
+
+**Done**
+- ESLint added (`eslint.config.js`) with a defect-focused ruleset; `lint` now actually lints
+  and `typecheck` is a separate script. Errors went **217 → 12**.
+- Vitest coverage wired with thresholds pinned to the measured baseline.
+- Extracted the regex SVG pipeline out of `SVGPathEditor.tsx` into
+  **`src/engine/legacySvgPath.ts`** — a pure, dependency-free module. Behaviour-preserving;
+  verified by typecheck, the full suite, and a component-level test asserting the UI displays
+  exactly what the module parses.
+- **Characterization tests: 23 → 79 tests.** `src/engine/legacySvgPath.ts` is at 100% line and
+  function coverage. Every known bug from section 1.4 is now pinned with a `KNOWN BUG` label.
+- Data-loss characterization for `prepareForFirestore` — the asset-destruction ladder from
+  section 1.5 is pinned so Phase 2 can be verified.
+- Deleted **99 orphaned root scripts**; removed **505 lines of dead `{false && ...}` JSX**
+  from `App.tsx` (2,994 → 2,489 LOC) plus two dead `if (false)` blocks in `SVGPathEditor`.
+- `plans/baseline.json` records measured build, test, coverage, lint and LOC numbers.
+- README corrected (it claimed React 18 and a "custom store with local storage").
+
+**Still outstanding** — these need a running app or a device lab:
+- Playwright mobile smoke flows for the three editors at 390x844.
+- Lighthouse mobile baseline and cold TTI on throttled 4G.
+- ms-per-drag-frame on a 500-node document.
+- `WhiteboardCanvas` still has no characterization tests (only `SVGPathEditor` does).
 
 **Work**
 1. Add ESLint + a `lint` script that actually lints; keep `tsc --noEmit` as `typecheck`.

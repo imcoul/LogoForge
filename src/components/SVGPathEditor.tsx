@@ -12,6 +12,15 @@ import { useToast } from './Toast';
 import { useAppStore } from '../store';
 import { ForgeAcademy } from './ForgeAcademy';
 import { PrecisionOverlay } from './PrecisionOverlay';
+import {
+  parseViewBoxWidth,
+  parsePathTags,
+  tokenizePathData,
+  serializePathNodes,
+  replacePathAtIndex,
+  type ParsedPath as LegacyParsedPath,
+  type PathNode as LegacyPathNode,
+} from '../engine/legacySvgPath';
 
 
 interface SVGPathEditorProps {
@@ -24,20 +33,8 @@ interface SVGPathEditorProps {
   setFullscreen?: (f: boolean) => void;
 }
 
-interface ParsedPath {
-  index: number;
-  raw: string;
-  d: string;
-  stroke: string;
-  fill: string;
-  strokeWidth: number;
-}
-
-interface PathNode {
-  id: number;
-  type: string;
-  values: number[];
-}
+type ParsedPath = LegacyParsedPath;
+type PathNode = LegacyPathNode;
 
 export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   onGhostSync,
@@ -244,12 +241,6 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     }
   };
 
-  // Helper: Retrieve attribute values from raw path tag
-  const getAttr = (tag: string, attr: string, fallback: string): string => {
-    const match = new RegExp(`${attr}="([^"]*)"`).exec(tag);
-    return match ? match[1] : fallback;
-  };
-
   // Synchronize internal paths list and gridSize on external svgSource updates
   useEffect(() => {
     if (!actualSvgSource) {
@@ -258,43 +249,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     }
 
     // Parse viewBox to synchronize gridSize
-    const viewBoxRegex = /viewBox="([^"]+)"/;
-    const matchVb = viewBoxRegex.exec(actualSvgSource);
-    if (matchVb) {
-      const parts = matchVb[1].trim().split(/\s+/);
-      if (parts.length === 4) {
-        const width = parseFloat(parts[2]);
-        const height = parseFloat(parts[3]);
-        if (!isNaN(width) && width > 0) {
-          setGridSize(width);
-        }
-      }
+    const viewBoxWidth = parseViewBoxWidth(actualSvgSource);
+    if (viewBoxWidth !== null) {
+      setGridSize(viewBoxWidth);
     }
 
-    const regex = /<path([^>]+)\/?>/g;
-    const pathsList: ParsedPath[] = [];
-    let match;
-    let index = 0;
-
-    while ((match = regex.exec(actualSvgSource)) !== null) {
-      const fullTag = match[0];
-      const attrs = match[1];
-      const d = getAttr(attrs, 'd', '');
-      const stroke = getAttr(attrs, 'stroke', 'none');
-      const fill = getAttr(attrs, 'fill', 'none');
-      const strokeWidthStr = getAttr(attrs, 'stroke-width', '2');
-      const strokeWidth = parseFloat(strokeWidthStr) || 2;
-
-      pathsList.push({
-        index,
-        raw: fullTag,
-        d,
-        stroke,
-        fill,
-        strokeWidth
-      });
-      index++;
-    }
+    const pathsList = parsePathTags(actualSvgSource);
 
     setParsedPaths(pathsList);
     if (pathsList.length > 0 && selectedPathIndex >= pathsList.length) {
@@ -310,38 +270,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     }
 
     const pathString = parsedPaths[selectedPathIndex].d;
-    const tokens = pathString.match(/[a-df-z]|[+-]?\d+(?:\.\d+)?/gi) || [];
-
-    const parsedNodes: PathNode[] = [];
-    let currentNodeType = 'M';
-    let valuesAcc: number[] = [];
-    let nodeIdCounter = 0;
-
-    tokens.forEach((token) => {
-      if (isNaN(Number(token))) {
-        if (valuesAcc.length > 0 || parsedNodes.length === 0) {
-          if (parsedNodes.length > 0 || valuesAcc.length > 0) {
-            parsedNodes.push({
-              id: nodeIdCounter++,
-              type: currentNodeType,
-              values: valuesAcc
-            });
-          }
-          valuesAcc = [];
-        }
-        currentNodeType = token;
-      } else {
-        valuesAcc.push(Number(token));
-      }
-    });
-
-    if (valuesAcc.length > 0) {
-      parsedNodes.push({
-        id: nodeIdCounter++,
-        type: currentNodeType,
-        values: valuesAcc
-      });
-    }
+    const parsedNodes = tokenizePathData(pathString);
 
     setNodes(parsedNodes);
   }, [parsedPaths, selectedPathIndex]);
@@ -407,27 +336,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Helper to construct the updated SVG in-memory
   const getSvgWithUpdatedNodes = (currentNodes: PathNode[]) => {
     if (!actualSvgSource || parsedPaths.length === 0) return actualSvgSource || '';
-    const newPathString = currentNodes
-      .map((n) => `${n.type}${n.values.join(',')}`)
-      .join(' ');
-    
-    let index = 0;
-    const regex = /<path([^>]+)\/?>/g;
-    const newSvg = actualSvgSource.replace(regex, (match) => {
-      if (index === selectedPathIndex) {
-        const updated = { ...parsedPaths[selectedPathIndex], d: newPathString };
-        const strokeAttr = updated.stroke && updated.stroke !== 'none' ? ` stroke="${updated.stroke}"` : '';
-        const fillAttr = updated.fill && updated.fill !== 'none' ? ` fill="${updated.fill}"` : ' fill="none"';
-        const strokeWidthAttr = updated.stroke && updated.stroke !== 'none' ? ` stroke-width="${updated.strokeWidth}"` : '';
-        
-        const newTag = `<path d="${updated.d}"${strokeAttr}${fillAttr}${strokeWidthAttr} stroke-linecap="round" stroke-linejoin="round" />`;
-        index++;
-        return newTag;
-      }
-      index++;
-      return match;
-    });
-    return newSvg;
+    const newPathString = serializePathNodes(currentNodes);
+
+    return replacePathAtIndex(
+      actualSvgSource,
+      selectedPathIndex,
+      parsedPaths[selectedPathIndex],
+      newPathString,
+    );
   };
 
   // Delete a point from the path
@@ -962,14 +878,6 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
-    if (false) {
-      const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)?.getBoundingClientRect();
-      if (rect) {
-        const { x, y } = getEventCoords(e.touches[0], rect);
-        
-      }
-    }
-    
     if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)) return;
     const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
 
@@ -1191,14 +1099,6 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Handle Desktop Mouse Move
   const handleMouseMove = (e: any) => {
-    if (false) {
-      const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)?.getBoundingClientRect();
-      if (rect) {
-        const { x, y } = getEventCoords(e, rect);
-        
-      }
-    }
-    
     if (!(editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current)) return;
     const rect = (editorMode === 'coordinate' ? coordCanvasRef.current : canvasRef.current).getBoundingClientRect();
 
@@ -1447,7 +1347,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       if (draggedNode === null) return;
 
       // Now apply Snapping!
-      let snapThreshold = Math.max(2, Math.round(gridSize * 0.02));
+      const snapThreshold = Math.max(2, Math.round(gridSize * 0.02));
       let finalX = Math.max(0, Math.min(gridSize, rawX));
       let finalY = Math.max(0, Math.min(gridSize, rawY));
       let isSnappedX = false;

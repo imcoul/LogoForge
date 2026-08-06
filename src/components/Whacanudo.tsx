@@ -168,7 +168,7 @@ export const Whacanudo: React.FC<WhacanudoProps> = ({ onClose }) => {
       return res;
     };
 
-    let content = `=====================================================
+    const content = `=====================================================
 PRODUCT REQUIREMENTS DOCUMENT (PRD) - FORGEL PLATFORM
 =====================================================
 Document Classification: SERVER-CONFIDENTIAL-SUPERUSER

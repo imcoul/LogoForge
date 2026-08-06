@@ -1,0 +1,75 @@
+{
+  "$comment": "Phase 0 baseline metrics for the Forgel mobile-first roadmap. Every number here was measured, not estimated. Later phases compare against this file; regressions are build failures. See plans/2026-08-05-000000--forgel-mobile-first-design-tool-roadmap.md",
+  "recordedAt": "2026-08-05",
+  "commit": "phase-0",
+  "toolchain": {
+    "node": "bun 841 packages",
+    "vite": "6.x",
+    "vitest": "4.1.10",
+    "eslint": "10.8.0",
+    "typescript": "5.8.x"
+  },
+  "build": {
+    "command": "npx vite build",
+    "mainChunkBytes": 2067190,
+    "mainChunkGzipBytes": 569280,
+    "cssBytes": 115190,
+    "cssGzipBytes": 17210,
+    "dynamicImportsInSrc": 3,
+    "codeSplit": false,
+    "$note": "Single monolithic chunk. Phase 4 target: initial JS gzip < 200000 bytes."
+  },
+  "tests": {
+    "command": "npx vitest run",
+    "files": 10,
+    "passing": 79,
+    "$note": "Was 7 files / 23 tests before Phase 0. Editors had zero coverage."
+  },
+  "coverage": {
+    "command": "npx vitest run --coverage",
+    "linesPct": 10.42,
+    "branchesPct": 6.86,
+    "functionsPct": 7.35,
+    "statementsPct": 10.93,
+    "keyModules": {
+      "src/engine/legacySvgPath.ts": {
+        "linesPct": 100,
+        "branchesPct": 95,
+        "functionsPct": 100,
+        "$note": "Phase 1 replaces this module; full characterization coverage makes the swap detectable."
+      },
+      "src/store.ts": {
+        "linesPct": 24.31,
+        "branchesPct": 24.68,
+        "functionsPct": 18.18
+      }
+    }
+  },
+  "lint": {
+    "command": "npx eslint .",
+    "errors": 12,
+    "warnings": 354,
+    "$note": "Was 217 errors before Phase 0 cleanup. Remaining 12 are pre-existing no-useless-assignment / no-case-declarations in files Phase 1 rewrites. This count must never increase."
+  },
+  "typecheck": {
+    "command": "npx tsc --noEmit",
+    "errors": 0
+  },
+  "source": {
+    "totalLoc": 23094,
+    "largestFiles": {
+      "src/components/SVGPathEditor.tsx": 3201,
+      "src/components/WhiteboardCanvas.tsx": 3184,
+      "src/App.tsx": 2489,
+      "src/views/Studio.tsx": 1297
+    },
+    "$note": "App.tsx was 2994 LOC; 505 lines of dead `{false && ...}` JSX removed in Phase 0."
+  },
+  "notMeasuredYet": {
+    "$note": "These Phase 0 items require a running app or a device lab and are still outstanding.",
+    "lighthouseMobilePerformance": null,
+    "coldTimeToInteractive4G": null,
+    "msPerDragFrame500Nodes": null,
+    "playwrightMobileSmokeFlows": null
+  }
+}
