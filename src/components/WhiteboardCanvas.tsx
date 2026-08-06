@@ -2,6 +2,13 @@ import { WhiteboardToolbar } from './WhiteboardToolbar';
 import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import { Node } from '../types';
+import {
+  getSqSegDist,
+  snapCoords as snapCoordsToGrid,
+  translatePath,
+  convertShapeToPath,
+  isPointInsideShape,
+} from '../engine/legacyWhiteboardGeometry';
 import { 
   Trash2, Copy, Edit2, Grid, PenTool, Square, Circle, 
   Maximize2, Save, Sparkles, BookOpen, Sliders, ChevronRight,
@@ -353,13 +360,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
   };
 
   // Snaps coordinate to 10px spacing
-  const snapCoords = (point: { x: number, y: number }) => {
-    if (!snapToGrid) return point;
-    return {
-      x: Math.round(point.x / 10) * 10,
-      y: Math.round(point.y / 10) * 10
-    };
-  };
+  const snapCoords = (point: { x: number, y: number }) => snapCoordsToGrid(point, snapToGrid);
 
   const getHitSketch = (point: {x: number, y: number}) => {
       const threshold = 15;
@@ -1033,85 +1034,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
   };
 
   // Helper: Offset/translate all coordinates in a path string by dx and dy
-  const translatePath = (pathStr: string | undefined, dx: number, dy: number): string => {
-    if (!pathStr) return '';
-    return pathStr.replace(/(-?[0-9.]+),(-?[0-9.]+)/g, (match, x, y) => {
-      const nx = parseFloat(x) + dx;
-      const ny = parseFloat(y) + dy;
-      return `${nx},${ny}`;
-    });
-  };
-
-  // Helper: Convert any shape into a standard SVG path string
-  const convertShapeToPath = (s: any): string => {
-    if (s.type === 'path' && s.path) {
-      return s.path;
-    }
-    if (s.type === 'rectangle' && s.props) {
-      const x = s.props.x ?? 0;
-      const y = s.props.y ?? 0;
-      const width = s.props.width ?? 100;
-      const height = s.props.height ?? 100;
-      return `M ${x},${y} L ${x + width},${y} L ${x + width},${y + height} L ${x},${y + height} Z`;
-    }
-    if (s.type === 'circle' && s.props) {
-      const cx = s.props.cx ?? 100;
-      const cy = s.props.cy ?? 100;
-      const rx = s.props.rx ?? 50;
-      const ry = s.props.ry ?? 50;
-      return `M ${cx - rx},${cy} a ${rx},${ry} 0 1,0 ${rx * 2},0 a ${rx},${ry} 0 1,0 ${-rx * 2},0 Z`;
-    }
-    if (s.type === 'line' && s.props) {
-      const x1 = s.props.x1 ?? 0;
-      const y1 = s.props.y1 ?? 0;
-      const x2 = s.props.x2 ?? 100;
-      const y2 = s.props.y2 ?? 100;
-      return `M ${x1},${y1} L ${x2},${y2}`;
-    }
-    return s.path || '';
-  };
-
-  // Helper: Check if a point lies inside a shape
-  const isPointInsideShape = (p: { x: number, y: number }, shape: any): boolean => {
-    if (shape.type === 'rectangle' && shape.props) {
-      const x = shape.props.x ?? 0;
-      const y = shape.props.y ?? 0;
-      const width = shape.props.width ?? 0;
-      const height = shape.props.height ?? 0;
-      return p.x >= x && p.x <= x + width && p.y >= y && p.y <= y + height;
-    }
-    if (shape.type === 'circle' && shape.props) {
-      const cx = shape.props.cx ?? 0;
-      const cy = shape.props.cy ?? 0;
-      const rx = shape.props.rx ?? 0;
-      const ry = shape.props.ry ?? 0;
-      const dx = p.x - cx;
-      const dy = p.y - cy;
-      if (rx <= 0 || ry <= 0) return false;
-      return (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1;
-    }
-    if (shape.type === 'line' && shape.props) {
-      const x1 = shape.props.x1 ?? 0;
-      const y1 = shape.props.y1 ?? 0;
-      const x2 = shape.props.x2 ?? 0;
-      const y2 = shape.props.y2 ?? 0;
-      const distSq = getSqSegDist([p.x, p.y], [x1, y1], [x2, y2]);
-      return distSq < 15 * 15;
-    }
-    if (shape.path) {
-      const coords = shape.path.match(/-?[0-9.]+/g);
-      if (coords && coords.length >= 2) {
-        const px = coords.filter((_, idx) => idx % 2 === 0).map(Number);
-        const py = coords.filter((_, idx) => idx % 2 === 1).map(Number);
-        const minX = Math.min(...px);
-        const maxX = Math.max(...px);
-        const minY = Math.min(...py);
-        const maxY = Math.max(...py);
-        return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
-      }
-    }
-    return false;
-  };
+  // Geometry helpers live in ../engine/legacyWhiteboardGeometry so they can be characterized.
 
   // Perform Boolean Union operation (Compound Path)
   const handleUnionOfShapes = (targetId: string) => {
@@ -3119,28 +3042,6 @@ function simplifyPoints(points: [number, number][], tolerance: number): [number,
   }
 
   return [points[0], points[end]];
-}
-
-function getSqSegDist(p: [number, number], p1: [number, number], p2: [number, number]): number {
-  let x = p1[0];
-  let y = p1[1];
-  let dx = p2[0] - x;
-  let dy = p2[1] - y;
-
-  if (dx !== 0 || dy !== 0) {
-    const t = ((p[0] - x) * dx + (p[1] - y) * dy) / (dx * dx + dy * dy);
-    if (t > 1) {
-      x = p2[0];
-      y = p2[1];
-    } else if (t > 0) {
-      x += dx * t;
-      y += dy * t;
-    }
-  }
-
-  dx = p[0] - x;
-  dy = p[1] - y;
-  return dx * dx + dy * dy;
 }
 
 export function smoothPointsToPath(pointsStr: string): string {

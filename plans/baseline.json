@@ -21,22 +21,22 @@
   },
   "tests": {
     "command": "npx vitest run",
-    "files": 10,
-    "passing": 79,
+    "files": 11,
+    "passing": 111,
     "$note": "Was 7 files / 23 tests before Phase 0. Editors had zero coverage."
   },
   "coverage": {
     "command": "npx vitest run --coverage",
-    "linesPct": 10.42,
-    "branchesPct": 6.86,
-    "functionsPct": 7.35,
-    "statementsPct": 10.93,
+    "statementsPct": 11.55,
+    "branchesPct": 8.62,
+    "functionsPct": 8.01,
+    "linesPct": 12.07,
     "keyModules": {
-      "src/engine/legacySvgPath.ts": {
+      "src/engine": {
         "linesPct": 100,
-        "branchesPct": 95,
+        "branchesPct": 87.16,
         "functionsPct": 100,
-        "$note": "Phase 1 replaces this module; full characterization coverage makes the swap detectable."
+        "$note": "Both legacy engine modules are fully characterized. Phase 1 replaces them; this coverage is what makes the swap detectable."
       },
       "src/store.ts": {
         "linesPct": 24.31,
@@ -65,11 +65,31 @@
     },
     "$note": "App.tsx was 2994 LOC; 505 lines of dead `{false && ...}` JSX removed in Phase 0."
   },
+  "e2e": {
+    "command": "npx playwright test",
+    "spec": "e2e-tests/mobile-smoke.spec.ts",
+    "projects": ["mobile-chrome (Pixel 7)", "desktop-chrome"],
+    "passing": 10,
+    "$note": "5 smoke flows x 2 viewports. The two older specs in e2e-tests/ target selectors that do not exist and are excluded via testMatch until repaired."
+  },
+  "performance": {
+    "command": "node scripts/perfBaseline.mjs",
+    "conditions": {
+      "network": "Slow 4G (400 kbps, 400 ms RTT)",
+      "cpuThrottlingRate": 4,
+      "device": "Pixel 7"
+    },
+    "firstContentfulPaintMs": 14996,
+    "domContentLoadedMs": 14868,
+    "loadEventMs": 14869,
+    "reactMountedMs": 15033,
+    "$note": "15 seconds to first paint on a throttled phone — a direct consequence of the single 569 kB gzip chunk with no code splitting. This is the headline number Phase 4 must move. Target: FCP under 2500 ms.",
+    "$caveat": "bytesByResourceType from the preview server is unreliable (missing content-length on compressed responses) and is therefore not recorded. Bundle weight is tracked under `build` instead."
+  },
   "notMeasuredYet": {
-    "$note": "These Phase 0 items require a running app or a device lab and are still outstanding.",
-    "lighthouseMobilePerformance": null,
-    "coldTimeToInteractive4G": null,
+    "$note": "Still outstanding; needs tooling or hardware not available in this environment.",
+    "lighthouseMobilePerformanceScore": null,
     "msPerDragFrame500Nodes": null,
-    "playwrightMobileSmokeFlows": null
+    "realDeviceMidRangeAndroid": null
   }
 }

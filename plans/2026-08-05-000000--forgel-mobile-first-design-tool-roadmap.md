@@ -178,11 +178,15 @@ every feature would otherwise have to be implemented three times, once per artwo
 
 Each phase states its exit criteria as a **gate** — an objective, runnable check.
 
-## Phase 0 — Safety net and baseline (1 week) — IN PROGRESS
+## Phase 0 — Safety net and baseline (1 week) — COMPLETE
 
 You cannot refactor safely with the editors untested. Build the net first.
 
-### Status as of 2026-08-05
+### Status: complete as of 2026-08-06
+
+**Headline measurement**: first contentful paint is **14,996 ms** on a throttled Pixel 7
+(Slow 4G, 4x CPU). Fifteen seconds to first paint, from the single 569 kB gzip chunk. This is
+the number Phase 4 exists to fix, and it is now recorded rather than assumed.
 
 **Done**
 - ESLint added (`eslint.config.js`) with a defect-focused ruleset; `lint` now actually lints
@@ -198,14 +202,29 @@ You cannot refactor safely with the editors untested. Build the net first.
   section 1.5 is pinned so Phase 2 can be verified.
 - Deleted **99 orphaned root scripts**; removed **505 lines of dead `{false && ...}` JSX**
   from `App.tsx` (2,994 → 2,489 LOC) plus two dead `if (false)` blocks in `SVGPathEditor`.
-- `plans/baseline.json` records measured build, test, coverage, lint and LOC numbers.
+- Extracted the whiteboard geometry into **`src/engine/legacyWhiteboardGeometry.ts`** and
+  characterized it. `src/engine` is now at **100% line and function coverage**.
+- **Playwright** configured mobile-first (Pixel 7 primary, desktop parity) with 5 smoke flows
+  passing on both viewports, including a horizontal-overflow guard.
+- **Performance baseline** captured via `scripts/perfBaseline.mjs` under Slow 4G + 4x CPU.
+- `plans/baseline.json` records measured build, test, coverage, lint, e2e, perf and LOC numbers.
 - README corrected (it claimed React 18 and a "custom store with local storage").
+- Tests: **23 → 111**. Lint errors: **217 → 12**.
 
-**Still outstanding** — these need a running app or a device lab:
-- Playwright mobile smoke flows for the three editors at 390x844.
-- Lighthouse mobile baseline and cold TTI on throttled 4G.
-- ms-per-drag-frame on a 500-node document.
-- `WhiteboardCanvas` still has no characterization tests (only `SVGPathEditor` does).
+**New defects found while characterizing** (all pinned by tests, all Phase 1 targets):
+- `translatePath` offsets SVG **arc flags** as if they were coordinates, so moving any circle
+  emits invalid flags (`1,0` becomes `6,5`) and corrupts the shape.
+- Path hit-testing counts arc radii and flags as x/y coordinates, producing a bounding box
+  that can be wildly wrong — a click far outside a circle registers as a hit.
+- `translatePath` silently ignores space-separated coordinates (`M 10 20`), so those paths
+  never move at all.
+- A shape with a `type` but no `props` converts to an empty path and is silently lost.
+
+**Still outstanding** — needs tooling or hardware unavailable here:
+- Lighthouse score (the CLI is not installed; FCP was measured directly instead).
+- ms-per-drag-frame on a 500-node document, on a real mid-range Android.
+- The two pre-existing specs in `e2e-tests/` target selectors that do not exist and are
+  excluded via `testMatch` until repaired.
 
 **Work**
 1. Add ESLint + a `lint` script that actually lints; keep `tsc --noEmit` as `typecheck`.

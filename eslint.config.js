@@ -73,11 +73,13 @@ export default tseslint.config(
     },
   },
 
-  // Plain Node scripts (build/CI helpers) run outside the browser.
+  // Plain Node scripts (build/CI helpers). These run in Node, but browser-automation
+  // scripts also contain `page.evaluate` callbacks whose bodies execute in the page, so
+  // both global sets are legitimate here.
   {
-    files: ['scripts/**/*.js', 'scripts/**/*.cjs'],
+    files: ['scripts/**/*.{js,cjs,mjs}'],
     languageOptions: {
-      globals: { ...globals.node },
+      globals: { ...globals.node, ...globals.browser },
     },
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
