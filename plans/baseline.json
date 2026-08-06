@@ -21,16 +21,16 @@
   },
   "tests": {
     "command": "npx vitest run",
-    "files": 11,
-    "passing": 111,
-    "$note": "Was 7 files / 23 tests before Phase 0. Editors had zero coverage."
+    "files": 13,
+    "passing": 447,
+    "$note": "Was 7 files / 23 tests before Phase 0."
   },
   "coverage": {
     "command": "npx vitest run --coverage",
-    "statementsPct": 11.55,
-    "branchesPct": 8.62,
-    "functionsPct": 8.01,
-    "linesPct": 12.07,
+    "statementsPct": 14.17,
+    "branchesPct": 11.95,
+    "functionsPct": 9.57,
+    "linesPct": 14.49,
     "keyModules": {
       "src/engine": {
         "linesPct": 100,
@@ -47,7 +47,7 @@
   },
   "lint": {
     "command": "npx eslint .",
-    "errors": 12,
+    "errors": 11,
     "warnings": 354,
     "$note": "Was 217 errors before Phase 0 cleanup. Remaining 12 are pre-existing no-useless-assignment / no-case-declarations in files Phase 1 rewrites. This count must never increase."
   },
@@ -68,7 +68,10 @@
   "e2e": {
     "command": "npx playwright test",
     "spec": "e2e-tests/mobile-smoke.spec.ts",
-    "projects": ["mobile-chrome (Pixel 7)", "desktop-chrome"],
+    "projects": [
+      "mobile-chrome (Pixel 7)",
+      "desktop-chrome"
+    ],
     "passing": 10,
     "$note": "5 smoke flows x 2 viewports. The two older specs in e2e-tests/ target selectors that do not exist and are excluded via testMatch until repaired."
   },

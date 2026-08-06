@@ -12,12 +12,12 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],
       reportsDirectory: './coverage',
-      // Measured after the Phase 1 SVG engine landed: statements 13.67, branches 10.9,
-      // functions 9.14, lines 14.07. Thresholds sit just under those numbers so the build
+      // Measured after the Phase 1 renderer rewrite: statements 14.17, branches 11.95,
+      // functions 9.57, lines 14.49. Thresholds sit just under those numbers so the build
       // fails on regression. Ratchet upward as coverage improves; never lower them.
       thresholds: {
-        statements: 13,
-        branches: 10,
+        statements: 14,
+        branches: 11,
         functions: 9,
         lines: 14,
       },
