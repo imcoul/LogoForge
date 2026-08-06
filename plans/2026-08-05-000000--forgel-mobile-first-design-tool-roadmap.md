@@ -247,9 +247,35 @@ ls *.cjs *.py 2>/dev/null | wc -l  # → 0
 Baseline metrics to capture in `plans/baseline.json`: bundle gzip bytes, cold TTI on a
 throttled 4G Lighthouse run, ms-per-drag-frame on a 500-node document.
 
-## Phase 1 — One document model (3-5 weeks) — THE CRITICAL PATH
+## Phase 1 — One document model (3-5 weeks) — IN PROGRESS — THE CRITICAL PATH
 
 Collapse three artwork models into one. This is the highest-leverage work in the entire plan.
+
+### Status as of 2026-08-06
+
+**Done — the engine exists and is proven**
+- `src/types.ts` extended: `Node` now has real `children`, plus `name`, `visible`, `attrs`
+  (verbatim passthrough) and `transformRaw`. Added `circle`, `polygon`, `polyline` to
+  `NodeType`, and a new `SvgDocument` type carrying root attributes and `defs`.
+- **`src/engine/svgIo.ts`** — a real `DOMParser`-based parser/serializer replacing the regex
+  pipeline. Pure, no state, no I/O. Preserves unmodelled attributes verbatim, so the
+  "editing a path destroys its id/class/transform" class of bug is structurally impossible.
+- **The round-trip gate is green**: a 51-document corpus covering nested groups, transforms,
+  matrix/skew, gradients, text, entities and every supported element. **430 tests passing**
+  (up from 111).
+- The gate asserts more than stability. Stability alone is weak — a *consistently* dropped
+  attribute would still round-trip "stably" — so it also diffs elements, attributes and text
+  content against an independent DOM parse of the original. That stronger assertion
+  immediately caught a real bug (`XMLSerializer` injecting a redundant `xmlns` into `defs`),
+  which is now fixed.
+
+**Next, in order**
+1. Rewrite `CanvasRenderer` against the new model — it currently drops `text`, `image` and
+   `group` on a `default: return null`, and ignores gradients.
+2. Route `SVGPathEditor` through `svgIo` and delete `legacySvgPath.ts`.
+3. Fold `whiteboardSketches` into the node tree and delete `legacyWhiteboardGeometry.ts`.
+4. Command-based undo storing deltas rather than full snapshots.
+5. Migration for stored projects, with a dry-run mode.
 
 **Work**
 1. Extend `Node` in `src/types.ts` with `children?: Node[]` (or `parentId` + `order`),
