@@ -4,7 +4,8 @@ import { Tooltip } from './components/ui/Tooltip';
 import { ANIMATIONS } from './components/ui/ANIMATIONS';
 import { sanitizeSVG } from './components/ui/sanitizeSVG';
 import { safeFormatDate } from './components/ui/safeFormatDate';
-import Markdown from 'react-markdown';
+// react-markdown is ~40 kB gzip and is only needed when comment text is displayed.
+const Markdown = lazyNamed(() => import('react-markdown'), 'default');
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
@@ -19,18 +20,28 @@ import { vectorizeImage } from './utils/vectorizer';
 import { TouchGesturesHelp } from './components/TouchGesturesHelp';
 import { MobileSheet } from './components/MobileSheet';
 import { StudioControls } from './components/StudioControls';
-import { TemplateLibrary } from './components/TemplateLibrary';
-import { SVGPathEditor } from './components/SVGPathEditor';
-import { WhiteboardCanvas } from './components/WhiteboardCanvas';
+import { lazyNamed, ChunkBoundary } from './lazyNamed';
+
+/*
+ * Code splitting (Phase 4).
+ *
+ * Everything below is loaded on demand rather than in the initial bundle. The two editors
+ * alone are ~6,300 LOC, ProjectAnalytics pulls in recharts, and GoogleDriveIntegration pulls
+ * in the Drive client — none of which a user needs before first paint. Measured baseline was
+ * a single 572 kB gzip chunk and a 15 s first contentful paint on a throttled phone.
+ */
+const TemplateLibrary = lazyNamed(() => import('./components/TemplateLibrary'), 'TemplateLibrary');
+const SVGPathEditor = lazyNamed(() => import('./components/SVGPathEditor'), 'SVGPathEditor');
+const WhiteboardCanvas = lazyNamed(() => import('./components/WhiteboardCanvas'), 'WhiteboardCanvas');
 import { AccessibilityScore } from './components/AccessibilityScore';
-import { ProjectAnalytics } from './components/ProjectAnalytics';
-import { Whacanudo } from './components/Whacanudo';
-import { GoogleDriveIntegration } from './components/GoogleDriveIntegration';
+const ProjectAnalytics = lazyNamed(() => import('./components/ProjectAnalytics'), 'ProjectAnalytics');
+const Whacanudo = lazyNamed(() => import('./components/Whacanudo'), 'Whacanudo');
+const GoogleDriveIntegration = lazyNamed(() => import('./components/GoogleDriveIntegration'), 'GoogleDriveIntegration');
 import { useToast } from './components/Toast';
-import { Dashboard } from './views/Dashboard';
-import { Course } from './views/Course';
-import { Settings } from './views/Settings';
-import { Studio } from './views/Studio';
+const Dashboard = lazyNamed(() => import('./views/Dashboard'), 'Dashboard');
+const Course = lazyNamed(() => import('./views/Course'), 'Course');
+const Settings = lazyNamed(() => import('./views/Settings'), 'Settings');
+const Studio = lazyNamed(() => import('./views/Studio'), 'Studio');
 import { InteractiveMockupViewer } from './components/InteractiveMockupViewer';
 import { VectorizePreviewModal } from './components/VectorizePreviewModal';
 import DOMPurify from 'dompurify';
@@ -2293,37 +2304,45 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
           </div>
         )}
 
-        {view === 'dashboard' ? (
-          <Dashboard
-            setView={setView}
-            isDarkMode={isDarkMode}
-            setIsDarkMode={setIsDarkMode}
-            setIsGoogleDriveOpen={setIsGoogleDriveOpen}
-          />
-        ) : view === 'studio' ? (
-          <Studio
-            setView={setView}
-            isDarkMode={isDarkMode}
-            setIsDarkMode={setIsDarkMode}
-          />
-        ) : view === 'course' ? (
-          <Course />
-        ) : view === 'settings' ? (
-          <Settings setIsGoogleDriveOpen={setIsGoogleDriveOpen} />
-        ) : null}
+        <ChunkBoundary>
+          {view === 'dashboard' ? (
+            <Dashboard
+              setView={setView}
+              isDarkMode={isDarkMode}
+              setIsDarkMode={setIsDarkMode}
+              setIsGoogleDriveOpen={setIsGoogleDriveOpen}
+            />
+          ) : view === 'studio' ? (
+            <Studio
+              setView={setView}
+              isDarkMode={isDarkMode}
+              setIsDarkMode={setIsDarkMode}
+            />
+          ) : view === 'course' ? (
+            <Course />
+          ) : view === 'settings' ? (
+            <Settings setIsGoogleDriveOpen={setIsGoogleDriveOpen} />
+          ) : null}
+        </ChunkBoundary>
       </div>
 
-      {/* Google Drive Storage Modal */}
-      <GoogleDriveIntegration 
-        isOpen={isGoogleDriveOpen} 
-        onClose={() => setIsGoogleDriveOpen(false)} 
-        activeProject={activeProject}
-        onImportSuccess={() => setView('dashboard')}
-      />
+      {/* Google Drive Storage Modal — only fetched once the user opens it. */}
+      {isGoogleDriveOpen && (
+        <ChunkBoundary label="Google Drive">
+          <GoogleDriveIntegration
+            isOpen={isGoogleDriveOpen}
+            onClose={() => setIsGoogleDriveOpen(false)}
+            activeProject={activeProject}
+            onImportSuccess={() => setView('dashboard')}
+          />
+        </ChunkBoundary>
+      )}
 
       {/* Whacanudo Help and Role Information Overlay Modal */}
       {isWhacanudoOpen && (
-        <Whacanudo onClose={() => setIsWhacanudoOpen(false)} />
+        <ChunkBoundary label="help">
+          <Whacanudo onClose={() => setIsWhacanudoOpen(false)} />
+        </ChunkBoundary>
       )}
 
       {/* Collab FAB */}
@@ -2422,7 +2441,9 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
                   
                   {comment.author.includes('AI') ? (
                     <div className="text-sm prose prose-sm dark:prose-invert max-w-none prose-p:leading-snug">
-                      <Markdown>{comment.text}</Markdown>
+                      <ChunkBoundary>
+                        <Markdown>{comment.text}</Markdown>
+                      </ChunkBoundary>
                     </div>
                   ) : (
                     <p className="text-sm text-neutral-700 dark:text-neutral-300">{comment.text}</p>

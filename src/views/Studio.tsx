@@ -6,7 +6,6 @@ import { sanitizeSVG } from '../components/ui/sanitizeSVG';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import Markdown from 'react-markdown';
 import DOMPurify from 'dompurify';
 import {
   Sparkles,
@@ -44,9 +43,12 @@ import {
 import { useStudioHandlers, StudioTab, WorkspaceType } from './StudioHandlers';
 import { useAppStore, Project } from '../store';
 import { AccessibilityScore } from '../components/AccessibilityScore';
-import { TemplateLibrary } from '../components/TemplateLibrary';
-import { SVGPathEditor } from '../components/SVGPathEditor';
-import { WhiteboardCanvas } from '../components/WhiteboardCanvas';
+import { lazyNamed, ChunkBoundary } from '../lazyNamed';
+
+// The two editors are ~6,300 LOC combined and are not needed until a tab selects them.
+const TemplateLibrary = lazyNamed(() => import('../components/TemplateLibrary'), 'TemplateLibrary');
+const SVGPathEditor = lazyNamed(() => import('../components/SVGPathEditor'), 'SVGPathEditor');
+const WhiteboardCanvas = lazyNamed(() => import('../components/WhiteboardCanvas'), 'WhiteboardCanvas');
 import { InteractiveMockupViewer } from '../components/InteractiveMockupViewer';
 import { TouchGesturesHelp } from '../components/TouchGesturesHelp';
 import { VectorizePreviewModal } from '../components/VectorizePreviewModal';
@@ -574,7 +576,9 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
 
                 {workbenchSubTab === 'sketch' && (
                   <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-neutral-200 dark:border-zinc-800">
-                    <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} onUpdateAndSync={handleUpdateAndSync} onGhostSync={handleGhostSync} onRedirectToPrecision={handleRedirectToPrecision} />
+                    <ChunkBoundary label="whiteboard">
+                      <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} onUpdateAndSync={handleUpdateAndSync} onGhostSync={handleGhostSync} onRedirectToPrecision={handleRedirectToPrecision} />
+                    </ChunkBoundary>
                   </div>
                 )}
 
@@ -694,18 +698,22 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                       />
 
                       {/* Interactive Template Auto-Populator */}
-                      <TemplateLibrary activeProjectId={activeProjectId} onApplyTemplate={handleUpdateAndSync} />
+                      <ChunkBoundary label="templates">
+                        <TemplateLibrary activeProjectId={activeProjectId} onApplyTemplate={handleUpdateAndSync} />
+                      </ChunkBoundary>
                     </div>
 
                     {/* Right: Manual XML Code & SVG Node Coordinate Editor */}
                     <div className="space-y-6">
-                      <SVGPathEditor
-                        svgContent={activeProject.svgSource || ''}
-                        onGhostSync={handleGhostSync}
-                        onChange={(newSvg, throttleCloud) => handleUpdateAndSync({ svgSource: newSvg }, throttleCloud)}
-                        fullscreen={fullscreen}
-                        setFullscreen={setFullscreen}
-                      />
+                      <ChunkBoundary label="precision editor">
+                        <SVGPathEditor
+                          svgContent={activeProject.svgSource || ''}
+                          onGhostSync={handleGhostSync}
+                          onChange={(newSvg, throttleCloud) => handleUpdateAndSync({ svgSource: newSvg }, throttleCloud)}
+                          fullscreen={fullscreen}
+                          setFullscreen={setFullscreen}
+                        />
+                      </ChunkBoundary>
 
                       {/* Raw SVG XML input editor */}
                       <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-5 space-y-4">

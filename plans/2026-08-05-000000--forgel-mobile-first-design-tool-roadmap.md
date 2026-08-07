@@ -185,8 +185,14 @@ You cannot refactor safely with the editors untested. Build the net first.
 ### Status: complete as of 2026-08-06
 
 **Headline measurement**: first contentful paint is **14,996 ms** on a throttled Pixel 7
-(Slow 4G, 4x CPU). Fifteen seconds to first paint, from the single 569 kB gzip chunk. This is
-the number Phase 4 exists to fix, and it is now recorded rather than assumed.
+(Slow 4G, 4x CPU). Fifteen seconds to first paint. This is the number Phase 4 exists to fix,
+and it is now recorded rather than assumed.
+
+> **CORRECTION (added in Phase 4).** This baseline originally attributed the 15 s to the
+> 569 kB bundle. **That attribution was wrong.** A request-timeline trace taken during Phase 4
+> showed all application JavaScript arriving in **87 ms**, followed by a 12.7 s stall waiting
+> on a render-blocking `@import url(fonts.googleapis.com)` at the top of `src/index.css`.
+> The bundle was never the cause. See Phase 4 below.
 
 **Done**
 - ESLint added (`eslint.config.js`) with a defect-focused ruleset; `lint` now actually lints
@@ -348,9 +354,53 @@ curl -X POST $APP/api/gemini/... -H 'x-stepfun-endpoint: http://169.254.169.254/
 - `grep -rn "GEMINI_API_KEY" dist/assets/*.js` → 0 hits.
 - Run `npm audit` and a secret scan in CI.
 
-## Phase 4 — Mobile-first interaction (3-4 weeks)
+## Phase 4 — Mobile-first interaction (3-4 weeks) — IN PROGRESS
 
 Only now is mobile work worth doing, because it lands once instead of three times.
+
+### Status as of 2026-08-07
+
+**The most important thing Phase 4 found was that Phase 0's diagnosis was wrong.**
+
+Splitting the bundle from 572 kB gzip to 90 kB moved first contentful paint *not at all* —
+it stayed at ~15 s. That result is what prompted an actual request-timeline trace, which
+showed:
+
+| Time | Event |
+|---|---|
+| 87 ms | all application JavaScript loaded |
+| 87 ms → 12,813 ms | **nothing** — blocked |
+| 12,813 ms | `fonts.googleapis.com` request fails |
+
+`src/index.css` began with `@import url('https://fonts.googleapis.com/...')`. A remote
+`@import` at the top of the main stylesheet is render-blocking: the browser will not paint
+until it resolves. The font stack already fell back to the system UI font, so the blocking
+request bought nothing at all.
+
+The lesson generalises: *a plausible cause that matches the symptom is not a measured cause.*
+The bundle was large and the paint was slow, so the bundle looked responsible. Only changing
+it and re-measuring exposed the real culprit.
+
+**Done**
+- Font stylesheet moved out of CSS and loaded asynchronously from `index.html`
+  (`media="print"` + `onload`). **FCP 14,996 ms → 8,772 ms.**
+- Route- and feature-level code splitting via `React.lazy`: both editors, all four views,
+  analytics, Drive, templates, help and `react-markdown` now load on demand.
+- Vendor chunking, so third-party code caches independently of application code.
+- **Entry chunk 2,067 kB → 290 kB (572 kB → 90 kB gzip).**
+- PWA manifest completed — icons, `display: standalone`, `start_url`, `scope`. It was
+  previously missing everything required to be installable.
+- Bundle-size warning limit dropped to 400 kB so regressions surface at build time.
+
+**Next, in priority order**
+1. **Defer Firebase — it is now 170 kB gzip, half of the entire eager payload.** The app
+   imports `services/firebase` at module scope, which initializes Firestore and Auth before
+   first paint. Deferring it until after mount is the single biggest remaining win.
+2. Real Pointer Events layer — `onTouchMove={handleMouseMove}` is still the touch story.
+3. Memoization in the two editors (47 and 29 `useState`, zero `useMemo`).
+4. Offline-first background sync.
+
+Eager payload is now 342 kB gzip; the < 200 kB target is reachable by item 1 alone.
 
 **Work**
 1. **Code-split aggressively.** Route-level splitting plus lazy-load AI, export (jspdf,

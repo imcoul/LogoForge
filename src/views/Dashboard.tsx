@@ -25,7 +25,10 @@ import {
 } from 'lucide-react';
 import { useAppStore, Project } from '../store';
 import { signInWithGoogle, logout } from '../services/firebase';
-import { ProjectAnalytics } from '../components/ProjectAnalytics';
+import { lazyNamed, ChunkBoundary } from '../lazyNamed';
+
+// ProjectAnalytics pulls in recharts; it is only rendered when the panel is opened.
+const ProjectAnalytics = lazyNamed(() => import('../components/ProjectAnalytics'), 'ProjectAnalytics');
 import { useToast } from '../components/Toast';
 import DOMPurify from 'dompurify';
 
@@ -322,7 +325,9 @@ description: "${(proj.description || '').replace(/"/g, '\\"')}"
         </div>
 
         {/* High-Fidelity Filters & Search Bar */}
-        <ProjectAnalytics />
+        <ChunkBoundary label="analytics">
+          <ProjectAnalytics />
+        </ChunkBoundary>
         {projects.length > 0 && (
           <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-5 mb-8 flex flex-col md:flex-row gap-4 items-center justify-between shadow-xs">
             {/* Search query input */}

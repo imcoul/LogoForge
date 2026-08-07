@@ -174,3 +174,101 @@ describe('transforms and visibility', () => {
     expect(draw(node({ type: 'rect', props: { x: 0, y: 0, width: 1, height: 1 } })).querySelector('rect')).not.toBeNull();
   });
 });
+
+describe('CanvasRenderer component', () => {
+  it('renders the active project scene graph with gradient defs', async () => {
+    const { useAppStore } = await import('../../store');
+    const { CanvasRenderer } = await import('../../components/CanvasRenderer');
+
+    useAppStore.setState({
+      activeProjectId: 'p1',
+      projects: [
+        {
+          id: 'p1',
+          sceneGraph: [
+            node({
+              type: 'rect',
+              id: 'r1',
+              props: { x: 0, y: 0, width: 10, height: 10 },
+              style: {
+                fill: {
+                  type: 'linear-gradient',
+                  stops: [
+                    { offset: 0, color: '#000' },
+                    { offset: 1, color: '#fff' },
+                  ],
+                },
+              },
+            }),
+            node({
+              type: 'group',
+              id: 'g1',
+              children: [node({ type: 'path', id: 'p2', props: { d: 'M0 0' } })],
+            }),
+          ],
+        } as never,
+      ],
+    });
+
+    const { container } = render(<CanvasRenderer />);
+
+    // The gradient definition and its reference must agree on the id.
+    expect(container.querySelector('linearGradient#grad-r1-fill')).not.toBeNull();
+    expect(container.querySelector('rect')?.getAttribute('fill')).toBe('url(#grad-r1-fill)');
+    expect(container.querySelectorAll('stop')).toHaveLength(2);
+    expect(container.querySelector('g > path')).not.toBeNull();
+  });
+
+  it('emits a radial gradient definition for a radial fill', async () => {
+    const { useAppStore } = await import('../../store');
+    const { CanvasRenderer } = await import('../../components/CanvasRenderer');
+
+    useAppStore.setState({
+      activeProjectId: 'p2',
+      projects: [
+        {
+          id: 'p2',
+          sceneGraph: [
+            node({
+              type: 'circle',
+              id: 'c1',
+              props: { cx: 5, cy: 5, r: 5 },
+              style: {
+                fill: { type: 'radial-gradient', stops: [{ offset: 0, color: '#f00' }] },
+              },
+            }),
+          ],
+        } as never,
+      ],
+    });
+
+    const { container } = render(<CanvasRenderer />);
+    expect(container.querySelector('radialGradient#grad-c1-fill')).not.toBeNull();
+  });
+
+  it('emits no defs block when nothing uses a gradient', async () => {
+    const { useAppStore } = await import('../../store');
+    const { CanvasRenderer } = await import('../../components/CanvasRenderer');
+
+    useAppStore.setState({
+      activeProjectId: 'p3',
+      projects: [
+        { id: 'p3', sceneGraph: [node({ type: 'path', id: 'x', props: { d: 'M0 0' } })] } as never,
+      ],
+    });
+
+    const { container } = render(<CanvasRenderer />);
+    expect(container.querySelector('defs')).toBeNull();
+  });
+
+  it('renders an empty canvas when there is no active project', async () => {
+    const { useAppStore } = await import('../../store');
+    const { CanvasRenderer } = await import('../../components/CanvasRenderer');
+
+    useAppStore.setState({ activeProjectId: null, projects: [] });
+
+    const { container } = render(<CanvasRenderer />);
+    expect(container.querySelector('svg')).not.toBeNull();
+    expect(container.querySelectorAll('svg > *')).toHaveLength(0);
+  });
+});

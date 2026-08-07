@@ -1,4 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap');
+/*
+ * PERFORMANCE (Phase 4): the Google Fonts stylesheet was previously imported here with
+ * `@import url(...)`. A remote `@import` at the top of the main stylesheet is
+ * RENDER-BLOCKING: the browser will not paint until it resolves. On a slow or unreachable
+ * network that delay is the entire time to first paint — measured at ~12.8 s in an
+ * environment where the request eventually failed, against ~87 ms for all application
+ * JavaScript.
+ *
+ * The stylesheet is now loaded asynchronously from index.html. The font stack below already
+ * falls back to the system UI font, so text paints immediately and swaps when the webfont
+ * arrives (the URL carries `display=swap`).
+ *
+ * Do not reintroduce a remote @import here.
+ */
 @import "tailwindcss";
 @variant dark (&:where(.dark, .dark *));
 

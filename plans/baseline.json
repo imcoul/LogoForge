@@ -11,26 +11,34 @@
   },
   "build": {
     "command": "npx vite build",
-    "mainChunkBytes": 2067190,
-    "mainChunkGzipBytes": 569280,
-    "cssBytes": 115190,
-    "cssGzipBytes": 17210,
-    "dynamicImportsInSrc": 3,
-    "codeSplit": false,
-    "$note": "Single monolithic chunk. Phase 4 target: initial JS gzip < 200000 bytes."
+    "entryChunkBytes": 289970,
+    "entryChunkGzipBytes": 89960,
+    "cssGzipBytes": 17310,
+    "eagerTotalGzipBytes": 342010,
+    "eagerChunks": {
+      "index": 89960,
+      "vendor-firebase": 170630,
+      "vendor-motion": 42730,
+      "vendor-i18n": 19860,
+      "vendor-react": 1520,
+      "css": 17310
+    },
+    "codeSplit": true,
+    "$note": "Phase 4. Entry chunk was 2,067,000 bytes / 572,000 gzip as one monolith. vendor-firebase is now 50% of the eager payload and is the next target.",
+    "$phase4Target": "initial JS gzip < 200000 bytes"
   },
   "tests": {
     "command": "npx vitest run",
-    "files": 13,
-    "passing": 447,
+    "files": 18,
+    "passing": 554,
     "$note": "Was 7 files / 23 tests before Phase 0."
   },
   "coverage": {
     "command": "npx vitest run --coverage",
-    "statementsPct": 14.17,
-    "branchesPct": 11.95,
-    "functionsPct": 9.57,
-    "linesPct": 14.49,
+    "statementsPct": 15.96,
+    "branchesPct": 14.05,
+    "functionsPct": 12.75,
+    "linesPct": 16.04,
     "keyModules": {
       "src/engine": {
         "linesPct": 100,
@@ -82,12 +90,13 @@
       "cpuThrottlingRate": 4,
       "device": "Pixel 7"
     },
-    "firstContentfulPaintMs": 14996,
-    "domContentLoadedMs": 14868,
-    "loadEventMs": 14869,
-    "reactMountedMs": 15033,
-    "$note": "15 seconds to first paint on a throttled phone — a direct consequence of the single 569 kB gzip chunk with no code splitting. This is the headline number Phase 4 must move. Target: FCP under 2500 ms.",
-    "$caveat": "bytesByResourceType from the preview server is unreliable (missing content-length on compressed responses) and is therefore not recorded. Bundle weight is tracked under `build` instead."
+    "firstContentfulPaintMs": 8772,
+    "$measuredWith": "External font host blocked, so it fails fast rather than hanging on this sandbox's dead outbound network. This isolates application performance.",
+    "$correction": "The Phase 0 baseline recorded FCP 14996 ms and attributed it to the 572 kB bundle. THAT ATTRIBUTION WAS WRONG. A request-timeline trace showed all application JavaScript arriving in 87 ms, followed by a 12.7 s stall waiting on a render-blocking `@import url(fonts.googleapis.com)` at the top of src/index.css. Removing that blocking import is what moved FCP; the bundle work is a separate, real, but smaller win.",
+    "$previousBaseline": {
+      "firstContentfulPaintMs": 14996,
+      "cause": "render-blocking remote font @import"
+    }
   },
   "notMeasuredYet": {
     "$note": "Still outstanding; needs tooling or hardware not available in this environment.",

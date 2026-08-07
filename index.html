@@ -3,11 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#6366f1" />
     <title>Forgel</title>
+
+    <!--
+      Web fonts are loaded asynchronously so they can never block first paint.
+
+      The `media="print"` trick lets the browser fetch the stylesheet at low priority without
+      applying it; the onload handler then promotes it to `all`. Combined with `display=swap`
+      and the system-font fallback in index.css, text renders immediately and restyles when
+      the webfont arrives.
+
+      This replaced a render-blocking `@import` in index.css that cost ~12.8 s of first paint
+      whenever fonts.googleapis.com was slow or unreachable — which is exactly the condition
+      a mobile-first, offline-capable app has to survive.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'; this.onload=null;"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap"
+      />
+    </noscript>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

@@ -17,7 +17,7 @@ export default defineConfig({
       // fails on regression. Ratchet upward as coverage improves; never lower them.
       thresholds: {
         statements: 15,
-        branches: 13,
+        branches: 14,
         functions: 12,
         lines: 16,
       },
