@@ -13,14 +13,17 @@ import { useAppStore } from '../store';
 import { ForgeAcademy } from './ForgeAcademy';
 import { PrecisionOverlay } from './PrecisionOverlay';
 import {
-  parseViewBoxWidth,
-  parsePathTags,
-  tokenizePathData,
-  serializePathNodes,
-  replacePathAtIndex,
-  type ParsedPath as LegacyParsedPath,
-  type PathNode as LegacyPathNode,
-} from '../engine/legacySvgPath';
+  readViewBoxWidth,
+  listEditablePaths,
+  replacePathData,
+  updatePathStyle,
+  removeAllPaths,
+  deletePathAtIndex,
+  toEditorNodes,
+  fromEditorNodes,
+  type EditablePath,
+  type EditorPathNode,
+} from '../engine/pathEditorBridge';
 
 
 interface SVGPathEditorProps {
@@ -33,8 +36,8 @@ interface SVGPathEditorProps {
   setFullscreen?: (f: boolean) => void;
 }
 
-type ParsedPath = LegacyParsedPath;
-type PathNode = LegacyPathNode;
+type ParsedPath = EditablePath;
+type PathNode = EditorPathNode;
 
 export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   onGhostSync,
@@ -249,12 +252,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     }
 
     // Parse viewBox to synchronize gridSize
-    const viewBoxWidth = parseViewBoxWidth(actualSvgSource);
+    const viewBoxWidth = readViewBoxWidth(actualSvgSource);
     if (viewBoxWidth !== null) {
       setGridSize(viewBoxWidth);
     }
 
-    const pathsList = parsePathTags(actualSvgSource);
+    const pathsList = listEditablePaths(actualSvgSource);
 
     setParsedPaths(pathsList);
     if (pathsList.length > 0 && selectedPathIndex >= pathsList.length) {
@@ -270,7 +273,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     }
 
     const pathString = parsedPaths[selectedPathIndex].d;
-    const parsedNodes = tokenizePathData(pathString);
+    const parsedNodes = toEditorNodes(pathString);
 
     setNodes(parsedNodes);
   }, [parsedPaths, selectedPathIndex]);
@@ -336,14 +339,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Helper to construct the updated SVG in-memory
   const getSvgWithUpdatedNodes = (currentNodes: PathNode[]) => {
     if (!actualSvgSource || parsedPaths.length === 0) return actualSvgSource || '';
-    const newPathString = serializePathNodes(currentNodes);
-
-    return replacePathAtIndex(
-      actualSvgSource,
-      selectedPathIndex,
-      parsedPaths[selectedPathIndex],
-      newPathString,
-    );
+    return replacePathData(actualSvgSource, selectedPathIndex, fromEditorNodes(currentNodes));
   };
 
   // Delete a point from the path
@@ -586,11 +582,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     debounceTimerRef.current = setTimeout(() => {
       if (!actualSvgSource || parsedPaths.length === 0) return;
 
-      const newPathString = currentNodes
-        .map((n) => `${n.type}${n.values.join(',')}`)
-        .join(' ');
-
-      updatePathAtIndex(selectedPathIndex, { d: newPathString }, throttleCloud);
+      updatePathAtIndex(selectedPathIndex, { d: fromEditorNodes(currentNodes) }, throttleCloud);
     }, 150);
   };
 
@@ -598,23 +590,18 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const updatePathAtIndex = (indexToUpdate: number, newAttrs: Partial<ParsedPath>, throttleCloud?: boolean) => {
     if (!actualSvgSource || !actualOnUpdateSvg) return;
 
-    let index = 0;
-    const regex = /<path([^>]+)\/?>/g;
-    
-    const newSvg = actualSvgSource.replace(regex, (match) => {
-      if (index === indexToUpdate) {
-        const updated = { ...parsedPaths[indexToUpdate], ...newAttrs };
-        const strokeAttr = updated.stroke && updated.stroke !== 'none' ? ` stroke="${updated.stroke}"` : '';
-        const fillAttr = updated.fill && updated.fill !== 'none' ? ` fill="${updated.fill}"` : ' fill="none"';
-        const strokeWidthAttr = updated.stroke && updated.stroke !== 'none' ? ` stroke-width="${updated.strokeWidth}"` : '';
-        
-        const newTag = `<path d="${updated.d}"${strokeAttr}${fillAttr}${strokeWidthAttr} stroke-linecap="round" stroke-linejoin="round" />`;
-        index++;
-        return newTag;
-      }
-      index++;
-      return match;
-    });
+    // Geometry and presentation are applied separately so that untouched attributes on the
+    // element — and every other element in the document — are left exactly as they were.
+    let newSvg = actualSvgSource;
+
+    if (newAttrs.d !== undefined) {
+      newSvg = replacePathData(newSvg, indexToUpdate, newAttrs.d);
+    }
+
+    const { stroke, fill, strokeWidth } = newAttrs;
+    if (stroke !== undefined || fill !== undefined || strokeWidth !== undefined) {
+      newSvg = updatePathStyle(newSvg, indexToUpdate, { stroke, fill, strokeWidth });
+    }
 
     pushSvgChange(newSvg, throttleCloud);
   };
@@ -637,15 +624,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const handleDeletePath = (targetIndex: number) => {
     if (!actualSvgSource || !actualOnUpdateSvg) return;
 
-    let index = 0;
-    const regex = /<path([^>]+)\/?>/g;
-    const newSvg = actualSvgSource.replace(regex, (match) => {
-      const replaceContent = index === targetIndex ? '' : match;
-      index++;
-      return replaceContent;
-    });
-
-    pushSvgChange(newSvg);
+    pushSvgChange(deletePathAtIndex(actualSvgSource, targetIndex));
     if (selectedPathIndex >= parsedPaths.length - 1) {
       setSelectedPathIndex(Math.max(0, parsedPaths.length - 2));
     }
@@ -687,8 +666,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Clear all paths inside the current canvas
   const handleClearAllPaths = () => {
     if (!actualSvgSource || !actualOnUpdateSvg) return;
-    const cleanSvg = actualSvgSource.replace(/<path([^>]+)\/?>/g, '');
-    pushSvgChange(cleanSvg);
+    pushSvgChange(removeAllPaths(actualSvgSource));
     setParsedPaths([]);
     setSelectedPathIndex(0);
   };

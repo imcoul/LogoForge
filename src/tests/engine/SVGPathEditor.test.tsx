@@ -1,12 +1,15 @@
 /**
- * CHARACTERIZATION TESTS — SVGPathEditor component.
+ * Component tests for SVGPathEditor.
  *
- * Pins the observable behaviour of the editor shell. The primary purpose is to prove that
- * the pure pipeline in `src/engine/legacySvgPath.ts` is genuinely the code the component
- * runs, so the unit-level characterization tests for that module are trustworthy evidence
- * about real editor behaviour.
+ * Originally written in Phase 0 to pin the editor's behaviour against the regex pipeline,
+ * including its bugs. Phase 1 replaced that pipeline with the real engine, so the
+ * `id`-hijack assertion has been updated from the buggy value to the correct one — exactly
+ * the transition the roadmap describes: the characterization test failing is the signal the
+ * fix landed.
  *
- * See plans/2026-08-05-000000--forgel-mobile-first-design-tool-roadmap.md, Phase 0.
+ * These also prove the engine in `src/engine/pathEditorBridge.ts` is genuinely the code the
+ * component runs, so the unit tests for it are trustworthy evidence about real editor
+ * behaviour.
  */
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -14,7 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SVGPathEditor } from '../../components/SVGPathEditor';
 import { ToastProvider } from '../../components/Toast';
 import { useAppStore } from '../../store';
-import { parsePathTags } from '../../engine/legacySvgPath';
+import { listEditablePaths } from '../../engine/pathEditorBridge';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -71,7 +74,7 @@ describe('SVGPathEditor path parsing (via the legacy pipeline)', () => {
     switchToCoordinateMode(container);
 
     // The path selector renders a `#N` badge per parsed path.
-    const expectedCount = parsePathTags(svg).length;
+    const expectedCount = listEditablePaths(svg).length;
     expect(expectedCount).toBe(2);
 
     for (let i = 1; i <= expectedCount; i++) {
@@ -84,7 +87,7 @@ describe('SVGPathEditor path parsing (via the legacy pipeline)', () => {
     switchToCoordinateMode(container);
 
     // The list shows `pathItem.d.slice(0, 20)` followed by an ellipsis.
-    for (const p of parsePathTags(svg)) {
+    for (const p of listEditablePaths(svg)) {
       expect(screen.getAllByText(`${p.d.slice(0, 20)}...`).length).toBeGreaterThan(0);
     }
   });
@@ -92,7 +95,7 @@ describe('SVGPathEditor path parsing (via the legacy pipeline)', () => {
   it('shows no path entries for a document containing only non-path elements', () => {
     // Confirms at component level that rect/circle/text are invisible to the editor.
     const nonPathSvg = '<svg><rect width="10" height="10" /><circle r="5" /></svg>';
-    expect(parsePathTags(nonPathSvg)).toEqual([]);
+    expect(listEditablePaths(nonPathSvg)).toEqual([]);
 
     const { container } = renderEditor({ svgSource: nonPathSvg });
     switchToCoordinateMode(container);
@@ -100,12 +103,24 @@ describe('SVGPathEditor path parsing (via the legacy pipeline)', () => {
     expect(screen.queryByText('#1')).toBeNull();
   });
 
-  it('KNOWN BUG at component level: an id before d hijacks the displayed path data', () => {
-    // Same getAttr defect as the unit test, observable through the UI.
-    const buggySvg = '<svg><path id="logo" d="M0 0 L5 5" /></svg>';
-    const { container } = renderEditor({ svgSource: buggySvg });
+  it('FIXED: an id attribute no longer hijacks the displayed path data', () => {
+    // Under the regex pipeline this rendered "logo..." because getAttr matched the tail of
+    // id="logo". The real parser reads the actual d attribute.
+    const svg = '<svg><path id="logo" d="M0 0 L5 5" /></svg>';
+    const { container } = renderEditor({ svgSource: svg });
     switchToCoordinateMode(container);
 
-    expect(screen.getAllByText('logo...').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('M0 0 L5 5...').length).toBeGreaterThan(0);
+    expect(screen.queryByText('logo...')).toBeNull();
+  });
+
+  it('FIXED: paths nested inside groups are now listed', () => {
+    // The regex pipeline matched nested paths but stripped their group context; the tree
+    // parser surfaces them as real nodes.
+    const svg = '<svg><g transform="translate(10,10)"><path d="M0 0" /></g></svg>';
+    const { container } = renderEditor({ svgSource: svg });
+    switchToCoordinateMode(container);
+
+    expect(screen.getAllByText('#1').length).toBeGreaterThan(0);
   });
 });

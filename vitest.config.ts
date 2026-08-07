@@ -12,14 +12,14 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],
       reportsDirectory: './coverage',
-      // Measured after the Phase 1 renderer rewrite: statements 14.17, branches 11.95,
-      // functions 9.57, lines 14.49. Thresholds sit just under those numbers so the build
+      // Measured after the editor moved onto the real engine: statements 15.44, branches 13.0,
+      // functions 11.55, lines 15.59. Thresholds sit just under those numbers so the build
       // fails on regression. Ratchet upward as coverage improves; never lower them.
       thresholds: {
-        statements: 14,
-        branches: 11,
-        functions: 9,
-        lines: 14,
+        statements: 15,
+        branches: 12,
+        functions: 11,
+        lines: 15,
       },
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
