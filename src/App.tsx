@@ -1136,14 +1136,14 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
     // Trigger Cloud Backups/Mirrors
     if (!throttleCloud) {
       if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
-        syncProjectToPostgres(mergedProject, settings.postgresConnectionString).then((res) => {
+        syncProjectToPostgres(mergedProject).then((res) => {
           if (!res.success) {
             console.warn('Postgres Backup Failed:', res.message);
           }
         });
       }
       if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
-        syncProjectToSupabase(mergedProject, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+        syncProjectToSupabase(mergedProject).then((res) => {
           if (!res.success) {
             console.warn('Supabase Backup Failed:', res.message);
           }
@@ -1169,9 +1169,9 @@ ${guide.dosAndDonts.map(rule => `- ${rule}`).join('\n')}
     
     let res;
     if (target === 'postgres') {
-      res = await syncProjectToPostgres(activeProject, settings.postgresConnectionString);
+      res = await syncProjectToPostgres(activeProject);
     } else {
-      res = await syncProjectToSupabase(activeProject, settings.supabaseUrl, settings.supabaseAnonKey);
+      res = await syncProjectToSupabase(activeProject);
     }
 
     setIsBackingUpDb(false);

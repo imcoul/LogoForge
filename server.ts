@@ -36,7 +36,9 @@ async function startServer() {
     credentials: true
   }));
 
-  app.use(express.json({ limit: "50mb" }));
+  // 50mb of unauthenticated request body was a cheap denial-of-service primitive. Project
+  // payloads are capped well below this; large binary assets belong in object storage.
+  app.use(express.json({ limit: "5mb" }));
   app.use(cookieParser());
   
   // Basic CSRF protection: require exact origin for state-changing API requests
@@ -61,6 +63,18 @@ async function startServer() {
     message: { error: "Too many requests to the AI proxy, please try again later." },
     validate: { default: false }
   });
+
+  // Applies to every /api route. Previously only the AI proxy was limited, leaving the
+  // backup, export and OAuth routes open to unbounded automated traffic.
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests, please try again later." },
+    validate: { default: false }
+  });
+  app.use("/api", apiLimiter);
 
   app.use("/api/gemini", geminiLimiter, geminiRouter);
   app.use("/api/backup", backupRouter);

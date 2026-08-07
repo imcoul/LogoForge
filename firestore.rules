@@ -79,9 +79,18 @@ service cloud.firestore {
     }
 
     // Users collection rules
+    //
+    // SECURITY (Phase 3): a user document carries a `settings` map that holds API keys and
+    // connection strings (geminiKey, stepfunKey, postgresConnectionString, figmaToken, ...).
+    // These rules previously allowed ANY signed-in user to `get` any user document and to
+    // `list` the whole collection, which exposed every user's credentials to every other
+    // user. Reads are now restricted to the owner, plus Server-role users for administration.
     match /users/{userId} {
-      allow get: if isSignedIn() && isValidId(userId);
-      allow list: if isSignedIn();
+      allow get: if isSignedIn() && isValidId(userId) &&
+                 (userId == request.auth.uid || isServerUser());
+
+      // Enumerating the collection is an admin-only capability.
+      allow list: if isSignedIn() && isServerUser();
 
       // Create profile: owner only, and can only self-assign Server if they are lcoulagency@gmail.com or ibrahimmamadoucoulibaly@gmail.com
       allow create: if isSignedIn() && 

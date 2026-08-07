@@ -185,14 +185,14 @@ export function useStudioHandlers() {
     // Trigger Cloud Backups/Mirrors
     if (!throttleCloud) {
       if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
-        syncProjectToPostgres(mergedProject, settings.postgresConnectionString).then((res) => {
+        syncProjectToPostgres(mergedProject).then((res) => {
           if (!res.success) {
             console.warn('Postgres Backup Failed:', res.message);
           }
         });
       }
       if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
-        syncProjectToSupabase(mergedProject, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+        syncProjectToSupabase(mergedProject).then((res) => {
           if (!res.success) {
             console.warn('Supabase Backup Failed:', res.message);
           }

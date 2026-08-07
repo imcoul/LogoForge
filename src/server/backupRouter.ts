@@ -1,9 +1,25 @@
 import { Router, Request, Response } from "express";
 import pg from "pg";
 import { createClient } from "@supabase/supabase-js";
+import { requireAuth, assertOwnership, type AuthenticatedRequest } from "./authMiddleware";
 
 const router = Router();
 const { Pool } = pg;
+
+/*
+ * Phase 3 security posture for this router:
+ *
+ *  - Every route below requires a verified Firebase ID token.
+ *  - Database credentials come from the server environment ONLY. The previous
+ *    `customConnectionString` / `customUrl` / `customKey` request-body fields let any caller
+ *    make this server open a connection to a database of their choosing, which is both an
+ *    SSRF primitive and a way to exfiltrate whatever the server would write.
+ *  - Writes and deletes are scoped to the authenticated user's own projects.
+ *
+ * Bring-your-own-database can return later as server-side, per-user encrypted configuration.
+ * It cannot return as a request body field.
+ */
+router.use(requireAuth);
 
 // Helper to convert project data for PG
 function formatProjectData(p: any) {
@@ -50,11 +66,15 @@ router.get("/status", (req: Request, res: Response) => {
 
 // Sync to PostgreSQL
 router.post("/postgres", async (req: Request, res: Response) => {
-  const { project, customConnectionString } = req.body;
-  const connectionString = customConnectionString || process.env.DATABASE_URL;
+  const { project } = req.body;
+  const connectionString = process.env.DATABASE_URL;
 
   if (!project || !project.id) {
     return res.status(400).json({ error: "Missing valid project data." });
+  }
+
+  if (!assertOwnership(req as AuthenticatedRequest, project.ownerId)) {
+    return res.status(403).json({ error: "Forbidden: project is not owned by the caller." });
   }
 
   if (!connectionString) {
@@ -151,9 +171,13 @@ router.post("/postgres", async (req: Request, res: Response) => {
 
 // Sync to Supabase
 router.post("/supabase", async (req: Request, res: Response) => {
-  const { project, customUrl, customKey } = req.body;
-  const url = customUrl || process.env.SUPABASE_URL;
-  const key = customKey || process.env.SUPABASE_PUBLIC_KEY;
+  const { project } = req.body;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLIC_KEY;
+
+  if (project && !assertOwnership(req as AuthenticatedRequest, project.ownerId)) {
+    return res.status(403).json({ error: "Forbidden: project is not owned by the caller." });
+  }
 
   if (!project || !project.id) {
     return res.status(400).json({ error: "Missing valid project data." });
@@ -223,8 +247,8 @@ router.post("/supabase", async (req: Request, res: Response) => {
 
 // Delete from PostgreSQL
 router.post("/postgres/delete", async (req: Request, res: Response) => {
-  const { id, customConnectionString } = req.body;
-  const connectionString = customConnectionString || process.env.DATABASE_URL;
+  const { id } = req.body;
+  const connectionString = process.env.DATABASE_URL;
 
   if (!id) {
     return res.status(400).json({ error: "Missing valid project id." });
@@ -253,9 +277,14 @@ router.post("/postgres/delete", async (req: Request, res: Response) => {
 
 // Load from Supabase
 router.post("/supabase/load", async (req: Request, res: Response) => {
-  const { ownerId, customUrl, customKey } = req.body;
-  const url = customUrl || process.env.SUPABASE_URL;
-  const key = customKey || process.env.SUPABASE_PUBLIC_KEY;
+  const { ownerId } = req.body;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLIC_KEY;
+
+  // Reading another user's projects by passing their id was previously possible.
+  if (!assertOwnership(req as AuthenticatedRequest, ownerId)) {
+    return res.status(403).json({ error: "Forbidden: cannot read another user's projects." });
+  }
 
   if (!ownerId) {
     return res.status(400).json({ error: "Missing ownerId." });
@@ -285,9 +314,9 @@ router.post("/supabase/load", async (req: Request, res: Response) => {
 
 // Delete from Supabase
 router.post("/supabase/delete", async (req: Request, res: Response) => {
-  const { id, customUrl, customKey } = req.body;
-  const url = customUrl || process.env.SUPABASE_URL;
-  const key = customKey || process.env.SUPABASE_PUBLIC_KEY;
+  const { id } = req.body;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLIC_KEY;
 
   if (!id) {
     return res.status(400).json({ error: "Missing valid project id." });

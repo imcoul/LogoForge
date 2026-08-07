@@ -124,6 +124,7 @@ async function callCustomModel(
 
 // Unified helper supporting standard Gemini client and third-party custom LLMs
 import { modelRegistry } from "../config/modelRegistry";
+import { resolveEndpoint } from "./endpointAllowlist";
 
 function getPromptHash(prompt: string): string {
   let hash = 0;
@@ -191,13 +192,13 @@ async function generateAIContent(
     let modelName = '';
 
     if (activeModel === 'stepfun') {
-      endpoint = req.headers['x-stepfun-endpoint'] as string || activeEntry.endpoint;
+      endpoint = resolveEndpoint(req.headers['x-stepfun-endpoint'] as string, activeEntry.endpoint);
       modelName = activeEntry.defaultModelName;
     } else if (activeModel === 'poolside') {
-      endpoint = req.headers['x-poolside-endpoint'] as string || activeEntry.endpoint;
+      endpoint = resolveEndpoint(req.headers['x-poolside-endpoint'] as string, activeEntry.endpoint);
       modelName = activeEntry.defaultModelName;
     } else if (activeModel === 'tencent') {
-      endpoint = req.headers['x-tencent-endpoint'] as string || activeEntry.endpoint;
+      endpoint = resolveEndpoint(req.headers['x-tencent-endpoint'] as string, activeEntry.endpoint);
       modelName = activeEntry.defaultModelName;
     }
 
@@ -256,7 +257,7 @@ async function generateAIContent(
       if (stepfunKey && process.env.ENABLE_STEPFUN !== 'false') {
         console.warn(`[Gemini] Quota exceeded on ${modelToUse}. Falling back to connected StepFun free model preset...`);
         try {
-          const endpoint = req.headers['x-stepfun-endpoint'] as string || 'https://api.stepfun.com/v1/chat/completions';
+          const endpoint = resolveEndpoint(req.headers['x-stepfun-endpoint'] as string, 'https://api.stepfun.com/v1/chat/completions');
           const result = await callCustomModel(stepfunKey, endpoint, 'step-3.7-flash', options);
           const meta = getGenerationMetadata('stepfun', 'step-3.7-flash', options.prompt);
           return { text: result.text, _meta: meta };
@@ -268,7 +269,7 @@ async function generateAIContent(
       if (poolsideKey && process.env.ENABLE_POOLSIDE !== 'false') {
         console.warn(`[Gemini] Quota exceeded on ${modelToUse}. Falling back to connected Poolside free model preset...`);
         try {
-          const endpoint = req.headers['x-poolside-endpoint'] as string || 'https://api.poolside.ai/v1/chat/completions';
+          const endpoint = resolveEndpoint(req.headers['x-poolside-endpoint'] as string, 'https://api.poolside.ai/v1/chat/completions');
           const result = await callCustomModel(poolsideKey, endpoint, 'laguna-m.1', options);
           const meta = getGenerationMetadata('poolside', 'laguna-m.1', options.prompt);
           return { text: result.text, _meta: meta };
@@ -280,7 +281,7 @@ async function generateAIContent(
       if (tencentKey && process.env.ENABLE_TENCENT !== 'false') {
         console.warn(`[Gemini] Quota exceeded on ${modelToUse}. Falling back to connected Tencent free model preset...`);
         try {
-          const endpoint = req.headers['x-tencent-endpoint'] as string || 'https://api.hunyuan.tencent.com/v1/chat/completions';
+          const endpoint = resolveEndpoint(req.headers['x-tencent-endpoint'] as string, 'https://api.hunyuan.tencent.com/v1/chat/completions');
           const result = await callCustomModel(tencentKey, endpoint, 'hy3', options);
           const meta = getGenerationMetadata('tencent', 'hy3', options.prompt);
           return { text: result.text, _meta: meta };

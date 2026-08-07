@@ -155,9 +155,9 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
     
     let res;
     if (target === 'postgres') {
-      res = await syncProjectToPostgres(activeProject, settings.postgresConnectionString);
+      res = await syncProjectToPostgres(activeProject);
     } else {
-      res = await syncProjectToSupabase(activeProject, settings.supabaseUrl, settings.supabaseAnonKey);
+      res = await syncProjectToSupabase(activeProject);
     }
 
     setIsBackingUpDb(false);
@@ -179,8 +179,8 @@ export const Settings: React.FC<SettingsProps> = ({ setIsGoogleDriveOpen }) => {
     for (const project of projects) {
       const prepared = prepareForFirestore(project);
       const res = target === 'postgres' 
-        ? await syncProjectToPostgres(prepared, settings.postgresConnectionString)
-        : await syncProjectToSupabase(prepared, settings.supabaseUrl, settings.supabaseAnonKey);
+        ? await syncProjectToPostgres(prepared)
+        : await syncProjectToSupabase(prepared);
       if (res.success) {
         successCount++;
       } else {

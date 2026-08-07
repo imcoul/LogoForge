@@ -470,14 +470,14 @@ async function triggerBackupMirror(project: Project, settings: AppSettings) {
   // ... chunking logic can be handled deeper in sync services if necessary
   
   if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
-    syncProjectToPostgres(mirroredProject, settings.postgresConnectionString).then((res) => {
+    syncProjectToPostgres(mirroredProject).then((res) => {
       if (!res.success) {
         console.warn('Auto PostgreSQL Backup failed:', res.message);
       }
     });
   }
   if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
-    syncProjectToSupabase(mirroredProject, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+    syncProjectToSupabase(mirroredProject).then((res) => {
       if (!res.success) {
         console.warn('Auto Supabase Backup failed:', res.message);
       }
@@ -487,14 +487,14 @@ async function triggerBackupMirror(project: Project, settings: AppSettings) {
 
 async function triggerBackupDelete(id: string, settings: AppSettings) {
   if (settings.backupMode === 'postgres' || settings.backupMode === 'both') {
-    deleteProjectFromPostgres(id, settings.postgresConnectionString).then((res) => {
+    deleteProjectFromPostgres(id).then((res) => {
       if (!res.success) {
         console.warn('Auto PostgreSQL Delete failed:', res.message);
       }
     });
   }
   if (settings.backupMode === 'supabase' || settings.backupMode === 'both') {
-    deleteProjectFromSupabase(id, settings.supabaseUrl, settings.supabaseAnonKey).then((res) => {
+    deleteProjectFromSupabase(id).then((res) => {
       if (!res.success) {
         console.warn('Auto Supabase Delete failed:', res.message);
       }
@@ -571,7 +571,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
           // If user is already set, load remote projects
           let fbProjects: Project[] = [];
           if (storedSettings.primaryDatabase === 'supabase') {
-            const res = await loadProjectsFromSupabase(user.uid, storedSettings.supabaseUrl, storedSettings.supabaseAnonKey);
+            const res = await loadProjectsFromSupabase(user.uid);
             if (res.success && res.projects) {
               fbProjects = res.projects.map(loadFromFirestore);
             } else {
@@ -651,7 +651,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
         // 2. Fetch remote projects
         let fbProjects: Project[] = [];
         if (userSettings.primaryDatabase === 'supabase') {
-          const res = await loadProjectsFromSupabase(user.uid, userSettings.supabaseUrl, userSettings.supabaseAnonKey);
+          const res = await loadProjectsFromSupabase(user.uid);
           if (res.success && res.projects) {
             fbProjects = res.projects.map(loadFromFirestore);
           } else {

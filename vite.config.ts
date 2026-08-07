@@ -26,9 +26,10 @@ export default defineConfig(({mode}) => {
         }
       })
     ],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
+    // NOTE: `process.env.GEMINI_API_KEY` was previously defined here, which would inline the
+    // key into the client bundle for any client-side reference to that name. The key is
+    // server-side only (src/server/geminiRouter.ts); the define has been removed so it cannot
+    // leak by accident.
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
