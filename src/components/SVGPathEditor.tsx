@@ -7,7 +7,6 @@ import {
   Sparkles, Check, RotateCcw, Move, LayoutGrid, Magnet,
   ZoomIn, ZoomOut, Maximize2, Minimize2, Undo2, Redo2, HelpCircle, BookOpen, X
 } from 'lucide-react';
-import DOMPurify from 'dompurify';
 import { useToast } from './Toast';
 import { useAppStore } from '../store';
 import { ForgeAcademy } from './ForgeAcademy';
@@ -173,7 +172,6 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const tapStartTimeRef = useRef<number>(0);
   const tapMaxFingersRef = useRef<number>(0);
   const tapMovedRef = useRef<boolean>(false);
-  const touchTapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     pathWorkerRef.current = new Worker(new URL('../workers/pathWorker.ts', import.meta.url), { type: 'module' });
@@ -493,8 +491,6 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Proximity finder for Dynamic Touch Hit-Testing
   const findClosestNode = (cx: number, cy: number) => {
     let closestNode: { nodeId: number; valIdx: number; dist: number } | null = null;
-    let lastX = 0;
-    let lastY = 0;
 
     nodes.forEach((node) => {
       const { type, values, id } = node;
@@ -507,8 +503,6 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           if (!closestNode || dist < closestNode.dist) {
             closestNode = { nodeId: id, valIdx: 0, dist };
           }
-          lastX = x;
-          lastY = y;
         }
       } else if (type.toUpperCase() === 'C') {
         if (values.length >= 6) {
@@ -534,8 +528,6 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
             closestNode = { nodeId: id, valIdx: 4, dist: dist3 };
           }
 
-          lastX = endx;
-          lastY = endy;
         }
       }
     });
@@ -610,13 +602,15 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const handleBgColorUpdate = (colorHex: string) => {
     if (!actualSvgSource || !actualOnUpdateSvg) return;
     const rectRegex = /<rect width="100%" height="100%" fill="([^"]+)"/g;
-    let nextSvg = '';
-    if (rectRegex.test(actualSvgSource)) {
-      nextSvg = actualSvgSource.replace(rectRegex, `<rect width="100%" height="100%" fill="${colorHex}"`);
-    } else {
-      const svgOpenTag = /<svg([^>]+)>/;
-      nextSvg = actualSvgSource.replace(svgOpenTag, `<svg$1>\n  <rect width="100%" height="100%" fill="${colorHex}" rx="16"/>`);
-    }
+    const svgOpenTag = /<svg([^>]+)>/;
+
+    const nextSvg = rectRegex.test(actualSvgSource)
+      ? actualSvgSource.replace(rectRegex, `<rect width="100%" height="100%" fill="${colorHex}"`)
+      : actualSvgSource.replace(
+          svgOpenTag,
+          `<svg$1>\n  <rect width="100%" height="100%" fill="${colorHex}" rx="16"/>`,
+        );
+
     pushSvgChange(nextSvg);
   };
 
@@ -704,16 +698,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     e: any | any,
     rect: DOMRect
   ) => {
-    let clientX = 0;
-    let clientY = 0;
-    if ('touches' in e) {
-      if (e.touches.length === 0) return null;
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
+    // A touch event with no active touches carries no usable coordinate.
+    if ('touches' in e && e.touches.length === 0) return null;
+
+    const source = 'touches' in e ? e.touches[0] : e;
+    const clientX: number = source.clientX;
+    const clientY: number = source.clientY;
 
     // Relative coordinates within the container element
     const relX = clientX - rect.left;
@@ -1275,17 +1265,13 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       if (!activeRef || (draggedNode === null && !isTranslatingPath)) return;
 
       const rect = activeRef.getBoundingClientRect();
-      let clientX = 0;
-      let clientY = 0;
 
-      if ('touches' in e) {
-        if (e.touches.length === 0) return;
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-      } else {
-        clientX = e.clientX;
-        clientY = e.clientY;
-      }
+      // A touch event with no active touches carries no usable coordinate.
+      if ('touches' in e && e.touches.length === 0) return;
+
+      const source = 'touches' in e ? e.touches[0] : e;
+      const clientX = source.clientX;
+      const clientY = source.clientY;
 
       // Calculate relative coordinates
       const centerX = rect.width / 2;

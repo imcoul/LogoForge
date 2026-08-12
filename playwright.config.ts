@@ -6,11 +6,10 @@ import { defineConfig, devices } from '@playwright/test';
  * The primary project is a phone viewport, because Forgel is a mobile-first tool and
  * regressions there matter most. A desktop project runs the same specs for parity.
  *
- * Scope note: `testMatch` deliberately covers only `mobile-smoke.spec.ts`. The two older
- * specs in this directory (`playwright-flows`, `playwright-collab-precision-skeleton`) were
- * written against selectors that do not exist in the app and have never been run. Repairing
- * them is tracked as Phase 0 follow-up work; including them today would mean shipping a
- * permanently red gate, which teaches everyone to ignore it.
+ * Every spec in `testDir` runs. Two speculative specs that had never been run — they targeted
+ * roughly twenty selectors that do not exist in the app — were removed rather than carried as
+ * a permanently red gate; the navigation and PWA flows in `mobile-smoke.spec.ts` replace them
+ * with assertions against UI that actually exists.
  */
 /**
  * Some environments (CI images, dev containers) ship a pre-installed Chromium whose build
@@ -25,7 +24,6 @@ const chromiumLaunchOptions = chromiumExecutable
 
 export default defineConfig({
   testDir: './e2e-tests',
-  testMatch: /mobile-smoke\.spec\.ts/,
 
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

@@ -12,9 +12,9 @@ describe('Concurrency Stress - Benchmarks', () => {
     let callCount = 0;
     
     // Simulate throttling logic
-    const throttle = (fn: Function, wait: number) => {
+    const throttle = (fn: (...args: unknown[]) => unknown, wait: number) => {
       let isCalled = false;
-      return (...args: any[]) => {
+      return (...args: unknown[]) => {
         if (!isCalled) {
           fn(...args);
           isCalled = true;

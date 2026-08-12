@@ -1,7 +1,6 @@
 import { WhiteboardToolbar } from './WhiteboardToolbar';
 import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from '../store';
-import { Node } from '../types';
 import {
   getSqSegDist,
   snapCoords as snapCoordsToGrid,
@@ -61,7 +60,6 @@ export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f
   const [activeHandle, setActiveHandle] = useState<{ sketchId: string; handleId: string } | null>(null);
   const [dragOffset, setDragOffset] = useState<{x: number, y: number} | null>(null);
   const [startPoint, setStartPoint] = useState<{x: number, y: number} | null>(null);
-  const [pencilType, setPencilType] = useState<'pen' | 'marker'>('pen');
   const [strokeColor, setStrokeColor] = useState('#6366f1');
   const [strokeWidth, setStrokeWidth] = useState(3);
   const [editingSketch, setEditingSketch] = useState<{ id: string; name: string } | null>(null);
@@ -1258,10 +1256,12 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     const dashArray = selected.strokeDashArray || 'none';
     const dashAttr = dashArray && dashArray !== 'none' ? ` stroke-dasharray="${dashArray}"` : '';
 
-    let tag = '';
+    // Every branch below assigns a tag, so compute it as an expression rather than
+    // pre-seeding an empty string that is never read.
+    const buildTag = (): string => {
     if (selected.type === 'rectangle' && selected.props) {
       const { x, y, width, height } = selected.props;
-      tag = `<path d="M ${x},${y} L ${x + width},${y} L ${x + width},${y + height} L ${x},${y + height} Z" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
+      return `<path d="M ${x},${y} L ${x + width},${y} L ${x + width},${y + height} L ${x},${y + height} Z" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
     } else if (selected.type === 'circle' && selected.props) {
       // Convert Ellipse to absolute Cubic Bezier path representation (4 cardinal sections approximated with kappa factor)
       const { cx, cy, rx, ry } = selected.props;
@@ -1282,21 +1282,21 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       const c4_1 = `${cx + ox},${cy - ry}`;
       const c4_2 = `${cx + rx},${cy - oy}`;
       
-      tag = `<path d="M ${p1} C ${c1_1} ${c1_2} ${p2} C ${c2_1} ${c2_2} ${p3} C ${c3_1} ${c3_2} ${p4} C ${c4_1} ${c4_2} ${p1} Z" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
+      return `<path d="M ${p1} C ${c1_1} ${c1_2} ${p2} C ${c2_1} ${c2_2} ${p3} C ${c3_1} ${c3_2} ${p4} C ${c4_1} ${c4_2} ${p1} Z" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
     } else {
       // It's a freehand curve
-      tag = `<path d="${selected.path}" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
+      return `<path d="${selected.path}" fill="${fill}"${fillOpacityAttr} stroke="${stroke}" stroke-width="${sWidth}"${dashAttr} stroke-linecap="round" stroke-linejoin="round" />`;
     }
+    };
+    const tag = buildTag();
 
     const currentSvg = activeProject.svgSource || `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">\n</svg>`;
     const closingIdx = currentSvg.lastIndexOf('</svg>');
     
-    let nextSvg = '';
-    if (closingIdx !== -1) {
-      nextSvg = currentSvg.substring(0, closingIdx) + '\n  ' + tag + '\n' + currentSvg.substring(closingIdx);
-    } else {
-      nextSvg = currentSvg + '\n' + tag;
-    }
+    const nextSvg =
+      closingIdx !== -1
+        ? currentSvg.substring(0, closingIdx) + '\n  ' + tag + '\n' + currentSvg.substring(closingIdx)
+        : currentSvg + '\n' + tag;
 
     await updateProject(activeProjectId, { svgSource: nextSvg });
     triggerBanner("⚡ Sent to Precision SVG Editor!");

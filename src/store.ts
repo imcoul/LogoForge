@@ -431,7 +431,8 @@ export function prepareForFirestore(project: Project): any {
       sceneHistory: JSON.stringify(p.sceneHistory || []),
     };
     cleaned = cleanUndefined(serialized);
-    currentSize = JSON.stringify(cleaned).length;
+    // This is the last reduction step, so currentSize is deliberately not recomputed —
+    // nothing reads it after this point.
   }
 
   return cleaned;

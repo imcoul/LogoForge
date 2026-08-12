@@ -1,6 +1,6 @@
 import { sanitizeSVG } from '../components/ui/sanitizeSVG';
 import { safeFormatDate } from '../components/ui/safeFormatDate';
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { 
@@ -23,14 +23,13 @@ import {
   Moon, 
   Lock 
 } from 'lucide-react';
-import { useAppStore, Project } from '../store';
+import { useAppStore } from '../store';
 import { signInWithGoogle, logout } from '../services/firebase';
 import { lazyNamed, ChunkBoundary } from '../lazyNamed';
 
 // ProjectAnalytics pulls in recharts; it is only rendered when the panel is opened.
 const ProjectAnalytics = lazyNamed(() => import('../components/ProjectAnalytics'), 'ProjectAnalytics');
 import { useToast } from '../components/Toast';
-import DOMPurify from 'dompurify';
 
 interface DashboardProps {
   setView: (view: 'dashboard' | 'studio' | 'course' | 'settings') => void;

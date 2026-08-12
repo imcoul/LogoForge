@@ -65,3 +65,85 @@ test.describe('project lifecycle', () => {
     await expect(page.getByText('Untitled Brand').first()).toBeVisible();
   });
 });
+
+test.describe('navigation', () => {
+  /**
+   * These replace two speculative specs that shipped in the repo but had never been run:
+   * they targeted ~20 selectors that do not exist in the app (`.project-card`,
+   * `.color-swatch-badge`, `.mockup-container-selector-placeholder`, ...). Rather than write
+   * assertions against a UI that Phase 1 and Phase 4 are actively rewriting, these cover the
+   * navigation surface that genuinely exists today, via stable ids.
+   */
+  const gotoApp = async (page: import('@playwright/test').Page) => {
+    await page.goto('/');
+    await expect(page.locator('#root')).not.toBeEmpty();
+  };
+
+  test('primary navigation exposes every view', async ({ page }) => {
+    await gotoApp(page);
+
+    for (const id of ['#btn-nav-dashboard', '#btn-nav-studio', '#btn-nav-course', '#btn-nav-settings']) {
+      await expect(page.locator(id)).toBeVisible();
+    }
+  });
+
+  test('navigating to the course view loads its lazy chunk without error', async ({ page }) => {
+    const fatalErrors: string[] = [];
+    page.on('pageerror', (err) => fatalErrors.push(err.message));
+
+    await gotoApp(page);
+    await page.locator('#btn-nav-course').click();
+
+    // Code splitting means this view arrives as a separate chunk; a failed chunk load would
+    // leave the Suspense fallback on screen forever.
+    await expect(page.locator('#root')).not.toBeEmpty();
+    await expect(page.getByText(/Loading/)).toHaveCount(0);
+    expect(fatalErrors, `uncaught page errors: ${fatalErrors.join(' | ')}`).toEqual([]);
+  });
+
+  test('navigating to settings loads its lazy chunk without error', async ({ page }) => {
+    const fatalErrors: string[] = [];
+    page.on('pageerror', (err) => fatalErrors.push(err.message));
+
+    await gotoApp(page);
+    await page.locator('#btn-nav-settings').click();
+
+    await expect(page.locator('#root')).not.toBeEmpty();
+    await expect(page.getByText(/Loading/)).toHaveCount(0);
+    expect(fatalErrors, `uncaught page errors: ${fatalErrors.join(' | ')}`).toEqual([]);
+  });
+
+  test('returns to the dashboard after visiting another view', async ({ page }) => {
+    await gotoApp(page);
+
+    await page.locator('#btn-nav-course').click();
+    await page.locator('#btn-nav-dashboard').click();
+
+    await expect(page.locator('#btn-create-project')).toBeVisible();
+  });
+});
+
+test.describe('PWA installability', () => {
+  test('manifest declares everything a browser needs to install the app', async ({ page }) => {
+    const response = await page.goto('/manifest.webmanifest');
+    const manifest = await response!.json();
+
+    // Each of these was missing before Phase 4; without them the app is not installable.
+    expect(manifest.display).toBe('standalone');
+    expect(manifest.start_url).toBeTruthy();
+    expect(manifest.icons?.length).toBeGreaterThanOrEqual(2);
+    expect(manifest.icons.some((i: { purpose?: string }) => i.purpose === 'maskable')).toBe(true);
+  });
+
+  test('every icon the manifest references actually exists', async ({ page }) => {
+    // The manifest previously pointed at /icon-192.png and /icon-512.png, neither of which
+    // had ever been created.
+    const response = await page.goto('/manifest.webmanifest');
+    const manifest = await response!.json();
+
+    for (const icon of manifest.icons) {
+      const iconResponse = await page.request.get(icon.src);
+      expect(iconResponse.status(), `${icon.src} should exist`).toBe(200);
+    }
+  });
+});

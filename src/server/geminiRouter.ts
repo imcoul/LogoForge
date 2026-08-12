@@ -209,9 +209,10 @@ async function generateAIContent(
       return { text: result.text, _meta: meta };
     } catch (err: any) {
       console.error(`[Fallback Trigger] Primary custom model ${activeModel} failed:`, err.message || err);
-      console.warn(`[Fallback] Quota exceeded or error returned by ${activeModel}. Initiating automatic fallback to Gemini...`);
-      activeModel = 'gemini';
-      activeEntry = modelRegistry.gemini;
+      console.warn(`[Fallback] Quota exceeded or error returned by ${activeModel}. Falling back to Gemini...`);
+      // Falling out of this block IS the fallback: execution continues into the Gemini path
+      // below. Reassigning activeModel/activeEntry here would be dead writes, since nothing
+      // reads them afterwards.
     }
   }
 

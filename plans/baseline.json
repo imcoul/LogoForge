@@ -35,10 +35,10 @@
   },
   "coverage": {
     "command": "npx vitest run --coverage",
-    "statementsPct": 15.96,
-    "branchesPct": 14.05,
-    "functionsPct": 12.75,
-    "linesPct": 16.04,
+    "statementsPct": 16.5,
+    "branchesPct": 15.0,
+    "functionsPct": 13.82,
+    "linesPct": 16.5,
     "keyModules": {
       "src/engine": {
         "linesPct": 100,
@@ -55,23 +55,23 @@
   },
   "lint": {
     "command": "npx eslint .",
-    "errors": 11,
-    "warnings": 354,
-    "$note": "Was 217 errors before Phase 0 cleanup. Remaining 12 are pre-existing no-useless-assignment / no-case-declarations in files Phase 1 rewrites. This count must never increase."
+    "errors": 0,
+    "warnings": 137,
+    "$note": "Was 217 errors at audit, 11 after Phase 0-4. Now 0. Remaining warnings are 125 no-unused-vars in files later phases rewrite, plus 12 react-hooks/exhaustive-deps deferred to Phase 1."
   },
   "typecheck": {
     "command": "npx tsc --noEmit",
     "errors": 0
   },
   "source": {
-    "totalLoc": 23094,
+    "totalLoc": null,
     "largestFiles": {
-      "src/components/SVGPathEditor.tsx": 3201,
-      "src/components/WhiteboardCanvas.tsx": 3184,
-      "src/App.tsx": 2489,
-      "src/views/Studio.tsx": 1297
+      "src/components/SVGPathEditor.tsx": 3165,
+      "src/components/WhiteboardCanvas.tsx": 3085,
+      "src/views/Studio.tsx": 1303,
+      "src/App.tsx": 991
     },
-    "$note": "App.tsx was 2994 LOC; 505 lines of dead `{false && ...}` JSX removed in Phase 0."
+    "$note": "App.tsx was 2,994 LOC at audit and is now 991 \u2014 a dead-code sweep removed ~2,000 lines that ESLint verified were unreachable, residue of functionality that had moved into the view components."
   },
   "e2e": {
     "command": "npx playwright test",
@@ -80,8 +80,8 @@
       "mobile-chrome (Pixel 7)",
       "desktop-chrome"
     ],
-    "passing": 10,
-    "$note": "5 smoke flows x 2 viewports. The two older specs in e2e-tests/ target selectors that do not exist and are excluded via testMatch until repaired."
+    "passing": 22,
+    "$note": "11 flows x 2 viewports: boot, horizontal-overflow guard, project lifecycle, navigation with lazy-chunk checks, PWA installability. The two speculative specs that had never run were removed."
   },
   "performance": {
     "command": "node scripts/perfBaseline.mjs",
@@ -103,5 +103,18 @@
     "lighthouseMobilePerformanceScore": null,
     "msPerDragFrame500Nodes": null,
     "realDeviceMidRangeAndroid": null
+  },
+  "deadCodeRemoved": {
+    "appTsxLoc": {
+      "before": 2994,
+      "after": 991
+    },
+    "modulesDeleted": [
+      "src/utils/pdfExport.ts (556 LOC, pulled in jspdf)",
+      "src/schema.ts (dead, CRDT design preserved in docs/yjs-mapping.md)",
+      "e2e-tests/playwright-flows.spec.ts",
+      "e2e-tests/playwright-collab-precision-skeleton.spec.ts"
+    ],
+    "$caution": "Automated unused-variable removal is not safe by default: it removed one statement whose RETURN VALUE was unused but which had a side effect (an await handleUpdateAndSync call in Studio.tsx). Caught by the resulting empty-block lint error and restored. Any future sweep must audit removed call expressions, not just bindings."
   }
 }

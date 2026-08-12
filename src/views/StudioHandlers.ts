@@ -1,8 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useAppStore, Project, Mockup } from '../store';
-import { auth, db } from '../services/firebase';
-import { doc, setDoc } from 'firebase/firestore';
 import {
   generateLogoImage,
   generateBrandGuide,
@@ -24,7 +21,6 @@ export type StrategySubTab = 'rivals' | 'ecosystem';
 
 export function useStudioHandlers() {
   const { toast } = useToast();
-  const { t } = useTranslation();
   const {
     projects,
     activeProjectId,

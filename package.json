@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "forgel",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -17,6 +17,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "perf:baseline": "node scripts/perfBaseline.mjs",
+    "icons": "node scripts/generateIcons.mjs",
     "verify": "npm run typecheck && npm run lint && npm run test:run"
   },
   "dependencies": {

@@ -68,7 +68,6 @@ interface StudioViewProps {
 }
 
 export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) {
-  const { t } = useTranslation();
   const state = useStudioHandlers();
 
   const {
@@ -505,7 +504,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                           if (!activeProject) return;
                           setIsCriticLoading(true);
                           try {
-                            const res = await handleUpdateAndSync({ comments: [] }); // simple triggers can go here
+                            await handleUpdateAndSync({ comments: [] });
                           } finally {
                             setIsCriticLoading(false);
                           }
