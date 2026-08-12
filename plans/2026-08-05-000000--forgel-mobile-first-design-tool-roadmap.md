@@ -41,13 +41,13 @@ Branch: `claude/design-tool-repos-eval-dasaa0` · all work below is committed an
 |---|---|---|
 | Unit tests | 23 | **554** |
 | Test files | 7 | **18** |
-| Lint errors | 217 | **11** |
-| E2E tests | 0 running | **10** (Pixel 7 + desktop) |
+| Lint errors | 217 | **0** |
+| E2E tests | 0 running | **22** (Pixel 7 + desktop) |
 | Typecheck errors | 0 | 0 |
 | Entry chunk | 2,067 kB / 572 kB gzip | **290 kB / 90 kB gzip** |
 | Eager payload (gzip) | ~589 kB | **342 kB** |
 | First contentful paint | 14,996 ms | **8,772 ms** |
-| `App.tsx` | 2,994 LOC | 2,489 LOC |
+| `App.tsx` | 2,994 LOC | **991 LOC** |
 | Root junk scripts | 99 | 0 |
 
 Verify with `npm run verify` (typecheck → lint → tests), plus `npm run test:e2e` and
