@@ -362,6 +362,28 @@ Collapse three artwork models into one. This is the highest-leverage work in the
   is retired and its assertions restated against correct values in `pathData.test.ts` and
   `pathEditorBridge.test.ts`.
 
+### Two additions from competitive analysis (2026-08-12)
+
+Derived from Canva's public API surface and Figma's published engineering material — see the
+"Patterns Worth Stealing" page in Notion. Both are **cheap now and expensive later**, because
+Phase 1 is already reshaping `Node`.
+
+1. **`binding?: string` on `Node` — data-bound templates.** Canva models a brand template as a
+   *schema with a dataset*, instantiated by supplying data rather than by editing shapes. That
+   is exactly what an invoice is: a template plus `{client, lineItems[], tax, dueDate}`. Every
+   business document in the Product Vision is this one pattern. A model that assumes literal
+   text content makes all of them a retrofit.
+2. **Layout constraints on `Node`.** Canva exposes resize as a single operation; Figma achieves
+   the same with auto-layout and per-node constraints. **A document whose nodes carry absolute
+   coordinates cannot be meaningfully resized** — which is what `Node.transform` holds today.
+   "One design → many auto-resized artboards" is listed as a social-kit feature but is really a
+   layout-engine requirement.
+
+Also worth doing in Phase 2, while the persistence shape is being decided: make the **brand kit
+its own entity** rather than a `brandGuide` field copied into every project (today, changing a
+brand colour updates nothing already made), and add **`parentId` to `Comment`** for threading
+before there is production data to migrate.
+
 **Left in Phase 1**
 1. Fold `whiteboardSketches` into the node tree and delete `legacyWhiteboardGeometry.ts`.
    `WhiteboardCanvas` is 3,085 LOC with the sketch model embedded throughout — the largest
