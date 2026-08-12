@@ -619,17 +619,40 @@ In the order I would take them:
    exist precisely to make it survivable.
 4. **Then Phase 5.** The engine it needs already exists, and it is the actual differentiator.
 
-## Follow-up debt logged along the way
+## Follow-up debt — CLEARED (2026-08-07)
 
-- `src/utils/pdfExport.ts` (556 LOC, pulls in jspdf) is imported nowhere — delete or wire up.
-- `src/schema.ts` is dead code with zero importers.
-- Dead imports in `App.tsx` exposed by removing the 505-line dead JSX block (`motion`,
-  `AnimatePresence`, `sanitizeSVG` and others) are still flagged as lint warnings.
-- 11 pre-existing lint errors remain, all `no-useless-assignment` in files later phases rewrite.
-- Two pre-existing Playwright specs target selectors that do not exist and are excluded via
-  `testMatch` until repaired.
-- `package.json` is still named `react-example`.
-- PWA manifest references `/icon-192.png` and `/icon-512.png`, which need to be created.
+Every item below is done.
+
+- ~~`src/utils/pdfExport.ts` imported nowhere~~ — deleted (556 LOC, took jspdf with it).
+- ~~`src/schema.ts` dead with zero importers~~ — deleted; its Yjs design lives in
+  `docs/yjs-mapping.md`.
+- ~~Dead imports in `App.tsx`~~ — swept, along with far more than expected:
+  **`App.tsx` went from 2,994 to 991 LOC.** The bulk was an entire PRD data block with its
+  markdown/CSV/JSON/PDF exporters, plus ~200 unused declarations — residue of functionality
+  that had moved into the view components. The same sweep ran over Studio, Dashboard,
+  Settings, StudioHandlers and both editors.
+- ~~11 lint errors~~ — **0 errors.** Down from 217 at audit.
+- ~~Two Playwright specs targeting selectors that do not exist~~ — removed rather than
+  repaired, since they asserted against UI that Phases 1 and 4 are rewriting. Replaced with
+  navigation and PWA-installability flows against selectors that exist. **E2E 10 → 22.**
+- ~~`package.json` named `react-example`~~ — renamed to `forgel`.
+- ~~PWA manifest referenced icons that did not exist~~ — `scripts/generateIcons.mjs` renders
+  them from an inline SVG mark in the brand colours, including a maskable variant with the
+  artwork inside the safe area.
+
+### A caution worth keeping
+
+**Automated unused-variable removal is not safe by default.** The sweep removed a statement
+whose *return value* was unused but which had a side effect — an `await handleUpdateAndSync(...)`
+in `Studio.tsx`. It surfaced as an empty `try` block that the linter caught, and was restored.
+Any future sweep must audit removed *call expressions*, not just bindings.
+
+## Remaining debt
+
+- 137 lint warnings: 125 `no-unused-vars` in the two editors and Studio (files Phase 1
+  rewrites), plus 12 `react-hooks/exhaustive-deps` deliberately deferred to Phase 1.
+- `SVGPathEditor` (3,165 LOC) and `WhiteboardCanvas` (3,085 LOC) remain monolithic with zero
+  memoization.
 
 Roughly 4-6 months to a genuinely competitive mobile-first tool, with Phases 3 and 4
 delivering user-visible wins early.
