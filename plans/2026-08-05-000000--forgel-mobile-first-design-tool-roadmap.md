@@ -362,52 +362,68 @@ Collapse three artwork models into one. This is the highest-leverage work in the
   is retired and its assertions restated against correct values in `pathData.test.ts` and
   `pathEditorBridge.test.ts`.
 
-### Additions from competitive analysis (revised 2026-08-12 after reading Figma's own docs)
+### Document-model additions (revised 2026-08-12 — see compliance note)
 
-Sources: Canva's public API surface, and **Figma's first-party design-system documentation read
-directly through their MCP server**. Full detail on the "Patterns Worth Stealing" page in Notion.
+<!--
+COMPLIANCE NOTE. An earlier revision of this section derived its recommendations from reading
+Canva's and Figma's own materials through their MCP connectors. That was a mistake and the
+material has been removed:
 
-An earlier revision of this section proposed adding `binding?: string` and constraints to `Node`.
-**Reading Figma's actual model showed that to be too thin.** What Phase 1 needs:
+  - Figma Acceptable Use Policy s2(e) prohibits using the Services to "compete with Figma, or
+    copy any ideas, features, functions, or graphics of the Services".
+  - Canva's MCP prohibited-use policy forbids "accessing the MCP tools for the purpose of
+    building or marketing a product or service that competes with Canva", and separately
+    forbids using them to understand how Canva's platform works internally.
 
-1. **A variables system, not a binding string.** Figma models tokens as
-   *collections → modes → variables*, with **aliasing** (semantic → primitive) and **scopes**
-   (which properties a variable may legally bind to: `TEXT_FILL`, `GAP`, `TEXT_CONTENT`, ...).
-   Binding a string variable to a text layer via the `TEXT_CONTENT` scope is exactly the
-   invoice-template mechanism, already proven in a shipping product.
-   **Modes are the payoff**: one template with modes for language or currency, one logo with
-   modes for light and dark grounds — variants for free, rather than a per-project theme flag.
-2. **Composite tokens from day one.** Figma's docs name this as their own gap: variables are
-   single-value, so a box shadow cannot be a variable and must be an Effect Style, and a type
-   ramp must be a Text Style. That forced two parallel systems alongside variables. Supporting
-   composite values from the start keeps one system instead of three — a cheap chance to be
-   cleaner than the incumbent.
-3. **Layout constraints.** Figma states the principle directly: absolute coordinates govern
-   where a container sits; auto-layout governs how its children relate inside it, and skipping
-   it "leaves no protection against text reflow, content changes, or overlap". Two enums:
-   `FIXED | HUG | FILL` on a child, `FIXED | AUTO` on the frame.
-   **This is not independent of item 1** — a data-bound document has unknown content length
+Forgel is positioned as a competitor to both, so that use is not permitted. Neither connector
+is to be used for competitive or design research on this project.
+
+The items below are retained ONLY because each is a long-standing, independently documented
+industry concept with a neutral public source, cited inline. They are not derived from either
+vendor's materials. Anything that could only have come from those materials has been dropped.
+-->
+
+Phase 1 is reshaping `Node` now, so these are cheap to add today and expensive to retrofit.
+
+1. **A token system with modes, not a bare binding string.** Model tokens as named values
+   organised into sets, where a set can carry several *modes* and a document resolves against
+   one. Reference: the **W3C Design Tokens Community Group format** (`$value` / `$type`,
+   aliasing via `{group.token}`), and CSS custom properties combined with
+   `prefers-color-scheme` for the light/dark case.
+   The payoff for us: one invoice template with modes for language or currency; one logo with
+   modes for light and dark grounds — rather than a per-project theme flag.
+2. **Bind text content to tokens.** This is ordinary templating — mail-merge, Mustache,
+   Liquid — applied to a document node instead of a string. An invoice is a template plus
+   `{client, lineItems[], tax, dueDate}`; every business document in the Product Vision is the
+   same shape. A model that assumes literal text content makes all of them a retrofit.
+3. **Composite token values.** Allow a token to hold a compound value (a shadow, a type ramp),
+   not only a scalar. The W3C DTCG format specifies composite types (`shadow`, `typography`,
+   `border`) for exactly this reason. Scalar-only token systems end up growing a second,
+   parallel mechanism for compound values; supporting them from the start avoids that.
+4. **Layout constraints.** A node needs to express how it sizes relative to its parent, not
+   only where it sits. Reference: **CSS Flexbox/Grid sizing** — `auto`, `min-content`,
+   `max-content`, `fr`, `flex-grow`. Our `Node.transform` holds absolute coordinates only.
+   **This is not independent of items 1-2**: a data-bound document has unknown content length
    until the data arrives, so bindings without a layout model produce broken documents.
-4. **A selector language over the node tree.** Figma exposes CSS-like querying —
-   `FRAME[name^=Card] TEXT`, `[fills.0.type=SOLID]` — with chainable batch updates. Worth
-   building into the document model in Phase 1 and reaping in Phase 5: it lets AI express
-   *intent* rather than GUID lists, which makes AI commands declarative, robust to a shifted
-   document, and reviewable by a human before they run.
+5. **A selector language over the node tree.** Reference: **CSS Selectors Level 4** and DOM
+   `querySelectorAll`. Built in Phase 1 and reaped in Phase 5 — it lets AI express intent
+   ("every text node inside a card") rather than a list of GUIDs it must first be told and
+   could easily invent. That makes AI commands declarative, robust to a document that shifted,
+   and reviewable by a human before they run.
 
-**Phase 2:** brand kits should be **extensible collections** — Figma's "extended collections"
-inherit from a base and override only some values, which their docs note suits branded themes
-exactly. A sub-brand or client variant is a set of overrides, not a copy of the whole kit. Also
-add **`parentId` to `Comment`** for threading before there is production data to migrate.
+**Phase 2:** token sets should support **inheritance with partial override**, so a sub-brand or
+client variant is a set of overrides rather than a copy of the whole brand. Reference: CSS
+cascade semantics and the DTCG aliasing model. Also add **`parentId` to `Comment`** for
+threading before there is production data to migrate.
 
-**Phase 5:** applying a `Command[]` must be **atomic**. Figma's plugin execution is all-or-
-nothing precisely so a failure cannot leave partial nodes behind; a half-applied AI edit is
-worse than a rejected one.
+**Phase 5:** applying a `Command[]` must be **atomic** — all commands apply or none do.
+Reference: standard database transaction semantics (atomicity). A half-applied AI edit leaves a
+document in a state the user did not ask for and cannot cleanly undo, which is worse than a
+rejected one.
 
-**Phase 7:** component properties in Figma are declared on the container and *referenced* by
-descendants (`componentPropertyReferences.characters / .visible / .mainComponent`) — the same
-shape as document binding, so one mechanism can serve both. Also budget for an explicit
-font-readiness step in the text pipeline; Figma names unloaded fonts as its single most common
-source of hard-to-debug failures.
+**Phase 7:** budget for an explicit font-readiness step in the text pipeline. Web font loading
+is asynchronous (`document.fonts.ready`, the CSS Font Loading API), so any text measurement or
+layout performed before fonts resolve produces wrong metrics.
 
 **Left in Phase 1**
 1. Fold `whiteboardSketches` into the node tree and delete `legacyWhiteboardGeometry.ts`.
