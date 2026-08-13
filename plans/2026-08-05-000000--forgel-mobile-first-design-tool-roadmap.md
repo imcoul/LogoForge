@@ -362,27 +362,52 @@ Collapse three artwork models into one. This is the highest-leverage work in the
   is retired and its assertions restated against correct values in `pathData.test.ts` and
   `pathEditorBridge.test.ts`.
 
-### Two additions from competitive analysis (2026-08-12)
+### Additions from competitive analysis (revised 2026-08-12 after reading Figma's own docs)
 
-Derived from Canva's public API surface and Figma's published engineering material — see the
-"Patterns Worth Stealing" page in Notion. Both are **cheap now and expensive later**, because
-Phase 1 is already reshaping `Node`.
+Sources: Canva's public API surface, and **Figma's first-party design-system documentation read
+directly through their MCP server**. Full detail on the "Patterns Worth Stealing" page in Notion.
 
-1. **`binding?: string` on `Node` — data-bound templates.** Canva models a brand template as a
-   *schema with a dataset*, instantiated by supplying data rather than by editing shapes. That
-   is exactly what an invoice is: a template plus `{client, lineItems[], tax, dueDate}`. Every
-   business document in the Product Vision is this one pattern. A model that assumes literal
-   text content makes all of them a retrofit.
-2. **Layout constraints on `Node`.** Canva exposes resize as a single operation; Figma achieves
-   the same with auto-layout and per-node constraints. **A document whose nodes carry absolute
-   coordinates cannot be meaningfully resized** — which is what `Node.transform` holds today.
-   "One design → many auto-resized artboards" is listed as a social-kit feature but is really a
-   layout-engine requirement.
+An earlier revision of this section proposed adding `binding?: string` and constraints to `Node`.
+**Reading Figma's actual model showed that to be too thin.** What Phase 1 needs:
 
-Also worth doing in Phase 2, while the persistence shape is being decided: make the **brand kit
-its own entity** rather than a `brandGuide` field copied into every project (today, changing a
-brand colour updates nothing already made), and add **`parentId` to `Comment`** for threading
-before there is production data to migrate.
+1. **A variables system, not a binding string.** Figma models tokens as
+   *collections → modes → variables*, with **aliasing** (semantic → primitive) and **scopes**
+   (which properties a variable may legally bind to: `TEXT_FILL`, `GAP`, `TEXT_CONTENT`, ...).
+   Binding a string variable to a text layer via the `TEXT_CONTENT` scope is exactly the
+   invoice-template mechanism, already proven in a shipping product.
+   **Modes are the payoff**: one template with modes for language or currency, one logo with
+   modes for light and dark grounds — variants for free, rather than a per-project theme flag.
+2. **Composite tokens from day one.** Figma's docs name this as their own gap: variables are
+   single-value, so a box shadow cannot be a variable and must be an Effect Style, and a type
+   ramp must be a Text Style. That forced two parallel systems alongside variables. Supporting
+   composite values from the start keeps one system instead of three — a cheap chance to be
+   cleaner than the incumbent.
+3. **Layout constraints.** Figma states the principle directly: absolute coordinates govern
+   where a container sits; auto-layout governs how its children relate inside it, and skipping
+   it "leaves no protection against text reflow, content changes, or overlap". Two enums:
+   `FIXED | HUG | FILL` on a child, `FIXED | AUTO` on the frame.
+   **This is not independent of item 1** — a data-bound document has unknown content length
+   until the data arrives, so bindings without a layout model produce broken documents.
+4. **A selector language over the node tree.** Figma exposes CSS-like querying —
+   `FRAME[name^=Card] TEXT`, `[fills.0.type=SOLID]` — with chainable batch updates. Worth
+   building into the document model in Phase 1 and reaping in Phase 5: it lets AI express
+   *intent* rather than GUID lists, which makes AI commands declarative, robust to a shifted
+   document, and reviewable by a human before they run.
+
+**Phase 2:** brand kits should be **extensible collections** — Figma's "extended collections"
+inherit from a base and override only some values, which their docs note suits branded themes
+exactly. A sub-brand or client variant is a set of overrides, not a copy of the whole kit. Also
+add **`parentId` to `Comment`** for threading before there is production data to migrate.
+
+**Phase 5:** applying a `Command[]` must be **atomic**. Figma's plugin execution is all-or-
+nothing precisely so a failure cannot leave partial nodes behind; a half-applied AI edit is
+worse than a rejected one.
+
+**Phase 7:** component properties in Figma are declared on the container and *referenced* by
+descendants (`componentPropertyReferences.characters / .visible / .mainComponent`) — the same
+shape as document binding, so one mechanism can serve both. Also budget for an explicit
+font-readiness step in the text pipeline; Figma names unloaded fonts as its single most common
+source of hard-to-debug failures.
 
 **Left in Phase 1**
 1. Fold `whiteboardSketches` into the node tree and delete `legacyWhiteboardGeometry.ts`.
