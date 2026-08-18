@@ -53,6 +53,21 @@ Branch: `claude/design-tool-repos-eval-dasaa0` · all work below is committed an
 Verify with `npm run verify` (typecheck → lint → tests), plus `npm run test:e2e` and
 `npm run perf:baseline`. Machine-readable numbers in `plans/baseline.json`.
 
+## Brand and licensing decisions (2026-08-12)
+
+Recorded in `plans/2026-08-12-000000--product-and-brand-decisions.md`, with rationale. In short:
+paid tiers are **hosted capacity, never gated features** (AGPL makes a feature gate decorative);
+brand architecture is an **endorsed house** — distinctive product names, always visibly under
+Srvel; product names are **not** hard-bound to Cores; jurisdiction stays **Mali/OHADA** for now.
+
+**"Forgel" is retired.** The replacement name is pending, and must come from a native Bambara
+speaker rather than be generated. Until it lands, this repository and its plans keep the current
+name purely as an identifier.
+
+**Urgent, unrelated to code:** a Contributor License Agreement is needed *before the first
+outside contribution*. Without it, Srvel cannot later dual-license, because it will not own the
+whole work.
+
 ## The one decision that is blocking work
 
 **Which database is primary — Firestore or Supabase?** Phase 2 cannot start without it, and
