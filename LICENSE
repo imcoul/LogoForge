@@ -1,0 +1,50 @@
+                    GNU AFFERO GENERAL PUBLIC LICENSE
+                       Version 3, 19 November 2007
+
+!!  ACTION REQUIRED BEFORE PUBLISHING  !!
+
+    This file is INCOMPLETE. The canonical, verbatim text of the GNU Affero
+    General Public License v3.0 must replace everything between this notice
+    and the "END OF TERMS AND CONDITIONS" marker below.
+
+    Get it from:  https://www.gnu.org/licenses/agpl-3.0.txt
+
+    It was deliberately NOT written from memory. A licence reproduced
+    approximately is worse than no licence at all: the exact wording is the
+    operative legal text, and a paraphrase would leave the project's licensing
+    genuinely uncertain.
+
+    Do not edit the licence text once pasted. Not a single word.
+
+                          END OF TERMS AND CONDITIONS
+
+            How to Apply These Terms to Your New Programs
+
+  The notice below is the standard AGPL-3.0 application notice, filled in for
+  this project. It belongs at the top of the source files, and is reproduced
+  here for reference.
+
+    {{PRODUCT_NAME}} — brand identity and business document tooling
+    Copyright (C) {{YEAR}} {{LEGAL_ENTITY}}
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+  Section 13 of the AGPL is the reason this licence was chosen over the GPL:
+  if you run a modified version of this program and let other people interact
+  with it over a network, you must offer those users the source of your
+  modified version. That obligation applies to us exactly as it applies to
+  everyone else — see legal/TERMS.md, which states where our own running
+  source can be obtained.
+
+  Trademarks are NOT licensed by the AGPL. See legal/TRADEMARK.md.

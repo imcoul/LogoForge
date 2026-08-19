@@ -151,16 +151,35 @@ a product integration.
 
 ## URGENT — degrades with time
 
-**Contributor License Agreement.** Needed **before the first outside contribution to any Srvel
-product.** Without a CLA, contributors retain copyright in their patches, and Srvel can then
-never dual-license or offer a commercial licence, because it does not own the whole work. Cheap
-now; effectively unfixable once patches have landed and contributors are unreachable. Set up
-once, centrally, covering all four products.
+**Contributor License Agreement.** ~~Needed~~ **Drafted** at `legal/CLA.md`, 2026-08-19 —
+but *drafted* is not *adopted*. It must be in force **before the first outside contribution to
+any Srvel product.** Without a CLA, contributors retain copyright in their patches, and Srvel
+can then never dual-license or offer a commercial licence, because it does not own the whole
+work. Cheap now; effectively unfixable once patches have landed and contributors are
+unreachable. Adopt once, centrally, covering all four products.
 
-## Ready to draft — nothing blocking
+The draft grants a licence rather than taking assignment, and pays for the relicensing right
+with binding reciprocal commitments (§5): the code stays under AGPL-3.0 or another OSI-approved
+licence, the promise survives acquisition, contributions are never turned into paid gates
+(D-010), and the relicensing right **lapses automatically** if either is breached. That
+structure is what makes a CLA defensible to contributors who have seen the alternative.
 
-**Product terms document set.** D-010 and D-013 unblock this. Needed: Licence (AGPL-3.0), Terms
-of Use for the hosted tier, Privacy Policy, CLA, Trademark Policy.
+## Drafted — see `legal/`
+
+**Product terms document set.** D-010 and D-013 unblocked this; drafted 2026-08-19.
+
+| File | State |
+|---|---|
+| `LICENSE` | **Incomplete by design** — canonical AGPL-3.0 text must be pasted verbatim from gnu.org. Deliberately not written from memory. |
+| `legal/TERMS.md` | Drafted — hosted tier only; §0 states AGPL rights need no agreement |
+| `legal/PRIVACY.md` | Drafted — §0 excludes self-hosters; GDPR Art. 6 basis table |
+| `legal/CLA.md` | Drafted — see above |
+| `legal/TRADEMARK.md` | Drafted — the actual moat, per D-011/D-013 |
+
+Remaining before publication: fill the double-brace placeholders (`legal/README.md` lists all
+thirteen), paste the AGPL text, and take the set through the one-time legal review Brand Guide
+Part 4 §32 already recommends. Two placeholders — `DATABASE_PROVIDER` and `DATA_REGION` —
+are blocked on the Firestore vs Supabase decision below.
 
 Brand Guide Part 4 §32's existing drafts cover **the agency** — this is a distinct layer for
 products. Two things the product terms must carry that the agency terms do not:
