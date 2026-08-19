@@ -15,6 +15,7 @@ Written against the decisions in `plans/2026-08-12-000000--product-and-brand-dec
 | File | Governs | Applies to |
 |---|---|---|
 | `../LICENSE` | The source code | Everyone, always |
+| `NOTICE.md` | Copyright notice and why AGPL | Reference — carries the checksum of `../LICENSE` |
 | `TERMS.md` | The hosted service | Only people using our hosted instance |
 | `PRIVACY.md` | Personal data | Hosted users; self-hosters are their own controller |
 | `CLA.md` | Contributions | Anyone opening a pull request |
@@ -66,10 +67,9 @@ held** — a contributor should sign once, not four times.
 
 ## Outstanding
 
-- **`../LICENSE` needs the canonical AGPL-3.0 text pasted in verbatim.** See the note in that
-  file. This was deliberately not written from memory: an approximate licence is worse than
-  none, because the exact wording *is* the operative text. **Nothing here is publishable until
-  this is done.**
+- ~~`../LICENSE` needs the canonical AGPL-3.0 text.~~ **Done** — retrieved verbatim from
+  gnu.org and installed unmodified; checksum recorded in `NOTICE.md`. It was deliberately never
+  written from memory, because an approximate licence is worse than none.
 - **`CLA.md` should be adopted before the first outside contribution**, not after. It is the
   one document in this set that gets harder to introduce with every merged pull request —
   see the URGENT open item in the decisions record.

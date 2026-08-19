@@ -170,16 +170,17 @@ structure is what makes a CLA defensible to contributors who have seen the alter
 
 | File | State |
 |---|---|
-| `LICENSE` | **Incomplete by design** — canonical AGPL-3.0 text must be pasted verbatim from gnu.org. Deliberately not written from memory. |
+| `LICENSE` | **Complete** — canonical AGPL-3.0 text retrieved from gnu.org and installed verbatim, unmodified, no placeholders. Checksum in `legal/NOTICE.md`. Never written from memory. |
+| `legal/NOTICE.md` | Copyright notice, the "any later version" phrasing, why AGPL over GPL |
 | `legal/TERMS.md` | Drafted — hosted tier only; §0 states AGPL rights need no agreement |
 | `legal/PRIVACY.md` | Drafted — §0 excludes self-hosters; GDPR Art. 6 basis table |
 | `legal/CLA.md` | Drafted — see above |
 | `legal/TRADEMARK.md` | Drafted — the actual moat, per D-011/D-013 |
 
 Remaining before publication: fill the double-brace placeholders (`legal/README.md` lists all
-thirteen), paste the AGPL text, and take the set through the one-time legal review Brand Guide
-Part 4 §32 already recommends. Two placeholders — `DATABASE_PROVIDER` and `DATA_REGION` —
-are blocked on the Firestore vs Supabase decision below.
+thirteen) and take the set through the one-time legal review Brand Guide Part 4 §32 already
+recommends. Two placeholders — `DATABASE_PROVIDER` and `DATA_REGION` — are blocked on the
+Firestore vs Supabase decision below; `PRODUCT_NAME` is blocked on the naming decision.
 
 Brand Guide Part 4 §32's existing drafts cover **the agency** — this is a distinct layer for
 products. Two things the product terms must carry that the agency terms do not:
