@@ -46,7 +46,7 @@ import { useAppStore, Project } from '../store';
 import { AccessibilityScore } from '../components/AccessibilityScore';
 import { TemplateLibrary } from '../components/TemplateLibrary';
 import { SVGPathEditor } from '../components/SVGPathEditor';
-import { WhiteboardCanvas } from '../components/WhiteboardCanvas';
+import { WhiteboardCanvas, WhiteboardCanvasFabric } from '../components/WhiteboardCanvasFabric';
 import { InteractiveMockupViewer } from '../components/InteractiveMockupViewer';
 import { TouchGesturesHelp } from '../components/TouchGesturesHelp';
 import { VectorizePreviewModal } from '../components/VectorizePreviewModal';
@@ -574,7 +574,15 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
 
                 {workbenchSubTab === 'sketch' && (
                   <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-neutral-200 dark:border-zinc-800">
-                    <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} onUpdateAndSync={handleUpdateAndSync} onGhostSync={handleGhostSync} onRedirectToPrecision={handleRedirectToPrecision} />
+                    <WhiteboardCanvasFabric
+                      fullscreen={fullscreen}
+                      setFullscreen={setFullscreen}
+                      onUpdateAndSync={handleUpdateAndSync}
+                      onGhostSync={handleGhostSync}
+                      onRedirectToPrecision={handleRedirectToPrecision}
+                      useFabric={true}
+                      fabricOnly={false}
+                    />
                   </div>
                 )}
 
