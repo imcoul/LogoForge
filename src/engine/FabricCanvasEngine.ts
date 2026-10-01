@@ -1,5 +1,8 @@
 // FabricCanvasEngine - Fabric.js adapter implementation
 // Implements the CanvasEngine interface using Fabric.js library
+//
+// Note: Fabric.js is loaded at runtime in the browser, not as a TypeScript module.
+// We use type assertions and any for fabric types to avoid compile-time dependencies.
 
 import {
   CanvasEngine,
@@ -24,11 +27,33 @@ import {
   ImageObject,
 } from './canvasEngine';
 
-// Import fabric types - using dynamic import to avoid SSR issues
-// In browser environment, fabric will be available globally
-// In Node.js/SSR, we'll handle it gracefully
+// Type for fabric objects - we use any since fabric is loaded at runtime
+// In a real implementation, you would have proper fabric.d.ts types
+type FabricObject = any;
+type FabricCanvas = any;
+type FabricPoint = { x: number; y: number };
+type FabricRect = { left: number; top: number; width: number; height: number };
 
-declare const fabric: typeof import('fabric');
+/**
+ * Helper to create a fabric Point from our Point type
+ */
+function toFabricPoint(p: Point): FabricPoint {
+  return { x: p.x, y: p.y };
+}
+
+/**
+ * Helper to convert fabric Point to our Point type
+ */
+function fromFabricPoint(fp: FabricPoint): Point {
+  return { x: fp.x, y: fp.y };
+}
+
+/**
+ * Helper to convert fabric Rect to our Rect type
+ */
+function fromFabricRect(r: FabricRect): Rect {
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
 
 /**
  * FabricCanvasEngine - Concrete implementation of CanvasEngine using Fabric.js
@@ -37,7 +62,7 @@ declare const fabric: typeof import('fabric');
  * that matches the CanvasEngine contract.
  */
 export class FabricCanvasEngine implements CanvasEngine {
-  private _canvas: fabric.Canvas | null = null;
+  private _canvas: FabricCanvas | null = null;
   private _container: HTMLElement | null = null;
   private _eventHandlers: Map<CanvasEventType, Set<CanvasEventHandler>> = new Map();
   private _initialized: boolean = false;
@@ -53,10 +78,12 @@ export class FabricCanvasEngine implements CanvasEngine {
     
     this._container = container;
     
-    // Ensure fabric is loaded
-    if (typeof fabric === 'undefined') {
+    // Ensure fabric is loaded globally
+    if (typeof (window as any).fabric === 'undefined') {
       throw new Error('Fabric.js is not loaded. Make sure to include fabric.js before initializing the engine.');
     }
+    
+    const fabric = (window as any).fabric;
     
     // Create canvas element
     const canvasEl = document.createElement('canvas');
@@ -103,12 +130,17 @@ export class FabricCanvasEngine implements CanvasEngine {
       this._canvas.clear();
       
       // Remove canvas element
-      if (this._container && this._canvas.getElement()) {
-        this._container.removeChild(this._canvas.getElement());
+      if (this._container && this._canvas.getElement) {
+        const element = this._canvas.getElement();
+        if (element && this._container.contains(element)) {
+          this._container.removeChild(element);
+        }
       }
       
       // Dispose canvas
-      this._canvas.dispose();
+      if (this._canvas.dispose) {
+        this._canvas.dispose();
+      }
       this._canvas = null;
     }
     
@@ -149,17 +181,24 @@ export class FabricCanvasEngine implements CanvasEngine {
     return `fabric-obj-${Date.now()}-${++this._objectIdCounter}`;
   }
   
-  private _ensureCanvas(): fabric.Canvas {
+  private _ensureCanvas(): FabricCanvas {
     if (!this._canvas) {
       throw new Error('Canvas not initialized. Call initialize() first.');
     }
     return this._canvas;
   }
   
+  private get _fabric(): any {
+    return (window as any).fabric;
+  }
+  
   private _setupEventForwarding(): void {
     if (!this._canvas) return;
     
-    const eventMap: Record<string, CanvasEventType> = {
+    const canvas = this._canvas;
+    
+    // Map fabric events to engine events
+    const fabricToEngineEvents: Record<string, CanvasEventType> = {
       'object:added': 'object:added',
       'object:removed': 'object:removed',
       'object:modified': 'object:modified',
@@ -179,8 +218,8 @@ export class FabricCanvasEngine implements CanvasEngine {
       'after:render': 'after:render',
     };
     
-    Object.entries(eventMap).forEach(([fabricEvent, engineEvent]) => {
-      this._canvas.on(fabricEvent as any, (e: fabric.Event) => {
+    Object.entries(fabricToEngineEvents).forEach(([fabricEvent, engineEvent]) => {
+      canvas.on(fabricEvent, (e: any) => {
         this._forwardEvent(engineEvent, e);
       });
     });
@@ -189,26 +228,27 @@ export class FabricCanvasEngine implements CanvasEngine {
   private _setupDefaultObjectProperties(): void {
     if (!this._canvas) return;
     
+    const fabric = this._fabric;
     // Set default properties for new objects
-    fabric.Object.prototype.set({
-      originX: 'center',
-      originY: 'center',
-      padding: 0,
-    });
+    if (fabric.Object && fabric.Object.prototype) {
+      fabric.Object.prototype.originX = 'center';
+      fabric.Object.prototype.originY = 'center';
+      fabric.Object.prototype.padding = 0;
+    }
   }
   
-  private _forwardEvent(type: CanvasEventType, fabricEvent: fabric.Event): void {
+  private _forwardEvent(type: CanvasEventType, fabricEvent: any): void {
     const handlers = this._eventHandlers.get(type);
     if (!handlers || handlers.size === 0) return;
     
     const event: CanvasEvent = {
       type,
       target: fabricEvent.target ? this._toCanvasObject(fabricEvent.target) : undefined,
-      targets: fabricEvent.targets ? fabricEvent.targets.map(t => this._toCanvasObject(t)) : undefined,
-      pointer: fabricEvent.pointer ? { x: fabricEvent.pointer.x, y: fabricEvent.pointer.y } : undefined,
-      absolutePointer: fabricEvent.absolutePointer ? { x: fabricEvent.absolutePointer.x, y: fabricEvent.absolutePointer.y } : undefined,
-      key: (fabricEvent as any).key,
-      keyEvent: (fabricEvent as any).e,
+      targets: fabricEvent.targets ? fabricEvent.targets.map((t: any) => this._toCanvasObject(t)) : undefined,
+      pointer: fabricEvent.pointer ? fromFabricPoint(fabricEvent.pointer) : undefined,
+      absolutePointer: fabricEvent.absolutePointer ? fromFabricPoint(fabricEvent.absolutePointer) : undefined,
+      key: fabricEvent.key,
+      keyEvent: fabricEvent.e,
       timestamp: Date.now(),
     };
     
@@ -221,7 +261,7 @@ export class FabricCanvasEngine implements CanvasEngine {
     });
   }
   
-  private _toCanvasObject(fabricObj: fabric.Object): CanvasObject {
+  private _toCanvasObject(fabricObj: FabricObject): CanvasObject {
     const base: any = {
       id: fabricObj.id || this._generateId(),
       type: fabricObj.type as CanvasObjectType,
@@ -251,61 +291,59 @@ export class FabricCanvasEngine implements CanvasEngine {
         return {
           ...base,
           type: 'rect',
-          rx: (fabricObj as fabric.Rect).rx || 0,
-          ry: (fabricObj as fabric.Rect).ry || 0,
+          rx: fabricObj.rx || 0,
+          ry: fabricObj.ry || 0,
         } as RectObject;
       
       case 'circle':
         return {
           ...base,
           type: 'circle',
-          radius: (fabricObj as fabric.Circle).radius || 0,
+          radius: fabricObj.radius || 0,
         } as CircleObject;
       
       case 'ellipse':
         return {
           ...base,
           type: 'ellipse',
-          rx: (fabricObj as fabric.Ellipse).rx || 0,
-          ry: (fabricObj as fabric.Ellipse).ry || 0,
+          rx: fabricObj.rx || 0,
+          ry: fabricObj.ry || 0,
         } as EllipseObject;
       
       case 'line':
         return {
           ...base,
           type: 'line',
-          x1: (fabricObj as fabric.Line).x1 || 0,
-          y1: (fabricObj as fabric.Line).y1 || 0,
-          x2: (fabricObj as fabric.Line).x2 || 0,
-          y2: (fabricObj as fabric.Line).y2 || 0,
+          x1: fabricObj.x1 || 0,
+          y1: fabricObj.y1 || 0,
+          x2: fabricObj.x2 || 0,
+          y2: fabricObj.y2 || 0,
         } as LineObject;
       
       case 'path':
         return {
           ...base,
           type: 'path',
-          path: typeof (fabricObj as fabric.Path).path === 'string' 
-            ? (fabricObj as fabric.Path).path 
-            : this._pathToString((fabricObj as fabric.Path).path as any[]),
-          strokeLineCap: (fabricObj as fabric.Path).strokeLineCap || 'butt',
-          strokeLineJoin: (fabricObj as fabric.Path).strokeLineJoin || 'miter',
-          fillRule: (fabricObj as fabric.Path).fillRule || 'nonzero',
+          path: typeof fabricObj.path === 'string' ? fabricObj.path : this._pathToString(fabricObj.path),
+          strokeLineCap: fabricObj.strokeLineCap || 'butt',
+          strokeLineJoin: fabricObj.strokeLineJoin || 'miter',
+          fillRule: fabricObj.fillRule || 'nonzero',
         } as PathObject;
       
       case 'text':
         return {
           ...base,
           type: 'text',
-          text: (fabricObj as fabric.Text).text || '',
-          fontSize: (fabricObj as fabric.Text).fontSize || 0,
-          fontFamily: (fabricObj as fabric.Text).fontFamily || '',
-          fontWeight: (fabricObj as fabric.Text).fontWeight || '',
-          fontStyle: (fabricObj as fabric.Text).fontStyle || 'normal',
-          textAlign: (fabricObj as fabric.Text).textAlign || 'left',
-          textBackgroundColor: (fabricObj as fabric.Text).textBackgroundColor || '',
-          lineHeight: (fabricObj as fabric.Text).lineHeight || 1,
-          charSpacing: (fabricObj as fabric.Text).charSpacing || 0,
-          styles: (fabricObj as fabric.Text).styles || {},
+          text: fabricObj.text || '',
+          fontSize: fabricObj.fontSize || 0,
+          fontFamily: fabricObj.fontFamily || '',
+          fontWeight: fabricObj.fontWeight || '',
+          fontStyle: fabricObj.fontStyle || 'normal',
+          textAlign: fabricObj.textAlign || 'left',
+          textBackgroundColor: fabricObj.textBackgroundColor || '',
+          lineHeight: fabricObj.lineHeight || 1,
+          charSpacing: fabricObj.charSpacing || 0,
+          styles: fabricObj.styles || {},
         } as TextObject;
       
       case 'textbox':
@@ -313,30 +351,30 @@ export class FabricCanvasEngine implements CanvasEngine {
         return {
           ...base,
           type: 'textbox',
-          text: (fabricObj as fabric.Textbox).text || '',
-          fontSize: (fabricObj as fabric.Textbox).fontSize || 0,
-          fontFamily: (fabricObj as fabric.Textbox).fontFamily || '',
-          fontWeight: (fabricObj as fabric.Textbox).fontWeight || '',
-          fontStyle: (fabricObj as fabric.Textbox).fontStyle || 'normal',
-          textAlign: (fabricObj as fabric.Textbox).textAlign || 'left',
-          textBackgroundColor: (fabricObj as fabric.Textbox).textBackgroundColor || '',
-          lineHeight: (fabricObj as fabric.Textbox).lineHeight || 1,
-          charSpacing: (fabricObj as fabric.Textbox).charSpacing || 0,
-          styles: (fabricObj as fabric.Textbox).styles || {},
+          text: fabricObj.text || '',
+          fontSize: fabricObj.fontSize || 0,
+          fontFamily: fabricObj.fontFamily || '',
+          fontWeight: fabricObj.fontWeight || '',
+          fontStyle: fabricObj.fontStyle || 'normal',
+          textAlign: fabricObj.textAlign || 'left',
+          textBackgroundColor: fabricObj.textBackgroundColor || '',
+          lineHeight: fabricObj.lineHeight || 1,
+          charSpacing: fabricObj.charSpacing || 0,
+          styles: fabricObj.styles || {},
         } as TextboxObject;
       
       case 'group':
         return {
           ...base,
           type: 'group',
-          objects: (fabricObj as fabric.Group).objects?.map(o => this._toCanvasObject(o)) || [],
+          objects: (fabricObj.objects || []).map((o: FabricObject) => this._toCanvasObject(o)),
         } as GroupObject;
       
       case 'image':
         return {
           ...base,
           type: 'image',
-          src: (fabricObj as fabric.Image).src || '',
+          src: fabricObj.src || '',
         } as ImageObject;
       
       default:
@@ -353,10 +391,9 @@ export class FabricCanvasEngine implements CanvasEngine {
     }).join(' ');
   }
   
-  private _toFabricObject(obj: CanvasObject): fabric.Object {
-    let fabricObj: fabric.Object;
-    
-    const commonOptions: fabric.ObjectOptions = {
+  private _toFabricObject(obj: CanvasObject): FabricObject {
+    const fabric = this._fabric;
+    const commonOptions: any = {
       id: obj.id,
       left: obj.left,
       top: obj.top,
@@ -383,49 +420,44 @@ export class FabricCanvasEngine implements CanvasEngine {
     
     switch (obj.type) {
       case 'rect':
-        fabricObj = new fabric.Rect({
+        return new fabric.Rect({
           ...commonOptions,
           rx: (obj as RectObject).rx || 0,
           ry: (obj as RectObject).ry || 0,
         });
-        break;
       
       case 'circle':
-        fabricObj = new fabric.Circle({
+        return new fabric.Circle({
           ...commonOptions,
           radius: (obj as CircleObject).radius,
         });
-        break;
       
       case 'ellipse':
-        fabricObj = new fabric.Ellipse({
+        return new fabric.Ellipse({
           ...commonOptions,
           rx: (obj as EllipseObject).rx,
           ry: (obj as EllipseObject).ry,
         });
-        break;
       
       case 'line':
-        fabricObj = new fabric.Line({
+        return new fabric.Line({
           ...commonOptions,
           x1: (obj as LineObject).x1,
           y1: (obj as LineObject).y1,
           x2: (obj as LineObject).x2,
           y2: (obj as LineObject).y2,
         });
-        break;
       
       case 'path':
-        fabricObj = new fabric.Path((obj as PathObject).path, {
+        return new fabric.Path((obj as PathObject).path, {
           ...commonOptions,
           strokeLineCap: (obj as PathObject).strokeLineCap || 'butt',
           strokeLineJoin: (obj as PathObject).strokeLineJoin || 'miter',
           fillRule: (obj as PathObject).fillRule || 'nonzero',
         });
-        break;
       
       case 'text':
-        fabricObj = new fabric.Text((obj as TextObject).text, {
+        return new fabric.Text((obj as TextObject).text, {
           ...commonOptions,
           fontSize: (obj as TextObject).fontSize || 16,
           fontFamily: (obj as TextObject).fontFamily || 'Arial',
@@ -437,10 +469,9 @@ export class FabricCanvasEngine implements CanvasEngine {
           charSpacing: (obj as TextObject).charSpacing || 0,
           styles: (obj as TextObject).styles || {},
         });
-        break;
       
       case 'textbox':
-        fabricObj = new fabric.Textbox((obj as TextboxObject).text, {
+        return new fabric.Textbox((obj as TextboxObject).text, {
           ...commonOptions,
           fontSize: (obj as TextboxObject).fontSize || 16,
           fontFamily: (obj as TextboxObject).fontFamily || 'Arial',
@@ -451,31 +482,28 @@ export class FabricCanvasEngine implements CanvasEngine {
           lineHeight: (obj as TextboxObject).lineHeight || 1,
           charSpacing: (obj as TextboxObject).charSpacing || 0,
           styles: (obj as TextboxObject).styles || {},
+          editable: true,
         });
-        break;
       
       case 'group':
         const groupObjs = (obj as GroupObject).objects.map(o => this._toFabricObject(o));
-        fabricObj = new fabric.Group(groupObjs, commonOptions);
-        break;
+        return new fabric.Group(groupObjs, commonOptions);
       
       case 'image':
-        fabricObj = new fabric.Image((obj as ImageObject).src, {
+        return new fabric.Image((obj as ImageObject).src, {
           ...commonOptions,
           crossOrigin: 'anonymous',
         });
-        break;
       
       default:
-        fabricObj = new fabric.Object(commonOptions);
+        return new fabric.Object(commonOptions);
     }
-    
-    return fabricObj;
   }
   
   // ============ Object Creation ============
   
-  createRect(options: CreateObjectOptions): RectObject {
+  createRect(options: CreateObjectOptions = {}): RectObject {
+    const fabric = this._fabric;
     const fabricObj = new fabric.Rect({
       ...options,
       id: options.id || this._generateId(),
@@ -491,6 +519,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   createCircle(options: CreateObjectOptions & { radius: number }): CircleObject {
+    const fabric = this._fabric;
     const fabricObj = new fabric.Circle({
       ...options,
       id: options.id || this._generateId(),
@@ -507,6 +536,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   createEllipse(options: CreateObjectOptions & { rx: number; ry: number }): EllipseObject {
+    const fabric = this._fabric;
     const fabricObj = new fabric.Ellipse({
       ...options,
       id: options.id || this._generateId(),
@@ -524,6 +554,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   createLine(options: CreateObjectOptions & { x1: number; y1: number; x2: number; y2: number }): LineObject {
+    const fabric = this._fabric;
     const fabricObj = new fabric.Line({
       ...options,
       id: options.id || this._generateId(),
@@ -543,6 +574,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   createPath(options: CreateObjectOptions & { path: string }): PathObject {
+    const fabric = this._fabric;
     const fabricObj = new fabric.Path(options.path, {
       ...options,
       id: options.id || this._generateId(),
@@ -561,6 +593,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   createText(options: CreateObjectOptions & { text: string }): TextObject {
+    const fabric = this._fabric;
     const fabricObj = new fabric.Text(options.text, {
       ...options,
       id: options.id || this._generateId(),
@@ -581,6 +614,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   createTextbox(options: CreateObjectOptions & { text: string }): TextboxObject {
+    const fabric = this._fabric;
     const fabricObj = new fabric.Textbox(options.text, {
       ...options,
       id: options.id || this._generateId(),
@@ -601,11 +635,12 @@ export class FabricCanvasEngine implements CanvasEngine {
     return this._toCanvasObject(fabricObj) as TextboxObject;
   }
   
-  createGroup(objects: CanvasObject[], options?: CreateObjectOptions): GroupObject {
+  createGroup(objects: CanvasObject[], options: CreateObjectOptions = {}): GroupObject {
+    const fabric = this._fabric;
     const fabricObjs = objects.map(obj => this._toFabricObject(obj));
     const fabricObj = new fabric.Group(fabricObjs, {
       ...options,
-      id: options?.id || this._generateId(),
+      id: options.id || this._generateId(),
       originX: 'center',
       originY: 'center',
     });
@@ -618,6 +653,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   async createImage(options: CreateObjectOptions & { src: string }): Promise<ImageObject> {
+    const fabric = this._fabric;
     return new Promise((resolve) => {
       const fabricObj = new fabric.Image(options.src, {
         ...options,
@@ -650,7 +686,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   removeObject(obj: CanvasObject): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         this._canvas.remove(fabricObj);
       }
@@ -659,7 +695,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   removeObjectById(id: string): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === id);
       if (fabricObj) {
         this._canvas.remove(fabricObj);
       }
@@ -669,15 +705,15 @@ export class FabricCanvasEngine implements CanvasEngine {
   removeObjects(objects: CanvasObject[]): void {
     if (this._canvas) {
       const fabricObjs = objects
-        .map(obj => this._canvas.getObjects().find(o => o.id === obj.id))
-        .filter((o): o is fabric.Object => o !== undefined);
+        .map(obj => this._canvas.getObjects().find((o: any) => o.id === obj.id))
+        .filter((o: any): o is FabricObject => o !== undefined);
       this._canvas.remove(...fabricObjs);
     }
   }
   
   getObjectById(id: string): CanvasObject | undefined {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === id);
       if (fabricObj) {
         return this._toCanvasObject(fabricObj);
       }
@@ -687,7 +723,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   getObjects(): CanvasObject[] {
     if (this._canvas) {
-      return this._canvas.getObjects().map(obj => this._toCanvasObject(obj));
+      return this._canvas.getObjects().map((obj: any) => this._toCanvasObject(obj));
     }
     return [];
   }
@@ -696,7 +732,7 @@ export class FabricCanvasEngine implements CanvasEngine {
     if (this._canvas) {
       const activeSelection = this._canvas.getActiveSelection();
       if (activeSelection) {
-        return activeSelection.getObjects().map(obj => this._toCanvasObject(obj));
+        return activeSelection.getObjects().map((obj: any) => this._toCanvasObject(obj));
       }
       const activeObject = this._canvas.getActiveObject();
       if (activeObject) {
@@ -726,7 +762,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   selectObject(obj: CanvasObject): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         this._canvas.setActiveObject(fabricObj);
         this._canvas.renderAll();
@@ -737,11 +773,12 @@ export class FabricCanvasEngine implements CanvasEngine {
   selectObjects(objects: CanvasObject[]): void {
     if (this._canvas && objects.length > 0) {
       const fabricObjs = objects
-        .map(obj => this._canvas.getObjects().find(o => o.id === obj.id))
-        .filter((o): o is fabric.Object => o !== undefined);
+        .map(obj => this._canvas.getObjects().find((o: any) => o.id === obj.id))
+        .filter((o: any): o is FabricObject => o !== undefined);
       
       if (fabricObjs.length > 0) {
-        const group = new fabric.Group(fabricObjs);
+        const Group = this._fabric.Group;
+        const group = new Group(fabricObjs);
         this._canvas.setActiveSelection(group);
         this._canvas.renderAll();
       }
@@ -750,7 +787,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   selectObjectById(id: string): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === id);
       if (fabricObj) {
         this._canvas.setActiveObject(fabricObj);
         this._canvas.renderAll();
@@ -762,7 +799,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setObjectPosition(obj: CanvasObject, left: number, top: number): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.set({ left, top });
         this._canvas.renderAll();
@@ -772,7 +809,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setObjectSize(obj: CanvasObject, width: number, height: number): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.set({ width, height });
         this._canvas.renderAll();
@@ -782,7 +819,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setObjectScale(obj: CanvasObject, scaleX: number, scaleY: number): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.set({ scaleX, scaleY });
         this._canvas.renderAll();
@@ -792,7 +829,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setObjectRotation(obj: CanvasObject, angle: number): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.set({ angle });
         this._canvas.renderAll();
@@ -802,7 +839,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setObjectOpacity(obj: CanvasObject, opacity: number): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.set({ opacity });
         this._canvas.renderAll();
@@ -812,7 +849,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setObjectFill(obj: CanvasObject, color: string): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.set({ fill: color });
         this._canvas.renderAll();
@@ -822,7 +859,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setObjectStroke(obj: CanvasObject, color: string, width: number = obj.strokeWidth || 1): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.set({ stroke: color, strokeWidth: width });
         this._canvas.renderAll();
@@ -832,7 +869,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   bringToFront(obj: CanvasObject): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.bringToFront();
         this._canvas.renderAll();
@@ -842,7 +879,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   sendToBack(obj: CanvasObject): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.sendToBack();
         this._canvas.renderAll();
@@ -852,7 +889,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   bringForward(obj: CanvasObject): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.bringForward();
         this._canvas.renderAll();
@@ -862,7 +899,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   sendBackwards(obj: CanvasObject): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.sendBackwards();
         this._canvas.renderAll();
@@ -872,7 +909,7 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setZIndex(obj: CanvasObject, zIndex: number): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         fabricObj.setZIndex(zIndex);
         this._canvas.renderAll();
@@ -885,8 +922,9 @@ export class FabricCanvasEngine implements CanvasEngine {
   groupSelected(): GroupObject | undefined {
     if (this._canvas) {
       const activeSelection = this._canvas.getActiveSelection();
-      if (activeSelection && activeSelection.getObjects().length > 0) {
-        const group = new fabric.Group(activeSelection.getObjects());
+      if (activeSelection && activeSelection.getObjects && activeSelection.getObjects().length > 0) {
+        const Group = this._fabric.Group;
+        const group = new Group(activeSelection.getObjects());
         this._canvas.remove(...activeSelection.getObjects());
         this._canvas.add(group);
         this._canvas.setActiveObject(group);
@@ -899,13 +937,13 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   ungroup(group: GroupObject): CanvasObject[] {
     if (this._canvas) {
-      const fabricGroup = this._canvas.getObjects().find(o => o.id === group.id) as fabric.Group | undefined;
-      if (fabricGroup && fabricGroup.type === 'group') {
+      const fabricGroup = this._canvas.getObjects().find((o: any) => o.id === group.id);
+      if (fabricGroup && fabricGroup.getObjects) {
         const objects = fabricGroup.getObjects();
         this._canvas.remove(fabricGroup);
         this._canvas.add(...objects);
         this._canvas.renderAll();
-        return objects.map(obj => this._toCanvasObject(obj));
+        return objects.map((obj: any) => this._toCanvasObject(obj));
       }
     }
     return [];
@@ -913,10 +951,10 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   addToGroup(group: GroupObject, obj: CanvasObject): void {
     if (this._canvas) {
-      const fabricGroup = this._canvas.getObjects().find(o => o.id === group.id) as fabric.Group | undefined;
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricGroup = this._canvas.getObjects().find((o: any) => o.id === group.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       
-      if (fabricGroup && fabricObj) {
+      if (fabricGroup && fabricGroup.add && fabricObj) {
         fabricGroup.add(fabricObj);
         this._canvas.renderAll();
       }
@@ -925,10 +963,10 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   removeFromGroup(group: GroupObject, obj: CanvasObject): void {
     if (this._canvas) {
-      const fabricGroup = this._canvas.getObjects().find(o => o.id === group.id) as fabric.Group | undefined;
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+      const fabricGroup = this._canvas.getObjects().find((o: any) => o.id === group.id);
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       
-      if (fabricGroup && fabricObj) {
+      if (fabricGroup && fabricGroup.remove && fabricObj) {
         fabricGroup.remove(fabricObj);
         this._canvas.renderAll();
       }
@@ -939,8 +977,8 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setPathData(obj: PathObject, path: string): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id) as fabric.Path | undefined;
-      if (fabricObj && fabricObj.type === 'path') {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
+      if (fabricObj && fabricObj.set) {
         fabricObj.set({ path });
         this._canvas.renderAll();
       }
@@ -949,12 +987,12 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   getPathData(obj: PathObject): string {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id) as fabric.Path | undefined;
-      if (fabricObj && fabricObj.type === 'path') {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
+      if (fabricObj) {
         if (typeof fabricObj.path === 'string') {
           return fabricObj.path;
         }
-        return this._pathToString(fabricObj.path as any[]);
+        return this._pathToString(fabricObj.path);
       }
     }
     return obj.path;
@@ -962,8 +1000,8 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   toSVG(obj: CanvasObject): string {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
-      if (fabricObj) {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
+      if (fabricObj && fabricObj.toSVG) {
         return fabricObj.toSVG();
       }
     }
@@ -974,8 +1012,8 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setText(obj: TextObject | TextboxObject, text: string): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id) as fabric.Text | fabric.Textbox | undefined;
-      if (fabricObj && (fabricObj.type === 'text' || fabricObj.type === 'textbox' || fabricObj.type === 'i-text')) {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
+      if (fabricObj && fabricObj.set) {
         fabricObj.set({ text });
         this._canvas.renderAll();
       }
@@ -984,9 +1022,9 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   getText(obj: TextObject | TextboxObject): string {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id) as fabric.Text | fabric.Textbox | undefined;
-      if (fabricObj && (fabricObj.type === 'text' || fabricObj.type === 'textbox' || fabricObj.type === 'i-text')) {
-        return fabricObj.text || '';
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
+      if (fabricObj && fabricObj.text) {
+        return fabricObj.text;
       }
     }
     return obj.text;
@@ -994,8 +1032,8 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   setFont(obj: TextObject | TextboxObject, options: { fontSize?: number; fontFamily?: string; fontWeight?: string | number; fontStyle?: 'normal' | 'italic' | 'oblique' }): void {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id) as fabric.Text | fabric.Textbox | undefined;
-      if (fabricObj && (fabricObj.type === 'text' || fabricObj.type === 'textbox' || fabricObj.type === 'i-text')) {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
+      if (fabricObj && fabricObj.set) {
         fabricObj.set({
           fontSize: options.fontSize,
           fontFamily: options.fontFamily,
@@ -1012,8 +1050,8 @@ export class FabricCanvasEngine implements CanvasEngine {
   async setImageSrc(obj: ImageObject, src: string): Promise<void> {
     return new Promise((resolve) => {
       if (this._canvas) {
-        const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id) as fabric.Image | undefined;
-        if (fabricObj && fabricObj.type === 'image') {
+        const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
+        if (fabricObj && fabricObj.setSrc) {
           fabricObj.setSrc(src, () => {
             this._canvas?.renderAll();
             resolve();
@@ -1029,14 +1067,14 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   getImageDataURL(obj: ImageObject): string {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id) as fabric.Image | undefined;
-      if (fabricObj && fabricObj.type === 'image' && fabricObj.getElement()) {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
+      if (fabricObj && fabricObj.getElement) {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (ctx) {
           canvas.width = fabricObj.width || 0;
           canvas.height = fabricObj.height || 0;
-          ctx.drawImage(fabricObj.getElement()!, 0, 0);
+          ctx.drawImage(fabricObj.getElement(), 0, 0);
           return canvas.toDataURL();
         }
       }
@@ -1046,22 +1084,22 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   // ============ Export ============
   
-  toSVG(): string {
-    if (this._canvas) {
+  exportToSVG(): string {
+    if (this._canvas && this._canvas.toSVG) {
       return this._canvas.toSVG();
     }
     return '';
   }
   
   toJSON(): any {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.toJSON) {
       return this._canvas.toJSON();
     }
     return {};
   }
   
   toDataURL(options?: { format?: 'png' | 'jpeg'; quality?: number }): string {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.toDataURL) {
       return this._canvas.toDataURL({
         format: options?.format || 'png',
         quality: options?.quality || 1,
@@ -1072,8 +1110,8 @@ export class FabricCanvasEngine implements CanvasEngine {
   
   toObjectJSON(obj: CanvasObject): any {
     if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
-      if (fabricObj) {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
+      if (fabricObj && fabricObj.toObject) {
         return fabricObj.toObject();
       }
     }
@@ -1083,25 +1121,25 @@ export class FabricCanvasEngine implements CanvasEngine {
   // ============ Clipboard ============
   
   copy(): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.copy) {
       this._canvas.copy();
     }
   }
   
   cut(): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.cut) {
       this._canvas.cut();
     }
   }
   
   paste(): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.paste) {
       this._canvas.paste();
     }
   }
   
   duplicate(): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.duplicate) {
       this._canvas.duplicate();
     }
   }
@@ -1109,29 +1147,29 @@ export class FabricCanvasEngine implements CanvasEngine {
   // ============ Undo/Redo ============
   
   undo(): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.undo) {
       this._canvas.undo();
     }
   }
   
   redo(): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.redo) {
       this._canvas.redo();
     }
   }
   
   clearUndoHistory(): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.clearUndoStack) {
       this._canvas.clearUndoStack();
     }
   }
   
   canUndo(): boolean {
-    return this._canvas?.canUndo() || false;
+    return this._canvas?.canUndo?.() || false;
   }
   
   canRedo(): boolean {
-    return this._canvas?.canRedo() || false;
+    return this._canvas?.canRedo?.() || false;
   }
   
   // ============ Event Handling ============
@@ -1168,8 +1206,8 @@ export class FabricCanvasEngine implements CanvasEngine {
   // ============ Selection ============
   
   setSelectionMode(enabled: boolean): void {
-    if (this._canvas) {
-      this._canvas.selection = enabled;
+    if (this._canvas && this._canvas.enableSelection) {
+      this._canvas.enableSelection(enabled);
     }
   }
   
@@ -1208,43 +1246,43 @@ export class FabricCanvasEngine implements CanvasEngine {
   // ============ Interaction ============
   
   setMovable(enabled: boolean): void {
-    if (this._canvas) {
-      this._canvas.movable = enabled;
+    if (this._canvas && this._canvas.enableMovable) {
+      this._canvas.enableMovable(enabled);
     }
   }
   
   setScalable(enabled: boolean): void {
-    if (this._canvas) {
-      this._canvas.scalable = enabled;
+    if (this._canvas && this._canvas.enableScalable) {
+      this._canvas.enableScalable(enabled);
     }
   }
   
   setRotatable(enabled: boolean): void {
-    if (this._canvas) {
-      this._canvas.rotatable = enabled;
+    if (this._canvas && this._canvas.enableRotatable) {
+      this._canvas.enableRotatable(enabled);
     }
   }
   
   setDeletable(enabled: boolean): void {
-    if (this._canvas) {
-      this._canvas.deletable = enabled;
+    if (this._canvas && this._canvas.enableDeletable) {
+      this._canvas.enableDeletable(enabled);
     }
   }
   
   // ============ Zoom & Pan ============
   
   getZoom(): number {
-    return this._canvas?.getZoom() || 1;
+    return this._canvas?.getZoom?.() || 1;
   }
   
   setZoom(zoom: number): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.setZoom) {
       this._canvas.setZoom(zoom);
     }
   }
   
   zoomToFit(): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.calcViewportBoundaries) {
       const objects = this._canvas.getObjects();
       if (objects.length > 0) {
         const bounds = this._canvas.calcViewportBoundaries();
@@ -1266,13 +1304,13 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   panTo(point: Point): void {
-    if (this._canvas) {
-      this._canvas.absolutePan({ x: point.x, y: point.y });
+    if (this._canvas && this._canvas.absolutePan) {
+      this._canvas.absolutePan(toFabricPoint(point));
     }
   }
   
   getViewportTransform(): { x: number; y: number; scale: number } {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.getViewportTransform) {
       const transform = this._canvas.getViewportTransform();
       return {
         x: transform[4] || 0,
@@ -1286,24 +1324,22 @@ export class FabricCanvasEngine implements CanvasEngine {
   // ============ Grid & Snapping ============
   
   enableGrid(enabled: boolean, size: number = 20): void {
-    if (this._canvas) {
-      this._canvas.enableGrid = enabled;
-      this._canvas.gridSize = size;
+    if (this._canvas && this._canvas.setGrid) {
+      this._canvas.setGrid(enabled, size);
     }
   }
   
   enableSnapping(enabled: boolean, gridSize: number = 20): void {
-    if (this._canvas) {
-      this._canvas.enableSnapping = enabled;
-      this._canvas.snapGridSize = gridSize;
+    if (this._canvas && this._canvas.setSnapping) {
+      this._canvas.setSnapping(enabled, gridSize);
     }
   }
   
   // ============ Utility ============
   
   getObjectAtPoint(point: Point): CanvasObject | undefined {
-    if (this._canvas) {
-      const fabricObj = this._canvas.getObjectAtPoint(new fabric.Point(point.x, point.y));
+    if (this._canvas && this._canvas.getObjectAtPoint) {
+      const fabricObj = this._canvas.getObjectAtPoint(toFabricPoint(point));
       if (fabricObj) {
         return this._toCanvasObject(fabricObj);
       }
@@ -1312,25 +1348,22 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   getObjectsInRect(rect: Rect): CanvasObject[] {
-    if (this._canvas) {
-      const fabricRect = new fabric.Rect({
+    if (this._canvas && this._canvas.getObjectsInRect) {
+      const fabricRect = new this._fabric.Rect({
         left: rect.left,
         top: rect.top,
         width: rect.width,
         height: rect.height,
-        absolutePositioned: true,
       });
-      const objects = this._canvas.getObjects().filter(obj => {
-        return obj.intersectsWithRect(fabricRect.getBoundingRect());
-      });
-      return objects.map(obj => this._toCanvasObject(obj));
+      const objects = this._canvas.getObjectsInRect(fromFabricRect(fabricRect.getBoundingRect()));
+      return objects.map((obj: any) => this._toCanvasObject(obj));
     }
     return [];
   }
   
   centerObject(obj: CanvasObject): void {
-    if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+    if (this._canvas && this._canvas.centerObject) {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         this._canvas.centerObject(fabricObj);
         this._canvas.renderAll();
@@ -1339,8 +1372,8 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   centerH(obj: CanvasObject): void {
-    if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+    if (this._canvas && this._canvas.centerH) {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         this._canvas.centerH(fabricObj);
         this._canvas.renderAll();
@@ -1349,8 +1382,8 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   centerV(obj: CanvasObject): void {
-    if (this._canvas) {
-      const fabricObj = this._canvas.getObjects().find(o => o.id === obj.id);
+    if (this._canvas && this._canvas.centerV) {
+      const fabricObj = this._canvas.getObjects().find((o: any) => o.id === obj.id);
       if (fabricObj) {
         this._canvas.centerV(fabricObj);
         this._canvas.renderAll();
@@ -1373,13 +1406,13 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   setBackground(color: string | null): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.setBackgroundColor) {
       this._canvas.setBackgroundColor(color || '');
     }
   }
   
   getBackground(): string | null {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.getBackgroundColor) {
       const bg = this._canvas.getBackgroundColor();
       return bg || null;
     }
@@ -1387,14 +1420,14 @@ export class FabricCanvasEngine implements CanvasEngine {
   }
   
   saveState(): string {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.toJSON) {
       return JSON.stringify(this._canvas.toJSON());
     }
     return '{}';
   }
   
   restoreState(state: string): void {
-    if (this._canvas) {
+    if (this._canvas && this._canvas.loadFromJSON) {
       try {
         const json = JSON.parse(state);
         this._canvas.loadFromJSON(json, () => {

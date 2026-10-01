@@ -443,7 +443,7 @@ export interface CanvasEngine {
   // ============ Export ============
   
   /** Export canvas to SVG string */
-  toSVG(): string;
+  exportToSVG(): string;
   
   /** Export canvas to JSON */
   toJSON(): any;

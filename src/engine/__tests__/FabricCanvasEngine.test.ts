@@ -57,7 +57,7 @@ const mockFabric = {
     centerV: vi.fn(() => {}),
     setBackgroundColor: vi.fn(() => {}),
     getBackgroundColor: () => '',
-    toSVG: () => '<svg></svg>',
+    exportToSVG: () => '<svg></svg>',
     toJSON: () => ({}),
     toDataURL: () => 'data:image/png;base64,',
     loadFromJSON: vi.fn((json, callback) => callback && callback()),
@@ -152,7 +152,7 @@ const mockFabric = {
     getBoundingRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
     getCenterPoint: () => ({ x: 0, y: 0 }),
     animate: vi.fn(() => {}),
-    toSVG: () => '<svg></svg>',
+    exportToSVG: () => '<svg></svg>',
   })),
   
   Rect: vi.fn().mockImplementation((options) => ({
@@ -710,7 +710,7 @@ describe('FabricCanvasEngine', () => {
     });
     
     it('should export canvas to SVG', () => {
-      const svg = engine.toSVG();
+      const svg = engine.exportToSVG();
       expect(svg).toBe('<svg></svg>');
     });
     

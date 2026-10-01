@@ -260,7 +260,7 @@ export class FabricMigration {
         return {
           ...base,
           type: 'rect' as const,
-        };
+        } as CanvasObject;
     }
   }
   
@@ -524,12 +524,12 @@ export class FabricMigration {
     if (this._legacyEngine) {
       // For legacy engine, we need to remove and re-add
       this._legacyEngine.removeObjectById(obj.id);
-      this._legacyEngine.addObject(updated);
+      this._legacyEngine.addObject(updated as CanvasObject);
     }
     
     if (this._fabricEngine) {
       this._fabricEngine.removeObjectById(obj.id);
-      this._fabricEngine.addObject(updated);
+      this._fabricEngine.addObject(updated as CanvasObject);
     }
   }
   

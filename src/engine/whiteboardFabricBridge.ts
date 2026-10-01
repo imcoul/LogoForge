@@ -423,7 +423,7 @@ export class WhiteboardFabricBridge {
       throw new Error('Fabric engine not initialized');
     }
     
-    return this._fabricEngine.toSVG();
+    return this._fabricEngine.exportToSVG();
   }
   
   /**
