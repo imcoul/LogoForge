@@ -149,6 +149,13 @@ export class FabricCanvasEngine implements CanvasEngine {
     this._eventHandlers.clear();
   }
   
+  getCanvasElement(): HTMLElement | null {
+    if (this._canvas && this._canvas.getElement) {
+      return this._canvas.getElement();
+    }
+    return null;
+  }
+  
   resize(width: number, height: number): void {
     if (this._canvas) {
       this._canvas.setDimensions({ width, height });

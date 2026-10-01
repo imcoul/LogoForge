@@ -271,6 +271,9 @@ export interface CanvasEngine {
   /** Destroy the canvas and clean up resources */
   destroy(): Promise<void>;
   
+  /** Get the underlying canvas element */
+  getCanvasElement(): HTMLElement | null;
+  
   /** Resize the canvas */
   resize(width: number, height: number): void;
   
