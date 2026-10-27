@@ -35,6 +35,7 @@ interface SVGPathEditorProps {
   onChange?: (newSvg: string, throttleCloud?: boolean, options?: { preserveSharedRedo?: boolean }) => void;
   onLinkExistingPathToWhiteboard?: (nodeId: string, sketch: WhiteboardSketch) => Promise<boolean>;
   onDeleteSharedPath?: (nodeId: string) => Promise<boolean>;
+  onUpdateSharedPath?: (nodeId: string, candidateSvg: string, baseSvg?: string, throttleCloud?: boolean) => Promise<boolean>;
   onSharedUndo?: () => Promise<boolean>;
   onSharedRedo?: () => Promise<boolean>;
   canUndoShared?: boolean;
@@ -54,6 +55,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   onChange,
   onLinkExistingPathToWhiteboard,
   onDeleteSharedPath,
+  onUpdateSharedPath,
   onSharedUndo,
   onSharedRedo,
   canUndoShared = false,
@@ -306,11 +308,49 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     setNodes(parsedNodes);
   }, [parsedPaths, selectedPathNodeId]);
 
+  const restoreFromLatestProjectSvg = (preferredNodeId: string | null) => {
+    const state = useAppStore.getState();
+    const currentProject = state.projects.find((project) => project.id === state.activeProjectId);
+    const source = currentProject?.svgSource || '';
+    const currentPaths = listEditablePaths(source);
+    const nextSelectedId = currentPaths.some((path) => path.nodeId === preferredNodeId)
+      ? preferredNodeId
+      : currentPaths[0]?.nodeId ?? null;
+    const currentPath = currentPaths.find((path) => path.nodeId === nextSelectedId);
+
+    lastObservedSvgRef.current = source;
+    lastLocalSvgUpdateRef.current = null;
+    setLocalSvg(source);
+    setParsedPaths(currentPaths);
+    setSelectedPathNodeId(nextSelectedId);
+    setNodes(currentPath ? toEditorNodes(currentPath.d) : []);
+    setUndoStack([]);
+    setRedoStack([]);
+  };
+
   // Push new SVG to parent and update internal undo history
-  const pushSvgChange = (nextSvg: string, throttleCloud?: boolean) => {
+  const pushSvgChange = (nextSvg: string, throttleCloud?: boolean, forceSharedUpdate = false) => {
     if (!actualOnUpdateSvg || !actualSvgSource) return;
     if (nextSvg === actualSvgSource) return;
     if (!sharedWhiteboardPathsUnchanged(actualSvgSource, nextSvg)) {
+      if (!forceSharedUpdate && (draggedNode !== null || isTranslatingPath)) {
+        setLocalSvg(nextSvg);
+        return;
+      }
+      if (onUpdateSharedPath && selectedPathNodeId) {
+        void onUpdateSharedPath(selectedPathNodeId, nextSvg, actualSvgSource, throttleCloud)
+          .then((applied) => {
+            if (!applied) {
+              restoreFromLatestProjectSvg(selectedPathNodeId);
+              toast('The shared path or document changed before this edit could be applied; the latest version was restored.', 'info');
+            }
+          })
+          .catch(() => {
+            restoreFromLatestProjectSvg(selectedPathNodeId);
+            toast('The shared path update could not be saved; the latest version was restored.', 'info');
+          });
+        return;
+      }
       toast('Shared Whiteboard paths are read-only in the Precision editor for now; use shared Undo/Redo.', 'info');
       return;
     }
@@ -1589,7 +1629,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       if (isTranslatingPath) {
         if (nodes.length > 0 && selectedPathNodeId !== null) {
           const finalSvg = getSvgWithUpdatedNodes(nodes);
-          pushSvgChange(finalSvg, false);
+          pushSvgChange(finalSvg, false, true);
         }
         setIsTranslatingPath(false);
         setTranslateStart(null);
@@ -1601,7 +1641,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
         if (nodes.length > 0 && selectedPathNodeId !== null) {
           const finalSvg = getSvgWithUpdatedNodes(nodes);
           // Layer 2: durable final save to Firestore and full sync message
-          pushSvgChange(finalSvg, false);
+          pushSvgChange(finalSvg, false, true);
         }
         if (onGhostSync) {
           onGhostSync(null); // Clear active ghost point
@@ -2413,6 +2453,19 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                     ))}
                   </div>
                 </div>
+                {selectedPath && (
+                  <button
+                    onClick={() => updatePathById(selectedPath.nodeId, {
+                      stroke: activeStrokeColor,
+                      fill: activeFillColor,
+                      strokeWidth: activeStrokeWidth,
+                    })}
+                    className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                    title="Apply active stroke, fill, and width to selected path"
+                  >
+                    Apply style to selected path
+                  </button>
+                )}
               </div>
             )}
 

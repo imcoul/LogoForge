@@ -13,6 +13,7 @@ import { KeyboardManager } from './components/KeyboardManager';
 import { lazyNamed, ChunkBoundary } from './lazyNamed';
 import {
   createSharedVectorHistoryController,
+  mergeLocalSharedHistoryIntoRemoteProject,
   sharedWhiteboardPathsUnchanged,
   SHARED_WHITEBOARD_SKETCH_PREFIX,
 } from './engine/sharedVectorHistory';
@@ -237,9 +238,11 @@ export default function App() {
     options?: { recordLogoHistory?: boolean; preserveSharedRedo?: boolean },
   ) => {
     if (!activeProjectId) return;
+    const projectBeforeUpdate = useAppStore.getState().projects.find((project) => project.id === activeProjectId);
+    if (!projectBeforeUpdate) return;
     const nextSvgSource = typeof updates.svgSource === 'string' ? updates.svgSource : null;
-    const isSvgSourceChange = nextSvgSource !== null && nextSvgSource !== activeProject?.svgSource;
-    const hasSharedWhiteboardPath = activeProject?.whiteboardSketches?.some((sketch) =>
+    const isSvgSourceChange = nextSvgSource !== null && nextSvgSource !== projectBeforeUpdate.svgSource;
+    const hasSharedWhiteboardPath = projectBeforeUpdate.whiteboardSketches?.some((sketch) =>
       sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX),
     ) ?? false;
     if (
@@ -248,7 +251,7 @@ export default function App() {
       options?.recordLogoHistory !== false &&
       options?.preserveSharedRedo !== true &&
       nextSvgSource !== null &&
-      !sharedWhiteboardPathsUnchanged(activeProject?.svgSource ?? '', nextSvgSource)
+      !sharedWhiteboardPathsUnchanged(projectBeforeUpdate.svgSource ?? '', nextSvgSource)
     ) {
       toast('Shared Whiteboard paths are read-only until edits are recorded as shared commands.', 'info');
       return;
@@ -259,9 +262,9 @@ export default function App() {
     // Maintain logoHistory stack for Undo (Batch 1 feature)
     const nextUpdates = { ...updates };
     if (isSvgSourceChange) {
-      const history = activeProject?.logoHistory || [];
-      if (options?.recordLogoHistory !== false && activeProject?.svgSource) {
-        nextUpdates.logoHistory = [...history, activeProject.svgSource];
+      const history = projectBeforeUpdate.logoHistory || [];
+      if (options?.recordLogoHistory !== false && projectBeforeUpdate.svgSource) {
+        nextUpdates.logoHistory = [...history, projectBeforeUpdate.svgSource];
       }
       if (nextSvgSource) nextUpdates.logoUrl = `data:image/svg+xml;utf8,${encodeURIComponent(nextSvgSource)}`;
       if (options?.recordLogoHistory !== false && options?.preserveSharedRedo !== true) {
@@ -275,11 +278,9 @@ export default function App() {
     setSaveLatencyMs(parseFloat(duration.toFixed(2)));
     setTimeout(() => setIsSaving(false), 800);
 
-    const mergedProject = {
-      ...activeProject,
-      ...nextUpdates,
-      updatedAt: Date.now()
-    } as Project;
+    const latestProject = useAppStore.getState().projects.find((project) => project.id === activeProjectId);
+    if (!latestProject) return;
+    const mergedProject = { ...latestProject, updatedAt: Date.now() };
 
     // Trigger Cloud Backups/Mirrors if configured
     // Trigger Cloud Backups/Mirrors
@@ -318,33 +319,31 @@ export default function App() {
   // Undo shared vector commands first; retain snapshot undo for unrelated legacy edits.
   const handleUndoLogo = async () => {
     if (await sharedVectorHistory.undo()) return;
-    if (!activeProject || !activeProject.logoHistory || activeProject.logoHistory.length === 0) return;
-    const history = [...activeProject.logoHistory];
+    const projectId = useAppStore.getState().activeProjectId;
+    const project = useAppStore.getState().projects.find((candidate) => candidate.id === projectId);
+    if (!project || !project.logoHistory || project.logoHistory.length === 0) return;
+    const history = [...project.logoHistory];
     const prevSvg = history.pop();
     if (prevSvg) {
-      const hasSharedWhiteboardPath = activeProject.whiteboardSketches?.some((sketch) =>
+      const hasSharedWhiteboardPath = project.whiteboardSketches?.some((sketch) =>
         sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX),
       ) ?? false;
-      if (hasSharedWhiteboardPath && !sharedWhiteboardPathsUnchanged(activeProject.svgSource ?? '', prevSvg)) {
+      if (hasSharedWhiteboardPath && !sharedWhiteboardPathsUnchanged(project.svgSource ?? '', prevSvg)) {
         toast('Snapshot undo would desynchronize a shared Whiteboard path; use shared Undo instead.', 'info');
         return;
       }
       const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(prevSvg)}`;
-      updateProject(activeProjectId!, {
+      await updateProject(project.id, {
         svgSource: prevSvg,
         logoUrl: dataUrl,
         logoHistory: history
       });
+      const latestProject = useAppStore.getState().projects.find((candidate) => candidate.id === project.id);
       // Broadcast undo
-      if (socket && socket.readyState === WebSocket.OPEN) {
+      if (latestProject && socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({
           type: 'sync',
-          projectState: {
-            ...activeProject,
-            svgSource: prevSvg,
-            logoUrl: dataUrl,
-            logoHistory: history
-          }
+          projectState: { ...latestProject, updatedAt: Date.now() }
         }));
       }
     }
@@ -473,6 +472,15 @@ export default function App() {
       };
 
       ws.onmessage = (event) => {
+        const applyRemoteProjectState = (remoteProject: Project) => {
+          const targetProjectId = useAppStore.getState().activeProjectId;
+          if (!targetProjectId || remoteProject.id !== targetProjectId) return;
+          const mergedProject = mergeLocalSharedHistoryIntoRemoteProject(remoteProject);
+          void updateProject(targetProjectId, mergedProject, 'skip');
+          if (mergedProject !== remoteProject && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'sync', projectState: mergedProject }));
+          }
+        };
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'error') {
@@ -482,7 +490,7 @@ export default function App() {
           if (msg.type === 'welcome') {
             setActiveUsers(msg.activeUsers || []);
             if (msg.projectState) {
-              updateProject(activeProjectId, msg.projectState, 'skip');
+              applyRemoteProjectState(msg.projectState);
             }
           } else if (msg.type === 'user_joined') {
             setActiveUsers(msg.activeUsers || []);
@@ -495,7 +503,7 @@ export default function App() {
             });
           } else if (msg.type === 'sync') {
             if (msg.projectState) {
-              updateProject(activeProjectId, msg.projectState, 'skip');
+              applyRemoteProjectState(msg.projectState);
             }
           } else if (msg.type === 'ghost_sync') {
             const store = useAppStore.getState();

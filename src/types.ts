@@ -99,6 +99,9 @@ export type SharedWhiteboardLinkCommand = {
   previousNodeIdMarker?: string;
 };
 
+/** One stable container on the path from the SVG root to a nested shared path. */
+export type SharedVectorParentPathEntry = { nodeId: string; index: number; context: string };
+
 /** A reversible deletion of a shared SVG path and its Whiteboard mirror. */
 export type SharedWhiteboardDeleteCommand = {
   kind: 'delete-path';
@@ -107,7 +110,23 @@ export type SharedWhiteboardDeleteCommand = {
   nodeId: string;
   node: Node;
   sketch: WhiteboardSketch;
-  parentPath: Array<{ nodeId: string; index: number; context: string }>;
+  parentPath: SharedVectorParentPathEntry[];
+  nodeIndex: number;
+  sketchIndex: number;
+};
+
+/** A reversible geometry/presentation update for one shared SVG path and Whiteboard mirror. */
+export type SharedWhiteboardUpdateCommand = {
+  kind: 'update-path';
+  commandId: string;
+  projectId: string;
+  nodeId: string;
+  sketchId: string;
+  beforeNode: Node;
+  afterNode: Node;
+  beforeSketch: WhiteboardSketch;
+  afterSketch: WhiteboardSketch;
+  parentPath: SharedVectorParentPathEntry[];
   nodeIndex: number;
   sketchIndex: number;
 };
@@ -115,7 +134,8 @@ export type SharedWhiteboardDeleteCommand = {
 export type SharedWhiteboardCommand =
   | SharedWhiteboardPathCommand
   | SharedWhiteboardLinkCommand
-  | SharedWhiteboardDeleteCommand;
+  | SharedWhiteboardDeleteCommand
+  | SharedWhiteboardUpdateCommand;
 
 export type SharedVectorHistory = {
   commands: SharedWhiteboardCommand[];

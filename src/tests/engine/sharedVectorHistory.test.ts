@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { deletePathById, listEditablePaths, replacePathDataById } from '../../engine/pathEditorBridge';
+import { deletePathById, listEditablePaths, replacePathDataById, updatePathStyleById } from '../../engine/pathEditorBridge';
 import {
   applySharedWhiteboardDeleteCommand,
   applySharedWhiteboardLinkCommand,
@@ -8,11 +8,15 @@ import {
   createSharedWhiteboardDeleteCommand,
   createSharedWhiteboardLinkCommand,
   createSharedWhiteboardPathCommand,
+  createSharedWhiteboardUpdateCommand,
+  mergeLocalSharedHistoryIntoRemoteProject,
   preserveSharedWhiteboardSketches,
   sharedWhiteboardPathsUnchanged,
   undoSharedWhiteboardDeleteCommand,
   undoSharedWhiteboardLinkCommand,
   undoSharedWhiteboardPathCommand,
+  undoSharedWhiteboardUpdateCommand,
+  applySharedWhiteboardUpdateCommand,
 } from '../../engine/sharedVectorHistory';
 import { parseSvg, serializeSvg } from '../../engine/svgIo';
 import { useAppStore, type Project } from '../../store';
@@ -473,6 +477,352 @@ describe('shared whiteboard path command history', () => {
       sharedSvg,
       replacePathDataById(sharedSvg, 'existing', 'M 0,0 L 6,6'),
     )).toBe(true);
+  });
+
+  it('applies and reverses a shared path geometry/style update without changing document siblings', () => {
+    const project = makeProject();
+    const sketch = makeSketch('shared-wb-update');
+    const addCommand = createSharedWhiteboardPathCommand(project, sketch, 'add-before-update');
+    const withSharedPath = { ...project, ...applySharedWhiteboardPathCommand(project, addCommand!)! };
+    const candidateSvg = updatePathStyleById(
+      replacePathDataById(withSharedPath.svgSource, addCommand!.nodeId, 'M 12,12 L 44,44'),
+      addCommand!.nodeId,
+      { stroke: '#e11d48', fill: '#abcdef', strokeWidth: 7 },
+    );
+    const command = createSharedWhiteboardUpdateCommand(withSharedPath, addCommand!.nodeId, candidateSvg, 'update-1');
+    expect(command).toMatchObject({ kind: 'update-path', sketchId: sketch.id, nodeIndex: 1, sketchIndex: 0 });
+
+    const applied = applySharedWhiteboardUpdateCommand(withSharedPath, command!);
+    expect(applied).not.toBeNull();
+    const updatedPath = listEditablePaths(applied!.svgSource).find((path) => path.nodeId === addCommand!.nodeId);
+    expect(updatedPath).toMatchObject({ d: 'M 12,12 L 44,44', stroke: '#e11d48', fill: '#abcdef', strokeWidth: 7 });
+    expect(applied!.whiteboardSketches).toEqual([{
+      ...sketch,
+      path: 'M 12,12 L 44,44',
+      color: '#e11d48',
+      fillColor: '#abcdef',
+      strokeWidth: 7,
+    }]);
+    expect(listEditablePaths(applied!.svgSource).map((path) => path.nodeId)).toEqual(['existing', addCommand!.nodeId]);
+
+    const undone = undoSharedWhiteboardUpdateCommand({ ...withSharedPath, ...applied }, command!);
+    expect(undone).not.toBeNull();
+    expect(listEditablePaths(undone!.svgSource)).toEqual(listEditablePaths(withSharedPath.svgSource));
+    expect(undone!.whiteboardSketches).toEqual([sketch]);
+
+    const redone = applySharedWhiteboardUpdateCommand({ ...withSharedPath, ...undone }, command!);
+    expect(redone).not.toBeNull();
+    expect(listEditablePaths(redone!.svgSource)).toEqual(listEditablePaths(applied!.svgSource));
+    expect(redone!.whiteboardSketches).toEqual(applied!.whiteboardSketches);
+  });
+
+  it('rejects multi-target/stale updates and validates the original nested parent context', () => {
+    const project = makeProject();
+    const sketch = makeSketch('shared-wb-update-safe');
+    const addCommand = createSharedWhiteboardPathCommand(project, sketch, 'add-before-update-safe');
+    const withSharedPath = { ...project, ...applySharedWhiteboardPathCommand(project, addCommand!)! };
+    const candidateSvg = replacePathDataById(withSharedPath.svgSource, addCommand!.nodeId, 'M 11,11 L 41,41');
+
+    const changedSiblingSvg = updatePathStyleById(candidateSvg, 'existing', { stroke: '#ff0000' });
+    expect(createSharedWhiteboardUpdateCommand(withSharedPath, addCommand!.nodeId, changedSiblingSvg)).toBeNull();
+    const changedRoot = parseSvg(candidateSvg);
+    changedRoot.rootAttrs.viewBox = '1 1 398 398';
+    expect(createSharedWhiteboardUpdateCommand(withSharedPath, addCommand!.nodeId, serializeSvg(changedRoot))).toBeNull();
+
+    const command = createSharedWhiteboardUpdateCommand(withSharedPath, addCommand!.nodeId, candidateSvg, 'update-safe');
+    const applied = applySharedWhiteboardUpdateCommand(withSharedPath, command!);
+    const tamperedNodeCommand = {
+      ...command!,
+      afterNode: { ...command!.afterNode, transformRaw: 'rotate(12)' },
+    };
+    expect(applySharedWhiteboardUpdateCommand(withSharedPath, tamperedNodeCommand)).toBeNull();
+    const tamperedSketchCommand = {
+      ...command!,
+      afterSketch: { ...command!.afterSketch, color: '#00ff00' },
+    };
+    expect(applySharedWhiteboardUpdateCommand(withSharedPath, tamperedSketchCommand)).toBeNull();
+    const staleDoc = parseSvg(applied!.svgSource);
+    staleDoc.nodes.find((node) => node.attrs?.['data-logoforge-node-id'] === addCommand!.nodeId)!.props!.d = 'M 1,1 L 99,99';
+    expect(undoSharedWhiteboardUpdateCommand({ ...withSharedPath, ...applied, svgSource: serializeSvg(staleDoc) }, command!))
+      .toBeNull();
+
+    const nestedProject = {
+      ...makeProject(),
+      svgSource: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><g id="outer" transform="translate(5 6)"><g id="inner"><path id="nested" d="M0 0 L5 5" /></g></g></svg>',
+    };
+    const nestedSketch = { ...makeSketch('shared-wb-update-nested'), path: 'M0 0 L5 5', locked: true };
+    const linkCommand = createSharedWhiteboardLinkCommand(nestedProject, 'nested', nestedSketch, 'nested-link-update');
+    const linked = { ...nestedProject, ...applySharedWhiteboardLinkCommand(nestedProject, linkCommand!)! };
+    const nestedCandidate = replacePathDataById(linked.svgSource, 'nested', 'M1 1 L6 6');
+    const nestedCommand = createSharedWhiteboardUpdateCommand(linked, 'nested', nestedCandidate, 'nested-update');
+    expect(nestedCommand?.parentPath.map((step) => step.nodeId)).toEqual(['outer', 'inner']);
+    const nestedApplied = applySharedWhiteboardUpdateCommand(linked, nestedCommand!);
+    const changedParentDoc = parseSvg(nestedApplied!.svgSource);
+    changedParentDoc.nodes.find((node) => node.id === 'outer')!.transformRaw = 'translate(9 10)';
+    expect(undoSharedWhiteboardUpdateCommand({ ...linked, ...nestedApplied, svgSource: serializeSvg(changedParentDoc) }, nestedCommand!))
+      .toBeNull();
+    const nestedUndo = undoSharedWhiteboardUpdateCommand({ ...linked, ...nestedApplied }, nestedCommand!);
+    expect(nestedUndo).not.toBeNull();
+    expect(listEditablePaths(nestedUndo!.svgSource).find((path) => path.nodeId === 'nested')?.d).toBe('M0 0 L5 5');
+    expect(nestedUndo!.whiteboardSketches).toEqual([nestedSketch]);
+  });
+
+  it('serializes rapid shared updates and rebases independent geometry/style fields', async () => {
+    const setupHistory = createSharedVectorHistoryController(commitToStore);
+    const sketch = makeSketch('shared-wb-serialized-update');
+    expect(await setupHistory.addWhiteboardPath(sketch)).toBe(true);
+    const baseSvg = useAppStore.getState().projects[0].svgSource!;
+    const nodeId = `whiteboard-${sketch.id}`;
+
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    let markFirstStarted!: () => void;
+    let markSecondStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { markFirstStarted = resolve; });
+    const secondStarted = new Promise<void>((resolve) => { markSecondStarted = resolve; });
+    let commitCount = 0;
+    let secondPendingUpdates: Partial<Project> | null = null;
+    const delayedCommit = (updates: Partial<Project>) => new Promise<void>((resolve) => {
+      commitCount += 1;
+      const release = (
+        markStarted: () => void,
+        setRelease: (callback: () => void) => void,
+        afterPersist?: () => Promise<void>,
+      ) => {
+        setRelease(() => {
+          void commitToStore(updates).then(async () => {
+            if (afterPersist) await afterPersist();
+            resolve();
+          });
+        });
+        markStarted();
+      };
+      if (commitCount === 1) release(markFirstStarted, (callback) => { releaseFirst = callback; }, async () => {
+        const currentSvg = useAppStore.getState().projects[0].svgSource!;
+        const concurrentDoc = parseSvg(currentSvg);
+        concurrentDoc.defs = '<defs><linearGradient id="unrelated-gradient"></linearGradient></defs>';
+        await commitToStore({
+          svgSource: replacePathDataById(serializeSvg(concurrentDoc), 'existing', 'M 2,2 L 8,8'),
+        });
+      });
+      else if (commitCount === 2) {
+        secondPendingUpdates = updates;
+        release(markSecondStarted, (callback) => { releaseSecond = callback; });
+      }
+      else void commitToStore(updates).then(resolve);
+    });
+    const history = createSharedVectorHistoryController(delayedCommit);
+    const styleCandidate = updatePathStyleById(baseSvg, nodeId, { stroke: '#e11d48' });
+    const geometryCandidate = replacePathDataById(baseSvg, nodeId, 'M 20,20 L 50,50');
+    const styleUpdate = history.updateSharedWhiteboardPath(nodeId, styleCandidate, baseSvg);
+    const geometryUpdate = history.updateSharedWhiteboardPath(nodeId, geometryCandidate, baseSvg);
+
+    await firstStarted;
+    expect(commitCount).toBe(1);
+    releaseFirst();
+    await secondStarted;
+    expect(commitCount).toBe(2);
+    const queuedGeometry = listEditablePaths(secondPendingUpdates?.svgSource ?? '')
+      .find((path) => path.nodeId === nodeId);
+    expect(queuedGeometry).toMatchObject({ d: 'M 20,20 L 50,50', stroke: '#e11d48' });
+    expect(listEditablePaths(secondPendingUpdates?.svgSource ?? '').find((path) => path.nodeId === 'existing')?.d)
+      .toBe('M 2,2 L 8,8');
+    releaseSecond();
+
+    expect(await Promise.all([styleUpdate, geometryUpdate])).toEqual([true, true]);
+    expect(useAppStore.getState().sharedVectorHistoryByProject['project-1']).toMatchObject({ index: 2 });
+    expect(useAppStore.getState().projects[0].whiteboardSketches?.[0]).toMatchObject({
+      path: 'M 20,20 L 50,50',
+      color: '#e11d48',
+    });
+    expect(listEditablePaths(useAppStore.getState().projects[0].svgSource).find((path) => path.nodeId === 'existing')?.d)
+      .toBe('M 2,2 L 8,8');
+    expect(useAppStore.getState().projects[0].svgSource).toContain('unrelated-gradient');
+
+    expect(await history.undo()).toBe(true);
+    expect(useAppStore.getState().projects[0].whiteboardSketches?.[0]).toMatchObject({
+      path: sketch.path,
+      color: '#e11d48',
+    });
+    expect(await history.undo()).toBe(true);
+    expect(useAppStore.getState().projects[0].whiteboardSketches?.[0]).toEqual(sketch);
+    expect(listEditablePaths(useAppStore.getState().projects[0].svgSource).find((path) => path.nodeId === 'existing')?.d)
+      .toBe('M 2,2 L 8,8');
+  });
+
+  it('merges locally applied and undone shared commands onto remote snapshots', async () => {
+    const history = createSharedVectorHistoryController(commitToStore);
+    const sketch = makeSketch('shared-wb-remote-merge');
+    expect(await history.addWhiteboardPath(sketch)).toBe(true);
+    const projectAfterAdd = useAppStore.getState().projects[0];
+    const staleRemoteBeforeAdd = { ...makeProject(), description: 'remote description' };
+
+    const mergedApplied = mergeLocalSharedHistoryIntoRemoteProject(staleRemoteBeforeAdd);
+    expect(mergedApplied.description).toBe('remote description');
+    expect(mergedApplied.whiteboardSketches).toEqual([sketch]);
+    expect(listEditablePaths(mergedApplied.svgSource).some((path) => path.nodeId === `whiteboard-${sketch.id}`)).toBe(true);
+
+    expect(await history.undo()).toBe(true);
+    const mergedUndone = mergeLocalSharedHistoryIntoRemoteProject({
+      ...projectAfterAdd,
+      description: 'newer remote description',
+    });
+    expect(mergedUndone.description).toBe('newer remote description');
+    expect(mergedUndone.whiteboardSketches ?? []).toEqual(useAppStore.getState().projects[0].whiteboardSketches ?? []);
+    expect(listEditablePaths(mergedUndone.svgSource)).toHaveLength(1);
+  });
+
+  it('replays and undoes shared updates after a remote sibling shifts the target index', async () => {
+    const history = createSharedVectorHistoryController(commitToStore);
+    const sketch = makeSketch('shared-wb-reordered-update');
+    expect(await history.addWhiteboardPath(sketch)).toBe(true);
+    const projectBeforeUpdate = useAppStore.getState().projects[0];
+    const nodeId = `whiteboard-${sketch.id}`;
+    const candidate = updatePathStyleById(projectBeforeUpdate.svgSource!, nodeId, { stroke: '#e11d48' });
+    expect(await history.updateSharedWhiteboardPath(nodeId, candidate, projectBeforeUpdate.svgSource!)).toBe(true);
+
+    const remoteDoc = parseSvg(projectBeforeUpdate.svgSource!);
+    const targetIndex = remoteDoc.nodes.findIndex((node) => node.id === nodeId || node.attrs?.['data-logoforge-node-id'] === nodeId);
+    remoteDoc.nodes.splice(targetIndex, 0, {
+      id: 'remote-sibling',
+      type: 'path',
+      transform: { ...IDENTITY_TRANSFORM },
+      props: { d: 'M 1,1 L 2,2' },
+      style: { stroke: '#222222' },
+    });
+    const merged = mergeLocalSharedHistoryIntoRemoteProject({
+      ...projectBeforeUpdate,
+      svgSource: serializeSvg(remoteDoc),
+      description: 'remote sibling was inserted',
+    });
+
+    expect(merged.description).toBe('remote sibling was inserted');
+    expect(listEditablePaths(merged.svgSource).map((path) => path.nodeId)).toContain('remote-sibling');
+    expect(listEditablePaths(merged.svgSource).find((path) => path.nodeId === nodeId)?.stroke).toBe('#e11d48');
+    expect(merged.whiteboardSketches?.[0].color).toBe('#e11d48');
+
+    useAppStore.setState((state) => ({
+      projects: state.projects.map((project) => project.id === merged.id ? merged : project),
+    }));
+    expect(await history.undo()).toBe(true);
+    expect(listEditablePaths(useAppStore.getState().projects[0].svgSource).find((path) => path.nodeId === nodeId)?.stroke)
+      .toBe('#123456');
+    expect(listEditablePaths(useAppStore.getState().projects[0].svgSource).map((path) => path.nodeId)).toContain('remote-sibling');
+  });
+
+  it('replays and undoes shared deletion after a remote sibling shifts the target index', async () => {
+    const history = createSharedVectorHistoryController(commitToStore);
+    const sketch = makeSketch('shared-wb-reordered-delete');
+    expect(await history.addWhiteboardPath(sketch)).toBe(true);
+    const projectBeforeDelete = useAppStore.getState().projects[0];
+    const nodeId = `whiteboard-${sketch.id}`;
+    expect(await history.deleteSharedWhiteboardPath(nodeId)).toBe(true);
+
+    const remoteDoc = parseSvg(projectBeforeDelete.svgSource!);
+    const targetIndex = remoteDoc.nodes.findIndex((node) => node.id === nodeId || node.attrs?.['data-logoforge-node-id'] === nodeId);
+    remoteDoc.nodes.splice(targetIndex, 0, {
+      id: 'remote-sibling',
+      type: 'path',
+      transform: { ...IDENTITY_TRANSFORM },
+      props: { d: 'M 1,1 L 2,2' },
+      style: { stroke: '#222222' },
+    });
+    const merged = mergeLocalSharedHistoryIntoRemoteProject({
+      ...projectBeforeDelete,
+      svgSource: serializeSvg(remoteDoc),
+      description: 'remote sibling was inserted',
+    });
+
+    expect(merged.description).toBe('remote sibling was inserted');
+    expect(listEditablePaths(merged.svgSource).map((path) => path.nodeId)).toEqual(['existing', 'remote-sibling']);
+    expect(merged.whiteboardSketches).toEqual([]);
+
+    useAppStore.setState((state) => ({
+      projects: state.projects.map((project) => project.id === merged.id ? merged : project),
+    }));
+    expect(await history.undo()).toBe(true);
+    expect(listEditablePaths(useAppStore.getState().projects[0].svgSource).map((path) => path.nodeId)).toContain(nodeId);
+    expect(listEditablePaths(useAppStore.getState().projects[0].svgSource).map((path) => path.nodeId)).toContain('remote-sibling');
+    expect(useAppStore.getState().projects[0].whiteboardSketches).toEqual([sketch]);
+  });
+
+  it('preserves a pending shared update when a remote snapshot arrives before its journal record', async () => {
+    const setupHistory = createSharedVectorHistoryController(commitToStore);
+    const sketch = makeSketch('shared-wb-pending-remote-merge');
+    expect(await setupHistory.addWhiteboardPath(sketch)).toBe(true);
+    const projectBeforeUpdate = useAppStore.getState().projects[0];
+    const nodeId = `whiteboard-${sketch.id}`;
+    let mergedDuringCommit: Project | null = null;
+    const delayedCommit = async (updates: Partial<Project>) => {
+      await commitToStore(updates);
+      mergedDuringCommit = mergeLocalSharedHistoryIntoRemoteProject({
+        ...projectBeforeUpdate,
+        description: 'remote edit received during commit',
+      });
+    };
+    const updateHistory = createSharedVectorHistoryController(delayedCommit);
+    const candidate = updatePathStyleById(projectBeforeUpdate.svgSource!, nodeId, { stroke: '#e11d48' });
+
+    expect(await updateHistory.updateSharedWhiteboardPath(nodeId, candidate, projectBeforeUpdate.svgSource!)).toBe(true);
+    expect(mergedDuringCommit?.description).toBe('remote edit received during commit');
+    expect(listEditablePaths(mergedDuringCommit?.svgSource ?? '').find((path) => path.nodeId === nodeId)?.stroke)
+      .toBe('#e11d48');
+    expect(mergedDuringCommit?.whiteboardSketches?.[0].color).toBe('#e11d48');
+  });
+
+  it('does not record a pending update when a remote snapshot conflicts on the same shared path', async () => {
+    const setupHistory = createSharedVectorHistoryController(commitToStore);
+    const sketch = makeSketch('shared-wb-conflicting-remote-merge');
+    expect(await setupHistory.addWhiteboardPath(sketch)).toBe(true);
+    const projectBeforeUpdate = useAppStore.getState().projects[0];
+    const nodeId = `whiteboard-${sketch.id}`;
+    const remotePathData = 'M 100,100 L 140,140';
+    const remoteConflict: Project = {
+      ...projectBeforeUpdate,
+      svgSource: replacePathDataById(projectBeforeUpdate.svgSource!, nodeId, remotePathData),
+      whiteboardSketches: projectBeforeUpdate.whiteboardSketches?.map((item) =>
+        item.id === sketch.id ? { ...item, path: remotePathData } : item,
+      ),
+    };
+    const delayedCommit = async (updates: Partial<Project>) => {
+      await commitToStore(updates);
+      const merged = mergeLocalSharedHistoryIntoRemoteProject(remoteConflict);
+      useAppStore.setState((state) => ({
+        projects: state.projects.map((project) => project.id === remoteConflict.id ? merged : project),
+      }));
+    };
+    const updateHistory = createSharedVectorHistoryController(delayedCommit);
+    const candidate = updatePathStyleById(projectBeforeUpdate.svgSource!, nodeId, { stroke: '#e11d48' });
+
+    expect(await updateHistory.updateSharedWhiteboardPath(nodeId, candidate, projectBeforeUpdate.svgSource!)).toBe(false);
+    expect(listEditablePaths(useAppStore.getState().projects[0].svgSource).find((path) => path.nodeId === nodeId))
+      .toMatchObject({ d: remotePathData, stroke: '#123456' });
+    expect(useAppStore.getState().projects[0].whiteboardSketches?.[0]).toMatchObject({ path: remotePathData, color: '#123456' });
+    expect(useAppStore.getState().sharedVectorHistoryByProject['project-1']).toMatchObject({ index: 0 });
+    expect(useAppStore.getState().sharedVectorHistoryByProject['project-1']?.commands).toHaveLength(1);
+  });
+
+  it('rolls back the shared mirror when persistence rejects after applying an update locally', async () => {
+    const setupHistory = createSharedVectorHistoryController(commitToStore);
+    const sketch = makeSketch('shared-wb-persistence-rollback');
+    expect(await setupHistory.addWhiteboardPath(sketch)).toBe(true);
+    const projectBeforeUpdate = useAppStore.getState().projects[0];
+    const nodeId = `whiteboard-${sketch.id}`;
+    const failingCommit = async (updates: Partial<Project>) => {
+      await commitToStore(updates);
+      throw new Error('storage unavailable');
+    };
+    const failingHistory = createSharedVectorHistoryController(failingCommit);
+    const candidate = updatePathStyleById(projectBeforeUpdate.svgSource!, nodeId, { stroke: '#e11d48' });
+
+    await expect(failingHistory.updateSharedWhiteboardPath(nodeId, candidate, projectBeforeUpdate.svgSource!))
+      .rejects.toThrow('storage unavailable');
+
+    const currentProject = useAppStore.getState().projects[0];
+    expect(listEditablePaths(currentProject.svgSource).find((path) => path.nodeId === nodeId)?.stroke).toBe('#123456');
+    expect(currentProject.whiteboardSketches?.[0].color).toBe('#123456');
+    expect(useAppStore.getState().sharedVectorHistoryByProject['project-1']).toMatchObject({ index: 0 });
+    expect(useAppStore.getState().sharedVectorHistoryByProject['project-1']?.commands).toHaveLength(1);
   });
 
   it('discards a shared redo tail when a fresh local action is recorded', async () => {

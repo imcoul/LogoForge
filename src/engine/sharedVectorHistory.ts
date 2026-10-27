@@ -5,6 +5,7 @@ import {
   type SharedWhiteboardDeleteCommand,
   type SharedWhiteboardLinkCommand,
   type SharedWhiteboardPathCommand,
+  type SharedWhiteboardUpdateCommand,
   type WhiteboardSketch,
 } from '../types';
 import { useAppStore, type Project } from '../store';
@@ -21,6 +22,19 @@ const SHARED_WHITEBOARD_SKETCH_ATTRIBUTE = 'data-logoforge-shared-whiteboard-id'
 const LINK_ORIGINAL_NODE_ID_PRESENT_ATTRIBUTE = 'data-logoforge-shared-original-node-id-present';
 const LINK_ORIGINAL_NODE_ID_ATTRIBUTE = 'data-logoforge-shared-original-node-id';
 export const SHARED_WHITEBOARD_SKETCH_PREFIX = 'shared-wb-';
+
+const sharedMutationTails = new Map<string, Promise<void>>();
+
+function enqueueSharedMutation<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+  const previous = sharedMutationTails.get(projectId) ?? Promise.resolve();
+  const result = previous.then(operation, operation);
+  const settled = result.then(() => undefined, () => undefined);
+  sharedMutationTails.set(projectId, settled);
+  void settled.then(() => {
+    if (sharedMutationTails.get(projectId) === settled) sharedMutationTails.delete(projectId);
+  });
+  return result;
+}
 
 /** Keep mirrored shared paths immutable in the legacy Whiteboard layer until edits are shared commands. */
 export function preserveSharedWhiteboardSketches(
@@ -130,12 +144,287 @@ function resolveParentContainer(
   return container;
 }
 
+function resolveParentContainerByIdentity(
+  docNodes: Node[],
+  parentPath: SharedWhiteboardDeleteCommand['parentPath'],
+): Node[] | null {
+  let container = docNodes;
+  for (const step of parentPath) {
+    const matches = container
+      .map((node, index) => ({ node, index }))
+      .filter(({ node }) => node.id === step.nodeId && node.type === 'group' &&
+        Boolean(node.children) && nodeContextSignature(node) === step.context);
+    if (matches.length !== 1) return null;
+    container = matches[0].node.children!;
+  }
+  return container;
+}
+
 function getSharedSketchIdForNode(node: Node): string | null {
   const linkedSketchId = node.attrs?.[SHARED_WHITEBOARD_SKETCH_ATTRIBUTE];
   if (linkedSketchId?.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX)) return linkedSketchId;
   const stableNodeId = node.attrs?.[NODE_ID_ATTRIBUTE] || node.id;
   const addNodePrefix = `whiteboard-${SHARED_WHITEBOARD_SKETCH_PREFIX}`;
   return stableNodeId.startsWith(addNodePrefix) ? stableNodeId.slice('whiteboard-'.length) : null;
+}
+
+function collectTransientPathIdMarkers(beforeNodes: Node[], candidateNodes: Node[]) {
+  const beforeMarkers = new Set<Node>();
+  const candidateMarkers = new Set<Node>();
+  const visit = (before: Node[], candidate: Node[]) => {
+    const count = Math.min(before.length, candidate.length);
+    for (let index = 0; index < count; index += 1) {
+      const beforeNode = before[index];
+      const candidateNode = candidate[index];
+      if (
+        beforeNode.type === 'path' &&
+        candidateNode.type === 'path' &&
+        beforeNode.id === candidateNode.id &&
+        beforeNode.attrs?.[NODE_ID_ATTRIBUTE] === undefined &&
+        candidateNode.attrs?.[NODE_ID_ATTRIBUTE] === candidateNode.id
+      ) {
+        beforeMarkers.add(beforeNode);
+        candidateMarkers.add(candidateNode);
+      }
+      if (beforeNode.children && candidateNode.children) visit(beforeNode.children, candidateNode.children);
+    }
+  };
+  visit(beforeNodes, candidateNodes);
+  return { beforeMarkers, candidateMarkers };
+}
+
+function normalizeSharedPathEditDocument(doc: ReturnType<typeof parseSvg>, target: Node, transientMarkers: Set<Node>) {
+  const normalizeNodes = (nodes: Node[]): Node[] => nodes.map((node) => {
+    const normalized = cloneNode(node);
+    if (transientMarkers.has(node)) {
+      const attrs = { ...normalized.attrs };
+      delete attrs[NODE_ID_ATTRIBUTE];
+      normalized.attrs = Object.keys(attrs).length > 0 ? attrs : undefined;
+    }
+    if (node === target) {
+      const props = { ...(normalized.props || {}) };
+      delete props.d;
+      delete props.strokeWidth;
+      normalized.props = Object.keys(props).length > 0 ? props : undefined;
+      const style = { ...(normalized.style || {}) };
+      delete style.stroke;
+      delete style.fill;
+      normalized.style = Object.keys(style).length > 0 ? style : undefined;
+    }
+    normalized.children = node.children ? normalizeNodes(node.children) : undefined;
+    return normalized;
+  });
+  return { rootAttrs: doc.rootAttrs, defs: doc.defs, nodes: normalizeNodes(doc.nodes) };
+}
+
+type SharedPathEditFields = { d: boolean; stroke: boolean; fill: boolean; width: boolean };
+
+function copyPathEditFields(target: Node, source: Node, fields: SharedPathEditFields): Node {
+  const updated = cloneNode(target);
+  const props = { ...(updated.props || {}) };
+  if (fields.d) {
+    if (source.props && Object.prototype.hasOwnProperty.call(source.props, 'd')) props.d = source.props.d;
+    else delete props.d;
+  }
+  if (fields.width) {
+    if (source.props && Object.prototype.hasOwnProperty.call(source.props, 'strokeWidth')) props.strokeWidth = source.props.strokeWidth;
+    else delete props.strokeWidth;
+  }
+  updated.props = Object.keys(props).length > 0 ? props : undefined;
+
+  const style = { ...(updated.style || {}) };
+  if (fields.stroke) {
+    if (source.style && Object.prototype.hasOwnProperty.call(source.style, 'stroke')) style.stroke = source.style.stroke;
+    else delete style.stroke;
+  }
+  if (fields.fill) {
+    if (source.style && Object.prototype.hasOwnProperty.call(source.style, 'fill')) style.fill = source.style.fill;
+    else delete style.fill;
+  }
+  updated.style = Object.keys(style).length > 0 ? style : undefined;
+  return updated;
+}
+
+function cloneSketch(sketch: WhiteboardSketch): WhiteboardSketch {
+  return { ...sketch, props: sketch.props ? { ...sketch.props } : undefined };
+}
+
+function pathStrokeWidth(node: Node): number {
+  const raw = node.props?.strokeWidth;
+  const width = raw === undefined ? 2 : Number.parseFloat(String(raw));
+  return Number.isFinite(width) ? width : Number.NaN;
+}
+
+type SharedPathEditIntent = {
+  beforeNode: Node;
+  afterNode: Node;
+  parentPath: SharedWhiteboardDeleteCommand['parentPath'];
+  nodeIndex: number;
+  changed: SharedPathEditFields;
+};
+
+function sameParentPathIdentity(
+  first: SharedWhiteboardDeleteCommand['parentPath'],
+  second: SharedWhiteboardDeleteCommand['parentPath'],
+): boolean {
+  return first.length === second.length && first.every((step, index) =>
+    step.nodeId === second[index].nodeId && step.context === second[index].context,
+  );
+}
+
+function getSharedPathEditIntent(
+  beforeSvg: string,
+  candidateSvg: string,
+  nodeId: string,
+  allowUnrelatedDocumentEdits = false,
+): SharedPathEditIntent | null {
+  try {
+    const beforeDoc = parseSvg(beforeSvg);
+    const candidateDoc = parseSvg(candidateSvg);
+    const findTarget = (nodes: Node[]) => locateNodes(
+      nodes,
+      (node) => node.id === nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === nodeId,
+    );
+    const beforeLocations = findTarget(beforeDoc.nodes);
+    const candidateLocations = findTarget(candidateDoc.nodes);
+    if (beforeLocations.length !== 1 || candidateLocations.length !== 1) return null;
+    const beforeLocation = beforeLocations[0];
+    const candidateLocation = candidateLocations[0];
+    const beforeNode = beforeLocation.node;
+    const candidateNode = candidateLocation.node;
+    if (
+      beforeNode.type !== 'path' ||
+      candidateNode.type !== 'path' ||
+      beforeNode.attrs?.[NODE_ID_ATTRIBUTE] !== nodeId ||
+      candidateNode.attrs?.[NODE_ID_ATTRIBUTE] !== nodeId ||
+      (!allowUnrelatedDocumentEdits && beforeLocation.nodeIndex !== candidateLocation.nodeIndex) ||
+      !(allowUnrelatedDocumentEdits
+        ? sameParentPathIdentity(beforeLocation.parentPath, candidateLocation.parentPath)
+        : sameSerializableValue(beforeLocation.parentPath, candidateLocation.parentPath)) ||
+      !getSharedSketchIdForNode(beforeNode) ||
+      getSharedSketchIdForNode(beforeNode) !== getSharedSketchIdForNode(candidateNode)
+    ) return null;
+
+    if (allowUnrelatedDocumentEdits) {
+      if (
+        !sameSerializableValue(beforeDoc.rootAttrs, candidateDoc.rootAttrs) ||
+        !sameSerializableValue(nodeWithoutSharedPathEditFields(beforeNode), nodeWithoutSharedPathEditFields(candidateNode))
+      ) return null;
+    } else {
+      const transientMarkers = collectTransientPathIdMarkers(beforeDoc.nodes, candidateDoc.nodes);
+      if (!sameSerializableValue(
+        normalizeSharedPathEditDocument(beforeDoc, beforeNode, transientMarkers.beforeMarkers),
+        normalizeSharedPathEditDocument(candidateDoc, candidateNode, transientMarkers.candidateMarkers),
+      )) return null;
+    }
+
+    const changed: SharedPathEditFields = {
+      d: !sameSerializableValue(beforeNode.props?.d, candidateNode.props?.d),
+      stroke: !sameSerializableValue(beforeNode.style?.stroke, candidateNode.style?.stroke),
+      fill: !sameSerializableValue(beforeNode.style?.fill, candidateNode.style?.fill),
+      width: !sameSerializableValue(beforeNode.props?.strokeWidth, candidateNode.props?.strokeWidth),
+    };
+    if (typeof beforeNode.props?.d !== 'string' || typeof candidateNode.props?.d !== 'string') return null;
+    if (
+      (changed.stroke && candidateNode.style?.stroke !== undefined && typeof candidateNode.style.stroke !== 'string') ||
+      (changed.fill && candidateNode.style?.fill !== undefined && typeof candidateNode.style.fill !== 'string')
+    ) return null;
+    const candidateWidth = pathStrokeWidth(candidateNode);
+    if (changed.width && (!Number.isFinite(candidateWidth) || candidateWidth < 0)) return null;
+
+    return {
+      beforeNode: cloneNode(beforeNode),
+      afterNode: copyPathEditFields(beforeNode, candidateNode, changed),
+      parentPath: beforeLocation.parentPath.map((step) => ({ ...step })),
+      nodeIndex: beforeLocation.nodeIndex,
+      changed,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function rebaseSharedPathUpdateCandidate(
+  baseSvg: string,
+  currentSvg: string,
+  candidateSvg: string,
+  nodeId: string,
+): string | null {
+  const requested = getSharedPathEditIntent(baseSvg, candidateSvg, nodeId);
+  const currentFromBase = getSharedPathEditIntent(baseSvg, currentSvg, nodeId, true);
+  if (
+    !requested ||
+    !currentFromBase ||
+    !Object.values(requested.changed).some(Boolean)
+  ) return null;
+
+  try {
+    const currentDoc = parseSvg(currentSvg);
+    const locations = locateNodes(
+      currentDoc.nodes,
+      (node) => node.id === nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === nodeId,
+    );
+    if (locations.length !== 1) return null;
+    const location = locations[0];
+    const container = resolveParentContainer(currentDoc.nodes, location.parentPath);
+    if (!container || container[location.nodeIndex] !== location.node) return null;
+    container[location.nodeIndex] = copyPathEditFields(location.node, requested.afterNode, requested.changed);
+    return serializeSvg(currentDoc);
+  } catch {
+    return null;
+  }
+}
+
+function nodeWithoutSharedPathEditFields(node: Node): Node {
+  const normalized = cloneNode(node);
+  const props = { ...(normalized.props || {}) };
+  delete props.d;
+  delete props.strokeWidth;
+  normalized.props = Object.keys(props).length > 0 ? props : undefined;
+  const style = { ...(normalized.style || {}) };
+  delete style.stroke;
+  delete style.fill;
+  normalized.style = Object.keys(style).length > 0 ? style : undefined;
+  return normalized;
+}
+
+function isValidSharedWhiteboardUpdateCommand(command: SharedWhiteboardUpdateCommand): boolean {
+  const { beforeNode, afterNode, beforeSketch, afterSketch } = command;
+  if (
+    !command.nodeId ||
+    !command.sketchId.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) ||
+    beforeNode.type !== 'path' ||
+    afterNode.type !== 'path' ||
+    beforeNode.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
+    afterNode.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
+    getSharedSketchIdForNode(beforeNode) !== command.sketchId ||
+    getSharedSketchIdForNode(afterNode) !== command.sketchId ||
+    beforeSketch.id !== command.sketchId ||
+    afterSketch.id !== command.sketchId ||
+    typeof beforeNode.props?.d !== 'string' ||
+    typeof afterNode.props?.d !== 'string' ||
+    beforeSketch.path !== beforeNode.props.d ||
+    afterSketch.path !== afterNode.props.d ||
+    !sameSerializableValue(nodeWithoutSharedPathEditFields(beforeNode), nodeWithoutSharedPathEditFields(afterNode))
+  ) return false;
+
+  const changedD = beforeNode.props?.d !== afterNode.props?.d;
+  const changedStroke = !sameSerializableValue(beforeNode.style?.stroke, afterNode.style?.stroke);
+  const changedFill = !sameSerializableValue(beforeNode.style?.fill, afterNode.style?.fill);
+  const changedWidth = !sameSerializableValue(beforeNode.props?.strokeWidth, afterNode.props?.strokeWidth);
+  if (!changedD && !changedStroke && !changedFill && !changedWidth) return false;
+  if (
+    (changedStroke && afterNode.style?.stroke !== undefined && typeof afterNode.style.stroke !== 'string') ||
+    (changedFill && afterNode.style?.fill !== undefined && typeof afterNode.style.fill !== 'string') ||
+    (changedWidth && (!Number.isFinite(pathStrokeWidth(afterNode)) || pathStrokeWidth(afterNode) < 0))
+  ) return false;
+
+  const expectedSketch = cloneSketch(beforeSketch);
+  if (changedD) expectedSketch.path = afterNode.props.d;
+  if (changedStroke) expectedSketch.color = typeof afterNode.style?.stroke === 'string' ? afterNode.style.stroke : 'none';
+  if (changedFill) expectedSketch.fillColor = typeof afterNode.style?.fill === 'string' ? afterNode.style.fill : 'none';
+  if (changedWidth) expectedSketch.strokeWidth = pathStrokeWidth(afterNode);
+  return sameSerializableValue(expectedSketch, afterSketch);
 }
 
 function pathNodeExists(svgSource: string, nodeId: string): boolean {
@@ -592,12 +881,11 @@ export function applySharedWhiteboardDeleteCommand(
     );
     if (locations.length !== 1) return null;
     const location = locations[0];
-    const container = resolveParentContainer(doc.nodes, command.parentPath);
+    const container = resolveParentContainer(doc.nodes, location.parentPath);
     if (
       !container ||
-      location.nodeIndex !== command.nodeIndex ||
       container[location.nodeIndex] !== location.node ||
-      !sameSerializableValue(location.parentPath, command.parentPath) ||
+      !sameParentPathIdentity(location.parentPath, command.parentPath) ||
       !sameSerializableValue(location.node, command.node) ||
       location.node.type !== 'path' ||
       location.node.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
@@ -611,7 +899,6 @@ export function applySharedWhiteboardDeleteCommand(
       .filter(({ sketch }) => sketch.id === command.sketch.id);
     if (
       matchingIndexes.length !== 1 ||
-      matchingIndexes[0].index !== command.sketchIndex ||
       !sameSerializableValue(matchingIndexes[0].sketch, command.sketch)
     ) return null;
 
@@ -644,21 +931,262 @@ export function undoSharedWhiteboardDeleteCommand(
       (node) => node.id === command.nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === command.nodeId,
     );
     if (existingNodes.length > 0) return null;
-    const container = resolveParentContainer(doc.nodes, command.parentPath);
-    if (!container || command.nodeIndex > container.length) return null;
+    const container = resolveParentContainerByIdentity(doc.nodes, command.parentPath);
+    if (!container) return null;
 
     const sketches = project.whiteboardSketches || [];
-    if (sketches.some((sketch) => sketch.id === command.sketch.id) || command.sketchIndex > sketches.length) return null;
+    if (sketches.some((sketch) => sketch.id === command.sketch.id)) return null;
 
-    container.splice(command.nodeIndex, 0, cloneNode(command.node));
+    const nodeIndex = Math.max(0, Math.min(command.nodeIndex, container.length));
+    container.splice(nodeIndex, 0, cloneNode(command.node));
     const nextSketches = sketches.slice();
-    nextSketches.splice(command.sketchIndex, 0, {
+    nextSketches.splice(Math.max(0, Math.min(command.sketchIndex, nextSketches.length)), 0, {
       ...command.sketch,
       props: command.sketch.props ? { ...command.sketch.props } : undefined,
     });
     return { svgSource: serializeSvg(doc), whiteboardSketches: nextSketches };
   } catch {
     return null;
+  }
+}
+
+/** Create a shared update only when the candidate SVG changes one shared path's editable fields. */
+export function createSharedWhiteboardUpdateCommand(
+  project: Project,
+  nodeId: string,
+  candidateSvg: string,
+  commandId: string = globalThis.crypto?.randomUUID?.() ?? `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+): SharedWhiteboardUpdateCommand | null {
+  if (!project.svgSource?.trim() || !candidateSvg.trim() || !nodeId) return null;
+  try {
+    const intent = getSharedPathEditIntent(project.svgSource, candidateSvg, nodeId);
+    if (!intent || !Object.values(intent.changed).some(Boolean)) return null;
+    const { beforeNode, afterNode } = intent;
+    const sketchId = getSharedSketchIdForNode(beforeNode);
+    if (!sketchId) return null;
+    const sketches = project.whiteboardSketches || [];
+    const matchingSketches = sketches
+      .map((sketch, index) => ({ sketch, index }))
+      .filter(({ sketch }) => sketch.id === sketchId);
+    if (matchingSketches.length !== 1 || beforeNode.props?.d !== matchingSketches[0].sketch.path) return null;
+
+    const beforeSketch = cloneSketch(matchingSketches[0].sketch);
+    const afterSketch = cloneSketch(beforeSketch);
+    if (intent.changed.d) afterSketch.path = afterNode.props?.d;
+    if (intent.changed.stroke) afterSketch.color = typeof afterNode.style?.stroke === 'string' ? afterNode.style.stroke : 'none';
+    if (intent.changed.fill) afterSketch.fillColor = typeof afterNode.style?.fill === 'string' ? afterNode.style.fill : 'none';
+    if (intent.changed.width) afterSketch.strokeWidth = pathStrokeWidth(afterNode);
+
+    const command: SharedWhiteboardUpdateCommand = {
+      kind: 'update-path',
+      commandId,
+      projectId: project.id,
+      nodeId,
+      sketchId,
+      beforeNode: cloneNode(beforeNode),
+      afterNode,
+      beforeSketch,
+      afterSketch,
+      parentPath: intent.parentPath,
+      nodeIndex: intent.nodeIndex,
+      sketchIndex: matchingSketches[0].index,
+    };
+    return isValidSharedWhiteboardUpdateCommand(command) ? command : null;
+  } catch {
+    return null;
+  }
+}
+
+function applySharedWhiteboardUpdateSnapshot(
+  project: Project,
+  command: SharedWhiteboardUpdateCommand,
+  forward: boolean,
+): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
+  if (
+    project.id !== command.projectId ||
+    !project.svgSource ||
+    !isValidSharedWhiteboardUpdateCommand(command)
+  ) return null;
+  const fromNode = forward ? command.beforeNode : command.afterNode;
+  const toNode = forward ? command.afterNode : command.beforeNode;
+  const fromSketch = forward ? command.beforeSketch : command.afterSketch;
+  const toSketch = forward ? command.afterSketch : command.beforeSketch;
+  if (
+    fromNode.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
+    toNode.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
+    getSharedSketchIdForNode(fromNode) !== command.sketchId ||
+    getSharedSketchIdForNode(toNode) !== command.sketchId ||
+    fromNode.props?.d !== fromSketch.path ||
+    toNode.props?.d !== toSketch.path
+  ) return null;
+
+  try {
+    const doc = parseSvg(project.svgSource);
+    const locations = locateNodes(
+      doc.nodes,
+      (node) => node.id === command.nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === command.nodeId,
+    );
+    if (locations.length !== 1) return null;
+    const location = locations[0];
+    const container = resolveParentContainer(doc.nodes, location.parentPath);
+    if (
+      !container ||
+      location.node.type !== 'path' ||
+      container[location.nodeIndex] !== location.node ||
+      !sameParentPathIdentity(location.parentPath, command.parentPath) ||
+      !sameSerializableValue(location.node, fromNode) ||
+      getSharedSketchIdForNode(location.node) !== command.sketchId
+    ) return null;
+
+    const sketches = project.whiteboardSketches || [];
+    const matchingSketches = sketches
+      .map((sketch, index) => ({ sketch, index }))
+      .filter(({ sketch }) => sketch.id === command.sketchId);
+    if (
+      matchingSketches.length !== 1 ||
+      !sameSerializableValue(matchingSketches[0].sketch, fromSketch)
+    ) return null;
+
+    container[location.nodeIndex] = cloneNode(toNode);
+    const nextSketches = sketches.slice();
+    nextSketches[matchingSketches[0].index] = cloneSketch(toSketch);
+    return { svgSource: serializeSvg(doc), whiteboardSketches: nextSketches };
+  } catch {
+    return null;
+  }
+}
+
+/** Apply the shared path geometry/style update. */
+export function applySharedWhiteboardUpdateCommand(
+  project: Project,
+  command: SharedWhiteboardUpdateCommand,
+): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
+  return applySharedWhiteboardUpdateSnapshot(project, command, true);
+}
+
+/** Restore the exact previous node/sketch payload for a shared path update. */
+export function undoSharedWhiteboardUpdateCommand(
+  project: Project,
+  command: SharedWhiteboardUpdateCommand,
+): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
+  return applySharedWhiteboardUpdateSnapshot(project, command, false);
+}
+
+type PendingSharedHistoryEntry = { command: SharedWhiteboardCommand; forward: boolean };
+const pendingSharedCommandsByProject = new Map<string, PendingSharedHistoryEntry[]>();
+
+function applySharedHistoryCommand(
+  project: Project,
+  command: SharedWhiteboardCommand,
+  forward: boolean,
+): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
+  if (command.kind === 'link-existing-path') {
+    return forward
+      ? applySharedWhiteboardLinkCommand(project, command)
+      : undoSharedWhiteboardLinkCommand(project, command);
+  }
+  if (command.kind === 'delete-path') {
+    return forward
+      ? applySharedWhiteboardDeleteCommand(project, command)
+      : undoSharedWhiteboardDeleteCommand(project, command);
+  }
+  if (command.kind === 'update-path') {
+    return forward
+      ? applySharedWhiteboardUpdateCommand(project, command)
+      : undoSharedWhiteboardUpdateCommand(project, command);
+  }
+  return forward
+    ? applySharedWhiteboardPathCommand(project, command)
+    : undoSharedWhiteboardPathCommand(project, command);
+}
+
+function mergeCommandIntoProject(
+  project: Project,
+  entry: PendingSharedHistoryEntry,
+): Project {
+  const updates = applySharedHistoryCommand(project, entry.command, entry.forward);
+  if (!updates) return project;
+  const nextProject = { ...project, ...updates, updatedAt: Date.now() };
+  if (typeof updates.svgSource === 'string' && updates.svgSource !== project.svgSource) {
+    nextProject.logoUrl = `data:image/svg+xml;utf8,${encodeURIComponent(updates.svgSource)}`;
+  }
+  return nextProject;
+}
+
+/** Merge locally applied or in-flight shared path deltas onto a remote full-project snapshot. */
+export function mergeLocalSharedHistoryIntoRemoteProject(remoteProject: Project): Project {
+  const store = useAppStore.getState();
+  const history = store.sharedVectorHistoryByProject[remoteProject.id];
+  const localProject = store.projects.find((project) => project.id === remoteProject.id);
+  const applied = history ? history.commands.slice(0, Math.max(0, history.index + 1)) : [];
+  const recovered = history?.commands.length ? [] : localProject ? reconstructAppliedSharedCommands(localProject) : [];
+  const pending = pendingSharedCommandsByProject.get(remoteProject.id) || [];
+  let merged = remoteProject;
+
+  for (const command of applied) merged = mergeCommandIntoProject(merged, { command, forward: true });
+  for (const command of recovered) merged = mergeCommandIntoProject(merged, { command, forward: true });
+  for (const entry of pending) merged = mergeCommandIntoProject(merged, entry);
+
+  if (history) {
+    const pendingForwardIds = new Set(pending.filter((entry) => entry.forward).map((entry) => entry.command.commandId));
+    for (let index = history.commands.length - 1; index > history.index; index -= 1) {
+      const command = history.commands[index];
+      if (!command || pendingForwardIds.has(command.commandId)) continue;
+      merged = mergeCommandIntoProject(merged, { command, forward: false });
+    }
+  }
+  return merged;
+}
+
+async function commitSharedCommandWithPending(
+  commit: SharedHistoryCommit,
+  projectId: string,
+  command: SharedWhiteboardCommand,
+  forward: boolean,
+  updates: Partial<Project>,
+  afterCommit: () => void,
+  throttleCloud = true,
+): Promise<boolean> {
+  const pending = pendingSharedCommandsByProject.get(projectId) || [];
+  const entry = { command, forward };
+  pending.push(entry);
+  pendingSharedCommandsByProject.set(projectId, pending);
+  try {
+    await commit(updates, throttleCloud, { recordLogoHistory: false });
+    const latestProject = useAppStore.getState().projects.find((project) => project.id === projectId);
+    if (!latestProject || !applySharedHistoryCommand(latestProject, command, !forward)) return false;
+    afterCommit();
+    return true;
+  } catch (error) {
+    const latestProject = useAppStore.getState().projects.find((project) => project.id === projectId);
+    const rollback = latestProject ? applySharedHistoryCommand(latestProject, command, !forward) : null;
+    if (latestProject && rollback) {
+      const rollbackUpdates = {
+        ...rollback,
+        ...(typeof rollback.svgSource === 'string'
+          ? { logoUrl: `data:image/svg+xml;utf8,${encodeURIComponent(rollback.svgSource)}` }
+          : {}),
+      };
+      try {
+        await useAppStore.getState().updateProject(projectId, rollbackUpdates, 'skip');
+      } catch {
+        // updateProject updates Zustand before persisting; keep memory consistent if storage also rejects.
+        const current = useAppStore.getState().projects.find((project) => project.id === projectId);
+        if (current) {
+          useAppStore.setState((state) => ({
+            projects: state.projects.map((project) => project.id === projectId
+              ? { ...project, ...rollbackUpdates, updatedAt: Date.now() }
+              : project),
+          }));
+        }
+      }
+    }
+    throw error;
+  } finally {
+    const remaining = (pendingSharedCommandsByProject.get(projectId) || [])
+      .filter((candidate) => candidate !== entry);
+    if (remaining.length > 0) pendingSharedCommandsByProject.set(projectId, remaining);
+    else pendingSharedCommandsByProject.delete(projectId);
   }
 }
 
@@ -681,51 +1209,78 @@ export function createSharedVectorHistoryController(commit: SharedHistoryCommit)
     });
   };
 
-  const addWhiteboardPath = async (sketch: WhiteboardSketch): Promise<boolean> => {
-    const project = getActiveProject();
-    if (!project) return false;
+  const queueActiveProjectMutation = (operation: (project: Project) => Promise<boolean>): Promise<boolean> => {
+    const requestedProjectId = useAppStore.getState().activeProjectId;
+    if (!requestedProjectId) return Promise.resolve(false);
+    return enqueueSharedMutation(requestedProjectId, async () => {
+      const project = getActiveProject();
+      if (!project || project.id !== requestedProjectId) return false;
+      return operation(project);
+    });
+  };
+
+  const addWhiteboardPath = (sketch: WhiteboardSketch): Promise<boolean> => queueActiveProjectMutation(async (project) => {
     restoreAppliedHistory(project);
     const command = createSharedWhiteboardPathCommand(project, sketch);
     if (!command) return false;
     const updates = applySharedWhiteboardPathCommand(project, command);
     if (!updates) return false;
 
-    await commit(updates, true, { recordLogoHistory: false });
-    useAppStore.getState().recordSharedVectorCommand(project.id, command);
-    return true;
-  };
+    return commitSharedCommandWithPending(commit, project.id, command, true, updates, () => {
+      useAppStore.getState().recordSharedVectorCommand(project.id, command);
+    });
+  });
 
-  const addExistingPathToWhiteboard = async (nodeId: string, sketch: WhiteboardSketch): Promise<boolean> => {
-    const project = getActiveProject();
-    if (!project) return false;
+  const addExistingPathToWhiteboard = (nodeId: string, sketch: WhiteboardSketch): Promise<boolean> => queueActiveProjectMutation(async (project) => {
     restoreAppliedHistory(project);
     const command = createSharedWhiteboardLinkCommand(project, nodeId, sketch);
     if (!command) return false;
     const updates = applySharedWhiteboardLinkCommand(project, command);
     if (!updates) return false;
 
-    await commit(updates, true, { recordLogoHistory: false });
-    useAppStore.getState().recordSharedVectorCommand(project.id, command);
-    return true;
-  };
+    return commitSharedCommandWithPending(commit, project.id, command, true, updates, () => {
+      useAppStore.getState().recordSharedVectorCommand(project.id, command);
+    });
+  });
 
-  const deleteSharedWhiteboardPath = async (nodeId: string): Promise<boolean> => {
-    const project = getActiveProject();
-    if (!project) return false;
+  const deleteSharedWhiteboardPath = (nodeId: string): Promise<boolean> => queueActiveProjectMutation(async (project) => {
     restoreAppliedHistory(project);
     const command = createSharedWhiteboardDeleteCommand(project, nodeId);
     if (!command) return false;
     const updates = applySharedWhiteboardDeleteCommand(project, command);
     if (!updates) return false;
 
-    await commit(updates, true, { recordLogoHistory: false });
-    useAppStore.getState().recordSharedVectorCommand(project.id, command);
-    return true;
-  };
+    return commitSharedCommandWithPending(commit, project.id, command, true, updates, () => {
+      useAppStore.getState().recordSharedVectorCommand(project.id, command);
+    });
+  });
 
-  const undo = async (): Promise<boolean> => {
-    const project = getActiveProject();
-    if (!project) return false;
+  const updateSharedWhiteboardPath = (
+    nodeId: string,
+    candidateSvg: string,
+    baseSvg?: string,
+    throttleCloud?: boolean,
+  ): Promise<boolean> => queueActiveProjectMutation(async (project) => {
+    if (!project.svgSource) return false;
+    restoreAppliedHistory(project);
+    const rebasedSvg = rebaseSharedPathUpdateCandidate(
+      baseSvg ?? project.svgSource,
+      project.svgSource,
+      candidateSvg,
+      nodeId,
+    );
+    if (!rebasedSvg) return false;
+    const command = createSharedWhiteboardUpdateCommand(project, nodeId, rebasedSvg);
+    if (!command) return false;
+    const updates = applySharedWhiteboardUpdateCommand(project, command);
+    if (!updates) return false;
+
+    return commitSharedCommandWithPending(commit, project.id, command, true, updates, () => {
+      useAppStore.getState().recordSharedVectorCommand(project.id, command);
+    }, throttleCloud ?? true);
+  });
+
+  const undo = (): Promise<boolean> => queueActiveProjectMutation(async (project) => {
     restoreAppliedHistory(project);
     const state = useAppStore.getState();
     const command = state.getSharedVectorUndoCommand(project.id);
@@ -734,21 +1289,23 @@ export function createSharedVectorHistoryController(commit: SharedHistoryCommit)
       ? undoSharedWhiteboardLinkCommand(project, command)
       : command.kind === 'delete-path'
         ? undoSharedWhiteboardDeleteCommand(project, command)
-        : undoSharedWhiteboardPathCommand(project, command);
+        : command.kind === 'update-path'
+          ? undoSharedWhiteboardUpdateCommand(project, command)
+          : undoSharedWhiteboardPathCommand(project, command);
     if (!updates) {
       // Consume only this stale shared step; never fall through to legacy snapshot undo.
       useAppStore.getState().commitSharedVectorUndo(project.id, command.commandId);
       return true;
     }
 
-    await commit(updates, true, { recordLogoHistory: false });
-    useAppStore.getState().commitSharedVectorUndo(project.id, command.commandId);
+    const committed = await commitSharedCommandWithPending(commit, project.id, command, false, updates, () => {
+      useAppStore.getState().commitSharedVectorUndo(project.id, command.commandId);
+    });
+    if (!committed) useAppStore.getState().commitSharedVectorUndo(project.id, command.commandId);
     return true;
-  };
+  });
 
-  const redo = async (): Promise<boolean> => {
-    const project = getActiveProject();
-    if (!project) return false;
+  const redo = (): Promise<boolean> => queueActiveProjectMutation(async (project) => {
     const state = useAppStore.getState();
     const command = state.getSharedVectorRedoCommand(project.id);
     if (!command) return false;
@@ -756,17 +1313,21 @@ export function createSharedVectorHistoryController(commit: SharedHistoryCommit)
       ? applySharedWhiteboardLinkCommand(project, command)
       : command.kind === 'delete-path'
         ? applySharedWhiteboardDeleteCommand(project, command)
-        : applySharedWhiteboardPathCommand(project, command);
+        : command.kind === 'update-path'
+          ? applySharedWhiteboardUpdateCommand(project, command)
+          : applySharedWhiteboardPathCommand(project, command);
     if (!updates) {
       // A conflicting or missing target is a safe no-op, not permission to redo elsewhere.
       useAppStore.getState().commitSharedVectorRedo(project.id, command.commandId);
       return true;
     }
 
-    await commit(updates, true, { recordLogoHistory: false });
-    useAppStore.getState().commitSharedVectorRedo(project.id, command.commandId);
+    const committed = await commitSharedCommandWithPending(commit, project.id, command, true, updates, () => {
+      useAppStore.getState().commitSharedVectorRedo(project.id, command.commandId);
+    });
+    if (!committed) useAppStore.getState().commitSharedVectorRedo(project.id, command.commandId);
     return true;
-  };
+  });
 
   const canUndo = (): boolean => {
     const project = getActiveProject();
@@ -786,6 +1347,7 @@ export function createSharedVectorHistoryController(commit: SharedHistoryCommit)
     addWhiteboardPath,
     addExistingPathToWhiteboard,
     deleteSharedWhiteboardPath,
+    updateSharedWhiteboardPath,
     undo,
     redo,
     canUndo,

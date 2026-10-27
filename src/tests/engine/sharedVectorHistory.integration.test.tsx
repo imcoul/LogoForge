@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { SVGPathEditor } from '../../components/SVGPathEditor';
 import { ToastProvider } from '../../components/Toast';
 import { WhiteboardCanvas } from '../../components/WhiteboardCanvas';
-import { listEditablePaths } from '../../engine/pathEditorBridge';
+import { listEditablePaths, replacePathDataById } from '../../engine/pathEditorBridge';
 import { createSharedVectorHistoryController } from '../../engine/sharedVectorHistory';
 import { useAppStore, type Project } from '../../store';
 
@@ -50,7 +50,8 @@ const getProject = () => {
 const EditorPair: React.FC<{
   history: ReturnType<typeof createSharedVectorHistoryController>;
   showWhiteboard?: boolean;
-}> = ({ history, showWhiteboard = true }) => {
+  updateSharedPath?: (nodeId: string, candidateSvg: string, baseSvg?: string, throttleCloud?: boolean) => Promise<boolean>;
+}> = ({ history, showWhiteboard = true, updateSharedPath }) => {
   const { projects, activeProjectId } = useAppStore();
   const project = projects.find((candidate) => candidate.id === activeProjectId);
 
@@ -73,6 +74,7 @@ const EditorPair: React.FC<{
           onUpdateSvg={(svg) => commitToStore({ svgSource: svg })}
           onLinkExistingPathToWhiteboard={history.addExistingPathToWhiteboard}
           onDeleteSharedPath={history.deleteSharedWhiteboardPath}
+          onUpdateSharedPath={updateSharedPath ?? history.updateSharedWhiteboardPath}
           onSharedUndo={history.undo}
         onSharedRedo={history.redo}
         canUndoShared={history.canUndo()}
@@ -192,6 +194,120 @@ describe('shared vector history editor integration', () => {
     const finalPathIds = listEditablePaths(getProject().svgSource).map((path) => path.nodeId);
     expect(finalPathIds[0]).toBe('existing');
     expect(finalPathIds).toHaveLength(2);
+  });
+
+  it('updates shared path geometry and style in Precision and undoes/redoes across both editors', async () => {
+    const history = createSharedVectorHistoryController(commitToStore);
+    const sketch = {
+      id: 'shared-wb-update-ui',
+      name: 'Shared path to update',
+      type: 'line' as const,
+      path: 'M 10,10 L 40,40',
+      color: '#123456',
+      strokeWidth: 4,
+      locked: true,
+    };
+    expect(await history.addWhiteboardPath(sketch)).toBe(true);
+    render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByText('Precision Handles'));
+    fireEvent.click(screen.getByText('M 10,10 L 40,40...'));
+    fireEvent.click(screen.getByText('Move Right →'));
+
+    await waitFor(() => {
+      const sharedPath = listEditablePaths(getProject().svgSource).find((path) => path.nodeId === `whiteboard-${sketch.id}`);
+      expect(sharedPath?.d).toBe('M18,10 L48,40');
+      expect(getProject().whiteboardSketches?.[0].path).toBe(sharedPath?.d);
+    });
+
+    // The selected-style action changes an existing path, not merely future drawing defaults.
+    fireEvent.click(screen.getByText('Touch Draw Board'));
+    fireEvent.click(screen.getByText('Apply style to selected path'));
+    await waitFor(() => {
+      const sharedPath = listEditablePaths(getProject().svgSource).find((path) => path.nodeId === `whiteboard-${sketch.id}`);
+      expect(sharedPath?.stroke).toBe('#6366F1');
+      expect(getProject().whiteboardSketches?.[0].color).toBe('#6366F1');
+    });
+
+    // Undo style in Whiteboard, then geometry in Precision; the mirror stays synchronized.
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].color).toBe('#123456');
+      expect(getProject().whiteboardSketches?.[0].path).toBe('M18,10 L48,40');
+    });
+    fireEvent.click(screen.getByTitle('Undo last stroke'));
+    await waitFor(() => {
+      expect(listEditablePaths(getProject().svgSource).find((path) => path.nodeId === `whiteboard-${sketch.id}`)?.d)
+        .toBe('M 10,10 L 40,40');
+      expect(getProject().whiteboardSketches?.[0].path).toBe('M 10,10 L 40,40');
+    });
+
+    // Redo geometry in Precision and style in Whiteboard, preserving both command deltas.
+    fireEvent.click(screen.getByTitle('Redo stroke'));
+    await waitFor(() => expect(getProject().whiteboardSketches?.[0].path).toBe('M18,10 L48,40'));
+    fireEvent.click(screen.getByTitle('Redo'));
+    await waitFor(() => {
+      const sharedPath = listEditablePaths(getProject().svgSource).find((path) => path.nodeId === `whiteboard-${sketch.id}`);
+      expect(sharedPath?.stroke).toBe('#6366F1');
+      expect(getProject().whiteboardSketches?.[0]).toMatchObject({
+        path: 'M18,10 L48,40',
+        color: '#6366F1',
+      });
+    });
+  });
+
+  it('restores Precision handles from the latest SVG after a shared edit is rejected', async () => {
+    const history = createSharedVectorHistoryController(commitToStore);
+    const sketch = {
+      id: 'shared-wb-rejected-update-ui',
+      name: 'Shared path with a concurrent change',
+      type: 'line' as const,
+      path: 'M 10,10 L 40,40',
+      color: '#123456',
+      strokeWidth: 4,
+      locked: true,
+    };
+    expect(await history.addWhiteboardPath(sketch)).toBe(true);
+    const attemptedPathData: string[] = [];
+    let remoteChangeApplied = false;
+    const rejectSharedUpdate = async (nodeId: string, candidateSvg: string) => {
+      attemptedPathData.push(listEditablePaths(candidateSvg).find((path) => path.nodeId === nodeId)?.d ?? '');
+      if (!remoteChangeApplied) {
+        remoteChangeApplied = true;
+        const currentProject = getProject();
+        const remotePathData = 'M 100,100 L 140,140';
+        await commitToStore({
+          svgSource: replacePathDataById(currentProject.svgSource!, nodeId, remotePathData),
+          whiteboardSketches: currentProject.whiteboardSketches?.map((item) =>
+            item.id === sketch.id ? { ...item, path: remotePathData } : item,
+          ),
+        });
+      }
+      return false;
+    };
+
+    render(
+      <ToastProvider>
+        <EditorPair history={history} updateSharedPath={rejectSharedUpdate} />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('Precision Handles'));
+    fireEvent.click(screen.getByText('M 10,10 L 40,40...'));
+    fireEvent.click(screen.getByText('Move Right →'));
+
+    await waitFor(() => expect(getProject().whiteboardSketches?.[0].path).toBe('M 100,100 L 140,140'));
+    await screen.findByText('The shared path or document changed before this edit could be applied; the latest version was restored.');
+    fireEvent.click(screen.getByText('Move Right →'));
+
+    await waitFor(() => expect(attemptedPathData).toHaveLength(2));
+    expect(attemptedPathData).toEqual(['M18,10 L48,40', 'M108,100 L148,140']);
+    expect(getProject().whiteboardSketches?.[0].path).toBe('M 100,100 L 140,140');
+    expect(listEditablePaths(getProject().svgSource).find((path) => path.nodeId === `whiteboard-${sketch.id}`)?.d)
+      .toBe('M 100,100 L 140,140');
   });
 
   it('deletes a shared Precision layer and undoes/redoes it across both editors', async () => {
