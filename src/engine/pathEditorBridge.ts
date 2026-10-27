@@ -38,8 +38,6 @@ export function fromEditorNodes(nodes: EditorPathNode[]): string {
 }
 
 export interface EditablePath {
-  /** Display/hit-test position only; never use this value to mutate a document node. */
-  index: number;
   /** Stable editor identity, persisted in data-logoforge-node-id on first mutation. */
   nodeId: string;
   d: string;
@@ -130,7 +128,6 @@ export function listEditablePaths(svgSource: string | null | undefined): Editabl
   const paths = collectPathNodes(doc.nodes);
   const nodeIds = getPathNodeIds(paths);
   return paths.map((node, index) => ({
-    index,
     nodeId: nodeIds[index],
     d: String(node.props?.d ?? ''),
     stroke: readStroke(node),

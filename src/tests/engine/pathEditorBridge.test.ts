@@ -18,10 +18,12 @@ import {
 import { parseSvg, serializeSvg } from '../../engine/svgIo';
 
 describe('listEditablePaths', () => {
-  it('lists paths in document order and exposes a display index', () => {
+  it('lists paths in document order with stable IDs and no ordinal field', () => {
     const svg = '<svg><path d="M0 0" /><path d="M1 1" /></svg>';
-    expect(listEditablePaths(svg).map((path) => path.d)).toEqual(['M0 0', 'M1 1']);
-    expect(listEditablePaths(svg).map((path) => path.index)).toEqual([0, 1]);
+    const paths = listEditablePaths(svg);
+    expect(paths.map((path) => path.d)).toEqual(['M0 0', 'M1 1']);
+    expect(paths.map((path) => path.nodeId)).toEqual(['n0', 'n1']);
+    expect(paths.every((path) => !('index' in path))).toBe(true);
   });
 
   it('reads presentation attributes with sensible defaults', () => {
@@ -41,7 +43,7 @@ describe('listEditablePaths', () => {
   it('uses authored SVG IDs as editor IDs when present', () => {
     const [path] = listEditablePaths('<svg><path id="mark" d="M0 0" /></svg>');
     expect(path.nodeId).toBe('mark');
-    expect(path.index).toBe(0);
+    expect(path).not.toHaveProperty('index');
   });
 
   it('assigns deterministic fallback IDs to paths without authored IDs', () => {
