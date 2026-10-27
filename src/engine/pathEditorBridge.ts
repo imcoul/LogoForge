@@ -1,22 +1,16 @@
 /**
- * Adapter between `SVGPathEditor`'s index-based UI and the real document engine.
+ * Adapter between the SVG path editor and the shared SVG document engine.
  *
- * The editor addresses paths by their ordinal position ("the 3rd path in the document") and
- * edits them by replacing the `d` string. That interface is fine; what was wrong was the
- * regex implementation underneath it. This module keeps the interface and swaps the
- * implementation for `svgIo`, which means the editor immediately stops:
- *
- *   - reading `id="..."` as if it were path data,
- *   - destroying `id` / `class` / `transform` / `opacity` on every edit,
- *   - truncating tags at a `>` inside an attribute value,
- *   - and ignoring paths nested inside `<g>` elements.
- *
- * Replacing this shim entirely — so the editor addresses nodes by id against the shared
- * scene graph — is the remaining Phase 1 work.
+ * Path mutations are addressed by stable editor node IDs rather than document-order indexes.
+ * Paths that lack an authored SVG `id` receive a durable `data-logoforge-node-id` marker on
+ * their first edit. The marker is preserved as an unknown SVG attribute by `svgIo`, leaving
+ * authored SVG IDs and every other unmodelled attribute untouched.
  */
 import { parseSvg, serializeSvg, walkNodes } from './svgIo';
 import { parsePathData, serializePathData } from './pathData';
 import type { Node } from '../types';
+
+const EDITOR_NODE_ID_ATTRIBUTE = 'data-logoforge-node-id';
 
 /**
  * The editor's per-command record. `values` is empty for zero-argument commands such as `Z`,
@@ -31,8 +25,8 @@ export interface EditorPathNode {
 /**
  * Converts a `d` string into the editor's command records.
  *
- * Unlike the regex tokenizer this replaces, `Z` survives (as an entry with no values) and
- * exponent notation stays a single number.
+ * Unlike the old regex tokenizer, `Z` survives (as an entry with no values) and exponent
+ * notation stays a single number.
  */
 export function toEditorNodes(d: string): EditorPathNode[] {
   return parsePathData(d).map((cmd, id) => ({ id, type: cmd.command, values: cmd.args }));
@@ -44,9 +38,9 @@ export function fromEditorNodes(nodes: EditorPathNode[]): string {
 }
 
 export interface EditablePath {
-  /** Ordinal position among path nodes, in document order (including nested ones). */
+  /** Display/hit-test position only; never use this value to mutate a document node. */
   index: number;
-  /** Stable node id, for addressing this path once the editor moves off ordinals. */
+  /** Stable editor identity, persisted in data-logoforge-node-id on first mutation. */
   nodeId: string;
   d: string;
   stroke: string;
@@ -61,6 +55,49 @@ function collectPathNodes(nodes: Node[]): Node[] {
     if (node.type === 'path') paths.push(node);
   });
   return paths;
+}
+
+function getPathNodeBaseId(node: Node): string {
+  const storedId = node.attrs?.[EDITOR_NODE_ID_ATTRIBUTE];
+  return typeof storedId === 'string' && storedId.length > 0 ? storedId : node.id;
+}
+
+/**
+ * Returns unique list keys for a path list. Existing metadata wins; otherwise the document
+ * model's ID is used. Invalid SVGs can contain duplicate IDs, so the list gets temporary
+ * position-qualified keys; mutators reject ambiguous bases rather than editing by position.
+ */
+function getPathNodeIds(paths: Node[]): string[] {
+  const baseIds = paths.map(getPathNodeBaseId);
+  const counts = new Map<string, number>();
+  for (const id of baseIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+
+  const used = new Set<string>();
+  return baseIds.map((baseId, index) => {
+    let candidate = counts.get(baseId) === 1 ? baseId : `${baseId}::path-${index}`;
+    let suffix = 1;
+    while (used.has(candidate)) {
+      candidate = `${baseId}::path-${index}-${suffix}`;
+      suffix += 1;
+    }
+    used.add(candidate);
+    return candidate;
+  });
+}
+
+/** Persist identities for unambiguous paths before a mutation is serialized. */
+function persistPathNodeIds(paths: Node[]): void {
+  const baseIds = paths.map(getPathNodeBaseId);
+  const counts = new Map<string, number>();
+  for (const id of baseIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+  const ids = getPathNodeIds(paths);
+  paths.forEach((node, index) => {
+    // Do not create an identity for a duplicate or ambiguous source ID.
+    if (counts.get(baseIds[index]) !== 1) return;
+    const current = node.attrs?.[EDITOR_NODE_ID_ATTRIBUTE];
+    if (current === ids[index]) return;
+    node.attrs = { ...(node.attrs || {}), [EDITOR_NODE_ID_ATTRIBUTE]: ids[index] };
+  });
 }
 
 function readStroke(node: Node): string {
@@ -79,13 +116,7 @@ function readStrokeWidth(node: Node): number {
   return Number.isFinite(parsed) ? parsed : 2;
 }
 
-/**
- * Lists the editable paths in a document.
- *
- * Returns an empty list for markup that cannot be parsed, rather than throwing — the editor
- * renders a "no paths" state, which is the correct outcome for an unopenable document.
- * Callers that need to distinguish "no paths" from "broken file" should use `parseSvg`.
- */
+/** Lists editable paths, retaining ordinal position solely for display and hit-testing. */
 export function listEditablePaths(svgSource: string | null | undefined): EditablePath[] {
   if (!svgSource) return [];
 
@@ -96,9 +127,11 @@ export function listEditablePaths(svgSource: string | null | undefined): Editabl
     return [];
   }
 
-  return collectPathNodes(doc.nodes).map((node, index) => ({
+  const paths = collectPathNodes(doc.nodes);
+  const nodeIds = getPathNodeIds(paths);
+  return paths.map((node, index) => ({
     index,
-    nodeId: node.id,
+    nodeId: nodeIds[index],
     d: String(node.props?.d ?? ''),
     stroke: readStroke(node),
     fill: readFill(node),
@@ -107,15 +140,13 @@ export function listEditablePaths(svgSource: string | null | undefined): Editabl
 }
 
 /**
- * Replaces the `d` of the path at `targetIndex` and returns the updated document.
- *
- * Unlike the regex implementation this replaces, every other attribute on the edited element
- * — and every other element in the document — is preserved untouched.
+ * Finds one path by its stable editor ID. A missing ID is a no-op; callers never fall through
+ * to an ordinal target.
  */
-export function replacePathData(
+function mutatePathById(
   svgSource: string,
-  targetIndex: number,
-  newPathData: string,
+  targetNodeId: string,
+  mutate: (target: Node, doc: ReturnType<typeof parseSvg>) => void,
 ): string {
   let doc;
   try {
@@ -125,61 +156,69 @@ export function replacePathData(
   }
 
   const paths = collectPathNodes(doc.nodes);
-  const target = paths[targetIndex];
-  if (!target) return svgSource;
+  const nodeIds = getPathNodeIds(paths);
+  const targetIndex = nodeIds.indexOf(targetNodeId);
+  if (targetIndex < 0) return svgSource;
 
-  target.props = { ...(target.props || {}), d: newPathData };
+  const targetBaseId = getPathNodeBaseId(paths[targetIndex]);
+  if (paths.filter((node) => getPathNodeBaseId(node) === targetBaseId).length !== 1) {
+    return svgSource;
+  }
+
+  const target = paths[targetIndex];
+  persistPathNodeIds(paths);
+  mutate(target, doc);
   return serializeSvg(doc);
 }
 
-/** Updates presentation attributes on the path at `targetIndex`. */
-export function updatePathStyle(
+/** Replaces the `d` attribute of the path identified by its stable editor node ID. */
+export function replacePathDataById(
   svgSource: string,
-  targetIndex: number,
+  targetNodeId: string,
+  newPathData: string,
+): string {
+  return mutatePathById(svgSource, targetNodeId, (target) => {
+    target.props = { ...(target.props || {}), d: newPathData };
+  });
+}
+
+/** Updates presentation attributes on the path identified by its stable editor node ID. */
+export function updatePathStyleById(
+  svgSource: string,
+  targetNodeId: string,
   style: { stroke?: string; fill?: string; strokeWidth?: number },
 ): string {
-  let doc;
-  try {
-    doc = parseSvg(svgSource);
-  } catch {
-    return svgSource;
-  }
-
-  const target = collectPathNodes(doc.nodes)[targetIndex];
-  if (!target) return svgSource;
-
-  if (style.stroke !== undefined) {
-    target.style = { ...(target.style || {}), stroke: style.stroke };
-  }
-  if (style.fill !== undefined) {
-    target.style = { ...(target.style || {}), fill: style.fill };
-  }
-  if (style.strokeWidth !== undefined) {
-    target.props = { ...(target.props || {}), strokeWidth: style.strokeWidth };
-  }
-
-  return serializeSvg(doc);
+  return mutatePathById(svgSource, targetNodeId, (target) => {
+    if (style.stroke !== undefined) {
+      target.style = { ...(target.style || {}), stroke: style.stroke };
+    }
+    if (style.fill !== undefined) {
+      target.style = { ...(target.style || {}), fill: style.fill };
+    }
+    if (style.strokeWidth !== undefined) {
+      target.props = { ...(target.props || {}), strokeWidth: style.strokeWidth };
+    }
+  });
 }
 
-/** Removes the path at `targetIndex`, leaving every other element untouched. */
-export function deletePathAtIndex(svgSource: string, targetIndex: number): string {
-  let doc;
-  try {
-    doc = parseSvg(svgSource);
-  } catch {
-    return svgSource;
-  }
+/** Removes the path identified by its stable editor node ID, including nested paths. */
+export function deletePathById(svgSource: string, targetNodeId: string): string {
+  return mutatePathById(svgSource, targetNodeId, (_target, doc) => {
+    const target = collectPathNodes(doc.nodes).find(
+      (node) => node.attrs?.[EDITOR_NODE_ID_ATTRIBUTE] === targetNodeId,
+    );
+    if (!target) return;
 
-  const target = collectPathNodes(doc.nodes)[targetIndex];
-  if (!target) return svgSource;
+    const prune = (nodes: Node[]): Node[] => {
+      const remaining = nodes.filter((node) => node !== target);
+      for (const node of remaining) {
+        if (node.children) node.children = prune(node.children);
+      }
+      return remaining;
+    };
 
-  const prune = (nodes: Node[]): Node[] =>
-    nodes
-      .filter((n) => n !== target)
-      .map((n) => (n.children ? { ...n, children: prune(n.children) } : n));
-
-  doc.nodes = prune(doc.nodes);
-  return serializeSvg(doc);
+    doc.nodes = prune(doc.nodes);
+  });
 }
 
 /** Removes every path from the document, leaving other elements intact. */
@@ -191,10 +230,13 @@ export function removeAllPaths(svgSource: string): string {
     return svgSource;
   }
 
-  const strip = (nodes: Node[]): Node[] =>
-    nodes
-      .filter((n) => n.type !== 'path')
-      .map((n) => (n.children ? { ...n, children: strip(n.children) } : n));
+  const strip = (nodes: Node[]): Node[] => {
+    const remaining = nodes.filter((node) => node.type !== 'path');
+    for (const node of remaining) {
+      if (node.children) node.children = strip(node.children);
+    }
+    return remaining;
+  };
 
   doc.nodes = strip(doc.nodes);
   return serializeSvg(doc);

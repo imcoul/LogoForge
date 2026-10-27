@@ -14,10 +14,10 @@ import { PrecisionOverlay } from './PrecisionOverlay';
 import {
   readViewBoxWidth,
   listEditablePaths,
-  replacePathData,
-  updatePathStyle,
+  replacePathDataById,
+  updatePathStyleById,
   removeAllPaths,
-  deletePathAtIndex,
+  deletePathById,
   toEditorNodes,
   fromEditorNodes,
   type EditablePath,
@@ -118,7 +118,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Parse path state
   const [parsedPaths, setParsedPaths] = useState<ParsedPath[]>([]);
-  const [selectedPathIndex, setSelectedPathIndex] = useState<number>(0);
+  const [selectedPathNodeId, setSelectedPathNodeId] = useState<string | null>(null);
+  const selectedPath = parsedPaths.find((path) => path.nodeId === selectedPathNodeId) ?? null;
   const [nodes, setNodes] = useState<PathNode[]>([]);
   const [precision, setPrecision] = useState<number>(1);
 
@@ -246,6 +247,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   useEffect(() => {
     if (!actualSvgSource) {
       setParsedPaths([]);
+      setSelectedPathNodeId(null);
       return;
     }
 
@@ -258,23 +260,22 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     const pathsList = listEditablePaths(actualSvgSource);
 
     setParsedPaths(pathsList);
-    if (pathsList.length > 0 && selectedPathIndex >= pathsList.length) {
-      setSelectedPathIndex(0);
+    if (!pathsList.some((path) => path.nodeId === selectedPathNodeId)) {
+      setSelectedPathNodeId(pathsList[0]?.nodeId ?? null);
     }
-  }, [actualSvgSource, selectedPathIndex]);
+  }, [actualSvgSource, selectedPathNodeId]);
 
   // Parse path coordinates when selected path changes
   useEffect(() => {
-    if (parsedPaths.length === 0 || !parsedPaths[selectedPathIndex]) {
+    if (!selectedPath) {
       setNodes([]);
       return;
     }
 
-    const pathString = parsedPaths[selectedPathIndex].d;
-    const parsedNodes = toEditorNodes(pathString);
+    const parsedNodes = toEditorNodes(selectedPath.d);
 
     setNodes(parsedNodes);
-  }, [parsedPaths, selectedPathIndex]);
+  }, [parsedPaths, selectedPathNodeId]);
 
   // Push new SVG to parent and update internal undo history
   const pushSvgChange = (nextSvg: string, throttleCloud?: boolean) => {
@@ -336,8 +337,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Helper to construct the updated SVG in-memory
   const getSvgWithUpdatedNodes = (currentNodes: PathNode[]) => {
-    if (!actualSvgSource || parsedPaths.length === 0) return actualSvgSource || '';
-    return replacePathData(actualSvgSource, selectedPathIndex, fromEditorNodes(currentNodes));
+    if (!actualSvgSource || !selectedPathNodeId) return actualSvgSource || '';
+    return replacePathDataById(actualSvgSource, selectedPathNodeId, fromEditorNodes(currentNodes));
   };
 
   // Delete a point from the path
@@ -464,12 +465,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     triggerHaptic(15);
   };
 
-  // Proximity finder for selecting path layers by clicking close to them
-  const findClosestPathIndex = (cx: number, cy: number) => {
-    let closestIdx = -1;
+  // Proximity finder returns the stable ID of the nearest path layer.
+  const findClosestPathNodeId = (cx: number, cy: number) => {
+    let closestNodeId: string | null = null;
     let minDistance = Infinity;
 
-    parsedPaths.forEach((pathItem, idx) => {
+    parsedPaths.forEach((pathItem) => {
       const coords = pathItem.d.match(/[+-]?\d+(?:\.\d+)?/gi) || [];
       for (let i = 0; i < coords.length; i += 2) {
         const px = parseFloat(coords[i]);
@@ -478,14 +479,14 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           const dist = Math.hypot(cx - px, cy - py);
           if (dist < minDistance) {
             minDistance = dist;
-            closestIdx = idx;
+            closestNodeId = pathItem.nodeId;
           }
         }
       }
     });
 
     // Only return if it's within a reasonable threshold (e.g. 60 units)
-    return minDistance < 60 ? closestIdx : -1;
+    return minDistance < 60 ? closestNodeId : null;
   };
 
   // Proximity finder for Dynamic Touch Hit-Testing
@@ -570,16 +571,17 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
   // Reconstruct SVG source from nodes
   const reconstructSvgFromNodes = (currentNodes: PathNode[], throttleCloud = true) => {
+    const targetNodeId = selectedPathNodeId;
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      if (!actualSvgSource || parsedPaths.length === 0) return;
+      if (!actualSvgSource || !targetNodeId) return;
 
-      updatePathAtIndex(selectedPathIndex, { d: fromEditorNodes(currentNodes) }, throttleCloud);
+      updatePathById(targetNodeId, { d: fromEditorNodes(currentNodes) }, throttleCloud);
     }, 150);
   };
 
-  // Re-write path attributes for a selected index and broadcast changes
-  const updatePathAtIndex = (indexToUpdate: number, newAttrs: Partial<ParsedPath>, throttleCloud?: boolean) => {
+  // Rewrite path attributes for a stable editor node ID and broadcast changes
+  const updatePathById = (nodeId: string, newAttrs: Partial<ParsedPath>, throttleCloud?: boolean) => {
     if (!actualSvgSource || !actualOnUpdateSvg) return;
 
     // Geometry and presentation are applied separately so that untouched attributes on the
@@ -587,12 +589,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     let newSvg = actualSvgSource;
 
     if (newAttrs.d !== undefined) {
-      newSvg = replacePathData(newSvg, indexToUpdate, newAttrs.d);
+      newSvg = replacePathDataById(newSvg, nodeId, newAttrs.d);
     }
 
     const { stroke, fill, strokeWidth } = newAttrs;
     if (stroke !== undefined || fill !== undefined || strokeWidth !== undefined) {
-      newSvg = updatePathStyle(newSvg, indexToUpdate, { stroke, fill, strokeWidth });
+      newSvg = updatePathStyleById(newSvg, nodeId, { stroke, fill, strokeWidth });
     }
 
     pushSvgChange(newSvg, throttleCloud);
@@ -615,12 +617,18 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Delete path element from SVG list
-  const handleDeletePath = (targetIndex: number) => {
+  const handleDeletePath = (targetNodeId: string) => {
     if (!actualSvgSource || !actualOnUpdateSvg) return;
 
-    pushSvgChange(deletePathAtIndex(actualSvgSource, targetIndex));
-    if (selectedPathIndex >= parsedPaths.length - 1) {
-      setSelectedPathIndex(Math.max(0, parsedPaths.length - 2));
+    const targetIndex = parsedPaths.findIndex((path) => path.nodeId === targetNodeId);
+    const nextSvg = deletePathById(actualSvgSource, targetNodeId);
+    if (nextSvg === actualSvgSource) return;
+
+    pushSvgChange(nextSvg);
+    if (selectedPathNodeId === targetNodeId) {
+      const remainingPaths = parsedPaths.filter((path) => path.nodeId !== targetNodeId);
+      const nextIndex = Math.min(Math.max(targetIndex, 0), remainingPaths.length - 1);
+      setSelectedPathNodeId(remainingPaths[nextIndex]?.nodeId ?? null);
     }
   };
 
@@ -636,7 +644,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   <path d="M${startX},${centerY} L${endX},${centerY}" stroke="#6366F1" fill="none" stroke-width="${strokeW}" stroke-linecap="round" stroke-linejoin="round" />
 </svg>`;
     pushSvgChange(freshSvg);
-    setSelectedPathIndex(0);
+    setSelectedPathNodeId(null);
   };
 
   const handleGridSizeSelect = (newSize: number) => {
@@ -662,7 +670,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     if (!actualSvgSource || !actualOnUpdateSvg) return;
     pushSvgChange(removeAllPaths(actualSvgSource));
     setParsedPaths([]);
-    setSelectedPathIndex(0);
+    setSelectedPathNodeId(null);
   };
 
   // Translate entire active path coordinates
@@ -797,9 +805,9 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           }
 
           if (drawTool === 'select') {
-            const clickedPathIdx = findClosestPathIndex(coords.x, coords.y);
-            if (clickedPathIdx !== -1 && clickedPathIdx !== selectedPathIndex) {
-              setSelectedPathIndex(clickedPathIdx);
+            const clickedPathNodeId = findClosestPathNodeId(coords.x, coords.y);
+            if (clickedPathNodeId && clickedPathNodeId !== selectedPathNodeId) {
+              setSelectedPathNodeId(clickedPathNodeId);
               triggerHaptic(15);
             }
           }
@@ -1014,9 +1022,9 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
         }
 
         if (drawTool === 'select') {
-          const clickedPathIdx = findClosestPathIndex(coords.x, coords.y);
-          if (clickedPathIdx !== -1 && clickedPathIdx !== selectedPathIndex) {
-            setSelectedPathIndex(clickedPathIdx);
+          const clickedPathNodeId = findClosestPathNodeId(coords.x, coords.y);
+          if (clickedPathNodeId && clickedPathNodeId !== selectedPathNodeId) {
+            setSelectedPathNodeId(clickedPathNodeId);
             triggerHaptic(15);
           }
         }
@@ -1524,7 +1532,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
 
     const handleGlobalEnd = () => {
       if (isTranslatingPath) {
-        if (nodes.length > 0 && selectedPathIndex !== -1) {
+        if (nodes.length > 0 && selectedPathNodeId !== null) {
           const finalSvg = getSvgWithUpdatedNodes(nodes);
           pushSvgChange(finalSvg, false);
         }
@@ -1535,7 +1543,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
           clearTimeout(debounceTimerRef.current);
           debounceTimerRef.current = null;
         }
-        if (nodes.length > 0 && selectedPathIndex !== -1) {
+        if (nodes.length > 0 && selectedPathNodeId !== null) {
           const finalSvg = getSvgWithUpdatedNodes(nodes);
           // Layer 2: durable final save to Firestore and full sync message
           pushSvgChange(finalSvg, false);
@@ -1561,12 +1569,12 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       window.removeEventListener('touchmove', handleGlobalMove);
       window.removeEventListener('touchend', handleGlobalEnd);
     };
-  }, [draggedNode, nodes, panOffset, zoom, precision, editorMode, lockedAngles, actualSvgSource, selectedPathIndex, isTranslatingPath, translateStart, translateOriginalNodes]);
+  }, [draggedNode, nodes, panOffset, zoom, precision, editorMode, lockedAngles, actualSvgSource, selectedPathNodeId, isTranslatingPath, translateStart, translateOriginalNodes]);
 
   // Implement a 'Clean SVG' feature in the Precision tab that automatically removes redundant nodes,
   // optimizes path data, and simplifies complex Bezier curves while preserving the overall logo geometry.
   const handleCleanSvg = () => {
-    if (!actualSvgSource || !actualOnUpdateSvg || nodes.length === 0) return;
+    if (!actualSvgSource || !actualOnUpdateSvg || nodes.length === 0 || !selectedPathNodeId) return;
     triggerHaptic([30, 50]);
 
     let cleanedNodes: PathNode[] = [];
@@ -1665,7 +1673,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
       .trim();
 
     setNodes(cleanedNodes);
-    updatePathAtIndex(selectedPathIndex, { d: newPathString });
+    updatePathById(selectedPathNodeId, { d: newPathString });
 
     toast(`✨ Cleaned: ${redundantRemoved} redundant points, simplified ${curvesSimplified} curves!`, 'success');
   };
@@ -2428,9 +2436,9 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                 {parsedPaths.map((pathItem, idx) => (
                   <div
-                    key={idx}
-                    onClick={() => { setSelectedPathIndex(idx); triggerHaptic(10); }}
-                    className={`w-full text-left p-3 rounded-2xl border text-xs transition-all flex items-center justify-between cursor-pointer ${selectedPathIndex === idx ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-neutral-900 dark:text-white' : 'border-neutral-100 dark:border-zinc-900 hover:bg-neutral-50 text-neutral-500'}`}
+                    key={pathItem.nodeId}
+                    onClick={() => { setSelectedPathNodeId(pathItem.nodeId); triggerHaptic(10); }}
+                    className={`w-full text-left p-3 rounded-2xl border text-xs transition-all flex items-center justify-between cursor-pointer ${selectedPathNodeId === pathItem.nodeId ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-neutral-900 dark:text-white' : 'border-neutral-100 dark:border-zinc-900 hover:bg-neutral-50 text-neutral-500'}`}
                   >
                     <div className="flex items-center gap-2.5 truncate">
                       <div className="w-5 h-5 rounded bg-neutral-100 dark:bg-zinc-950 flex items-center justify-center text-[9px] font-mono font-bold">
@@ -2453,7 +2461,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeletePath(idx);
+                          handleDeletePath(pathItem.nodeId);
                         }}
                         className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 text-red-600 rounded-lg transition-colors cursor-pointer"
                         title="Delete this path layer"

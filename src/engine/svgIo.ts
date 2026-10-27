@@ -24,6 +24,18 @@
 import type { Node, NodeType, SvgDocument, Transform } from '../types';
 import { IDENTITY_TRANSFORM } from '../types';
 
+const NODE_ID_SOURCE = Symbol('svgNodeIdSource');
+type NodeIdSource = 'authored' | 'generated';
+type NodeWithIdSource = Node & { [NODE_ID_SOURCE]?: NodeIdSource };
+
+function setNodeIdSource(node: Node, source: NodeIdSource): void {
+  Object.defineProperty(node, NODE_ID_SOURCE, { value: source, enumerable: false });
+}
+
+function getNodeIdSource(node: Node): NodeIdSource | undefined {
+  return (node as NodeWithIdSource)[NODE_ID_SOURCE];
+}
+
 /** Element names that map onto a document node. */
 const ELEMENT_TO_NODE_TYPE: Record<string, NodeType> = {
   g: 'group',
@@ -151,12 +163,14 @@ function parseElement(el: Element, path: string): Node | null {
   if (!type) return null;
 
   const explicitId = el.getAttribute('id');
+  const hasAuthoredId = explicitId !== null && explicitId !== '';
   const node: Node = {
     // Deterministic: derived from tree position when the element carries no id.
-    id: explicitId || `n${path}`,
+    id: hasAuthoredId ? explicitId : `n${path}`,
     type,
     transform: { ...IDENTITY_TRANSFORM },
   };
+  setNodeIdSource(node, hasAuthoredId ? 'authored' : 'generated');
 
   const rawTransform = el.getAttribute('transform');
   if (rawTransform) {
@@ -299,8 +313,11 @@ function serializeNode(node: Node): string {
   const tag = NODE_TYPE_TO_ELEMENT[node.type];
   const parts: string[] = [];
 
-  // Emit id only when it was not synthesized from tree position.
-  if (!/^n[\d-]+$/.test(node.id)) {
+  // Preserve authored ids even when they resemble our positional fallback (e.g. "n0").
+  // Generated ids remain internal and are not emitted unless an editor metadata attribute
+  // persists them separately.
+  const idSource = getNodeIdSource(node);
+  if (idSource === 'authored' || (idSource !== 'generated' && !/^n[\d-]+$/.test(node.id))) {
     parts.push(`id="${escapeAttr(node.id)}"`);
   }
 
