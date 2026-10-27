@@ -36,6 +36,21 @@ function getNodeIdSource(node: Node): NodeIdSource | undefined {
   return (node as NodeWithIdSource)[NODE_ID_SOURCE];
 }
 
+/** Identifies the one non-serialized symbol legitimately attached to parsed SVG Nodes. */
+export function isSvgNodeIdSourceProperty(key: PropertyKey): boolean {
+  return key === NODE_ID_SOURCE;
+}
+
+/** Preserve authored/generated ID provenance when a parsed Node is cloned for a proposal. */
+export function copySvgNodeIdSource(source: Node, target: Node): void {
+  const idSource = getNodeIdSource(source);
+  if (idSource) setNodeIdSource(target, idSource);
+}
+
+export function getSvgNodeIdSource(node: Node): NodeIdSource | undefined {
+  return getNodeIdSource(node);
+}
+
 /** Element names that map onto a document node. */
 const ELEMENT_TO_NODE_TYPE: Record<string, NodeType> = {
   g: 'group',
@@ -224,7 +239,7 @@ function parseElement(el: Element, path: string): Node | null {
   if (Object.keys(props).length > 0) node.props = props;
 
   // Everything else, preserved verbatim.
-  const attrs: Record<string, string> = {};
+  const attrs: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const attr of Array.from(el.attributes)) {
     if (INTERPRETED_ATTRS.has(attr.name)) continue;
     if (geometryKeys.includes(attr.name)) continue;
@@ -265,7 +280,7 @@ export function parseSvg(svgSource: string): SvgDocument {
     throw new Error('Invalid SVG: root element is not <svg>');
   }
 
-  const rootAttrs: Record<string, string> = {};
+  const rootAttrs: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const attr of Array.from(root.attributes)) {
     rootAttrs[attr.name] = attr.value;
   }
@@ -317,7 +332,8 @@ function serializeNode(node: Node): string {
   // Generated ids remain internal and are not emitted unless an editor metadata attribute
   // persists them separately.
   const idSource = getNodeIdSource(node);
-  if (idSource === 'authored' || (idSource !== 'generated' && !/^n[\d-]+$/.test(node.id))) {
+  if (idSource === 'authored' || (idSource === undefined && node.id !== '') ||
+    (idSource !== 'generated' && !/^n[\d-]+$/.test(node.id))) {
     parts.push(`id="${escapeAttr(node.id)}"`);
   }
 

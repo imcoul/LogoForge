@@ -3,6 +3,8 @@ import type { Node, WhiteboardSketch } from '../types';
 
 export const WHITEBOARD_NODE_ID_PREFIX = 'whiteboard-';
 export const WHITEBOARD_NODE_MIGRATION_VERSION = 1 as const;
+export const WHITEBOARD_SHARED_SKETCH_LINK_ATTRIBUTE = 'data-logoforge-shared-whiteboard-id';
+export const WHITEBOARD_STABLE_NODE_ID_ATTRIBUTE = 'data-logoforge-node-id';
 
 export type WhiteboardMigrationProvenance = {
   version: typeof WHITEBOARD_NODE_MIGRATION_VERSION;
@@ -251,6 +253,7 @@ export function whiteboardSketchToNode(input: unknown): WhiteboardNodeConversion
 export function whiteboardSketchesToNodes(
   sketches: readonly unknown[],
   existingNodeIds: ReadonlySet<string> = new Set<string>(),
+  representedSketchNodeIds: ReadonlyMap<string, string> = new Map<string, string>(),
 ): WhiteboardNodeMigrationBatch {
   const result: WhiteboardNodeMigrationBatch = { nodes: [], skipped: [], rejected: [] };
   const acceptedIds = new Set<string>();
@@ -265,6 +268,11 @@ export function whiteboardSketchesToNodes(
 
     const nodeId = converted.node.id;
     const sketchId = converted.node.legacyWhiteboardSource.sourceSketch.id;
+    const linkedNodeId = representedSketchNodeIds.get(sketchId);
+    if (linkedNodeId !== undefined) {
+      result.skipped.push({ index, sketchId, nodeId: linkedNodeId });
+      return;
+    }
     if (existingNodeIds.has(nodeId)) {
       result.skipped.push({ index, sketchId, nodeId });
       return;

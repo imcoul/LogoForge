@@ -6,10 +6,16 @@ import {
   type SharedWhiteboardLinkCommand,
   type SharedWhiteboardPathCommand,
   type SharedWhiteboardUpdateCommand,
+  type SvgDocument,
   type WhiteboardSketch,
 } from '../types';
 import { useAppStore, type Project } from '../store';
-import { parseSvg, serializeSvg, walkNodes } from './svgIo';
+import { copySvgNodeIdSource, getSvgNodeIdSource, parseSvg, serializeSvg, walkNodes } from './svgIo';
+import {
+  WHITEBOARD_SHARED_SKETCH_LINK_ATTRIBUTE,
+  WHITEBOARD_STABLE_NODE_ID_ATTRIBUTE,
+  whiteboardNodeIdForSketch,
+} from './whiteboardNodeAdapter';
 
 export type SharedHistoryCommit = (
   updates: Partial<Project>,
@@ -17,13 +23,19 @@ export type SharedHistoryCommit = (
   options?: { recordLogoHistory?: boolean; preserveSharedRedo?: boolean },
 ) => Promise<void>;
 
-const NODE_ID_ATTRIBUTE = 'data-logoforge-node-id';
-const SHARED_WHITEBOARD_SKETCH_ATTRIBUTE = 'data-logoforge-shared-whiteboard-id';
+const NODE_ID_ATTRIBUTE = WHITEBOARD_STABLE_NODE_ID_ATTRIBUTE;
+const SHARED_WHITEBOARD_SKETCH_ATTRIBUTE = WHITEBOARD_SHARED_SKETCH_LINK_ATTRIBUTE;
 const LINK_ORIGINAL_NODE_ID_PRESENT_ATTRIBUTE = 'data-logoforge-shared-original-node-id-present';
 const LINK_ORIGINAL_NODE_ID_ATTRIBUTE = 'data-logoforge-shared-original-node-id';
+const ROOT_PRESENTATION_ATTRS = new Set(['fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'color', 'visibility', 'display', 'mix-blend-mode', 'style', 'filter', 'mask', 'clip-path', 'vector-effect', 'paint-order', 'shape-rendering', 'class']);
+const LINKED_PATH_PRESENTATION_ATTRS = new Set([...ROOT_PRESENTATION_ATTRS, 'fill-rule', 'clip-rule', 'stroke-miterlimit', 'marker-start', 'marker-mid', 'marker-end']);
 export const SHARED_WHITEBOARD_SKETCH_PREFIX = 'shared-wb-';
 
 const sharedMutationTails = new Map<string, Promise<void>>();
+
+function isSharedWhiteboardSketchId(id: string): boolean {
+  return id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) && id.slice(SHARED_WHITEBOARD_SKETCH_PREFIX.length).trim().length > 0;
+}
 
 function enqueueSharedMutation<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
   const previous = sharedMutationTails.get(projectId) ?? Promise.resolve();
@@ -55,7 +67,7 @@ export function preserveSharedWhiteboardSketches(
 }
 
 function cloneNode(node: Node): Node {
-  return {
+  const clone: Node = {
     ...node,
     transform: { ...node.transform },
     style: node.style ? { ...node.style } : undefined,
@@ -63,6 +75,8 @@ function cloneNode(node: Node): Node {
     attrs: node.attrs ? { ...node.attrs } : undefined,
     children: node.children?.map(cloneNode),
   };
+  copySvgNodeIdSource(node, clone);
+  return clone;
 }
 
 function stableValue(value: unknown): unknown {
@@ -99,6 +113,50 @@ function nodeContextValue(node: Node) {
 
 function nodeContextSignature(node: Node): string {
   return JSON.stringify(stableValue(nodeContextValue(node)));
+}
+
+function hasUnsupportedSharedLinkContext(doc: SvgDocument, target: Node): boolean {
+  if (Object.keys(doc.rootAttrs).some((key) => ROOT_PRESENTATION_ATTRS.has(key)) || /<\s*style\b/i.test(doc.defs || '')) return true;
+  const find = (siblings: Node[], ancestors: Node[]): Node[] | null => {
+    for (const node of siblings) {
+      if (node === target) return [...ancestors, node];
+      if (node.children) {
+        const nested = find(node.children, [...ancestors, node]);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
+  const path = find(doc.nodes, []);
+  if (!path) return true;
+  return path.some((node) => {
+    const transform = node.transform;
+    const transformedOrHidden = !transform || transform.x !== 0 || transform.y !== 0 || transform.scaleX !== 1 ||
+      transform.scaleY !== 1 || transform.rotate !== 0 || node.transformRaw !== undefined || node.visible === false;
+    const inheritedGroupContext = node.type === 'group' && (node.style !== undefined || Object.keys(node.attrs || {}).length > 0);
+    const targetPresentation = node === target && (
+      node.style?.opacity !== undefined || node.style?.blendMode !== undefined ||
+      Object.keys(node.attrs || {}).some((key) => LINKED_PATH_PRESENTATION_ATTRS.has(key))
+    );
+    return transformedOrHidden || inheritedGroupContext || targetPresentation;
+  });
+}
+
+function sharedLinkMarkers(nodes: Node[], sketchId: string): Node[] {
+  const matches: Node[] = [];
+  walkNodes(nodes, (node) => {
+    if (node.attrs?.[SHARED_WHITEBOARD_SKETCH_ATTRIBUTE] === sketchId) matches.push(node);
+  });
+  return matches;
+}
+
+function sharedReservedIdentityNodes(nodes: Node[], sketchId: string): Node[] {
+  const reservedId = whiteboardNodeIdForSketch(sketchId);
+  const matches: Node[] = [];
+  walkNodes(nodes, (node) => {
+    if (node.id === reservedId || node.attrs?.[NODE_ID_ATTRIBUTE] === reservedId) matches.push(node);
+  });
+  return matches;
 }
 
 type NodeLocation = {
@@ -443,6 +501,7 @@ function sharedWhiteboardPathSignature(svgSource: string): string {
   type AncestorContext = { node: Node; index: number; siblings: Node[] };
   const nodeContext = (node: Node) => ({
     id: node.id,
+    idSource: getSvgNodeIdSource(node) ?? null,
     type: node.type,
     name: node.name,
     locked: node.locked,
@@ -575,14 +634,16 @@ export function createSharedWhiteboardPathCommand(
   if (
     !project.svgSource?.trim() ||
     !sketch.id ||
-    !sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) ||
+    !isSharedWhiteboardSketchId(sketch.id) ||
     !sketch.path?.trim()
   ) return null;
+  if (project.whiteboardSketches?.some((item) => item.id === sketch.id)) return null;
 
   try {
     const doc = parseSvg(project.svgSource);
-    const nodeId = `whiteboard-${sketch.id}`;
-    if (pathNodeExists(project.svgSource, nodeId)) return null;
+    const nodeId = whiteboardNodeIdForSketch(sketch.id);
+    if (pathNodeExists(project.svgSource, nodeId) || sharedLinkMarkers(doc.nodes, sketch.id).length > 0 ||
+      sharedReservedIdentityNodes(doc.nodes, sketch.id).length > 0) return null;
 
     const node: Node = {
       id: nodeId,
@@ -622,18 +683,23 @@ export function createSharedWhiteboardLinkCommand(
   sketch: WhiteboardSketch,
   commandId: string = globalThis.crypto?.randomUUID?.() ?? `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 ): SharedWhiteboardLinkCommand | null {
-  if (!project.svgSource?.trim() || !nodeId || !sketch.id?.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) || !sketch.path?.trim()) return null;
+  if (!project.svgSource?.trim() || !nodeId || !isSharedWhiteboardSketchId(sketch.id) ||
+    !sketch.path?.trim() || (sketch.type !== undefined && sketch.type !== 'path')) return null;
   if (project.whiteboardSketches?.some((item) => item.id === sketch.id)) return null;
 
   try {
     const doc = parseSvg(project.svgSource);
+    if (sharedLinkMarkers(doc.nodes, sketch.id).length > 0) return null;
     const matches: Node[] = [];
     walkNodes(doc.nodes, (node) => {
       if (node.id === nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === nodeId) matches.push(node);
     });
     if (matches.length !== 1 || matches[0].type !== 'path') return null;
     const target = matches[0];
-    if (target.props?.d !== sketch.path || target.attrs?.[SHARED_WHITEBOARD_SKETCH_ATTRIBUTE]) return null;
+    const reservedOwners = sharedReservedIdentityNodes(doc.nodes, sketch.id);
+    if (reservedOwners.some((owner) => owner !== target) || reservedOwners.length > 1) return null;
+    if (target.props?.d !== sketch.path || target.attrs?.[SHARED_WHITEBOARD_SKETCH_ATTRIBUTE] !== undefined ||
+      hasUnsupportedSharedLinkContext(doc, target)) return null;
     const existingNodeIdMarker = target.attrs?.[NODE_ID_ATTRIBUTE];
     if (existingNodeIdMarker !== undefined && existingNodeIdMarker !== nodeId) return null;
     const previousNodeIdMarker = existingNodeIdMarker;
@@ -657,16 +723,20 @@ export function applySharedWhiteboardLinkCommand(
   project: Project,
   command: SharedWhiteboardLinkCommand,
 ): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
-  if (!project.svgSource) return null;
   try {
+    if (project.id !== command.projectId || !project.svgSource) return null;
     const doc = parseSvg(project.svgSource);
+    if (!isSharedWhiteboardSketchId(command.sketch.id) || sharedLinkMarkers(doc.nodes, command.sketch.id).length > 0) return null;
     const matches: Node[] = [];
     walkNodes(doc.nodes, (node) => {
       if (node.id === command.nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === command.nodeId) matches.push(node);
     });
     if (matches.length !== 1 || matches[0].type !== 'path') return null;
     const target = matches[0];
-    if (target.props?.d !== command.sketch.path || target.attrs?.[SHARED_WHITEBOARD_SKETCH_ATTRIBUTE]) return null;
+    const reservedOwners = sharedReservedIdentityNodes(doc.nodes, command.sketch.id);
+    if (reservedOwners.some((owner) => owner !== target) || reservedOwners.length > 1) return null;
+    if (target.props?.d !== command.sketch.path || target.attrs?.[SHARED_WHITEBOARD_SKETCH_ATTRIBUTE] !== undefined ||
+      (command.sketch.type !== undefined && command.sketch.type !== 'path') || hasUnsupportedSharedLinkContext(doc, target)) return null;
     if (target.attrs?.[NODE_ID_ATTRIBUTE] !== command.previousNodeIdMarker) return null;
 
     const sketches = project.whiteboardSketches || [];
@@ -697,10 +767,14 @@ export function applySharedWhiteboardPathCommand(
   project: Project,
   command: SharedWhiteboardPathCommand,
 ): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
-  if (!project.svgSource) return null;
   try {
+    if (project.id !== command.projectId || !project.svgSource || !isSharedWhiteboardSketchId(command.sketch.id)) return null;
+    const expectedNodeId = whiteboardNodeIdForSketch(command.sketch.id);
+    if (command.nodeId !== expectedNodeId || command.node.id !== expectedNodeId ||
+      command.node.attrs?.[NODE_ID_ATTRIBUTE] !== expectedNodeId || command.node.type !== 'path') return null;
     const doc = parseSvg(project.svgSource);
-    if (pathNodeExists(project.svgSource, command.nodeId)) return null;
+    if (pathNodeExists(project.svgSource, command.nodeId) || sharedLinkMarkers(doc.nodes, command.sketch.id).length > 0 ||
+      sharedReservedIdentityNodes(doc.nodes, command.sketch.id).length > 0) return null;
 
     const sketches = project.whiteboardSketches || [];
     if (sketches.some((sketch) => sketch.id === command.sketch.id)) return null;
@@ -729,9 +803,10 @@ export function undoSharedWhiteboardPathCommand(
   project: Project,
   command: SharedWhiteboardPathCommand,
 ): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
-  if (!project.svgSource) return null;
   try {
+    if (project.id !== command.projectId || !project.svgSource) return null;
     const doc = parseSvg(project.svgSource);
+    if (sharedLinkMarkers(doc.nodes, command.sketch.id).length > 0) return null;
     const matches: Node[] = [];
     walkNodes(doc.nodes, (node) => {
       if (node.id === command.nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === command.nodeId) {
@@ -779,8 +854,8 @@ export function undoSharedWhiteboardLinkCommand(
   project: Project,
   command: SharedWhiteboardLinkCommand,
 ): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
-  if (!project.svgSource) return null;
   try {
+    if (project.id !== command.projectId || !project.svgSource) return null;
     const doc = parseSvg(project.svgSource);
     const matches: Node[] = [];
     walkNodes(doc.nodes, (node) => {
@@ -788,9 +863,15 @@ export function undoSharedWhiteboardLinkCommand(
     });
     if (matches.length !== 1) return null;
     const target = matches[0];
+    const markedNodes = sharedLinkMarkers(doc.nodes, command.sketch.id);
+    const reservedOwners = sharedReservedIdentityNodes(doc.nodes, command.sketch.id);
     if (
+      !isSharedWhiteboardSketchId(command.sketch.id) || markedNodes.length !== 1 || markedNodes[0] !== target ||
+      reservedOwners.some((owner) => owner !== target) || reservedOwners.length > 1 ||
       target.type !== 'path' ||
       target.props?.d !== command.sketch.path ||
+      (command.sketch.type !== undefined && command.sketch.type !== 'path') ||
+      hasUnsupportedSharedLinkContext(doc, target) ||
       target.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
       target.attrs?.[SHARED_WHITEBOARD_SKETCH_ATTRIBUTE] !== command.sketch.id
     ) return null;
@@ -872,8 +953,8 @@ export function applySharedWhiteboardDeleteCommand(
   project: Project,
   command: SharedWhiteboardDeleteCommand,
 ): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
-  if (project.id !== command.projectId || !project.svgSource) return null;
   try {
+    if (project.id !== command.projectId || !project.svgSource) return null;
     const doc = parseSvg(project.svgSource);
     const locations = locateNodes(
       doc.nodes,
@@ -916,15 +997,15 @@ export function undoSharedWhiteboardDeleteCommand(
   project: Project,
   command: SharedWhiteboardDeleteCommand,
 ): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
-  if (project.id !== command.projectId || !project.svgSource) return null;
-  if (
-    command.node.type !== 'path' ||
-    command.node.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
-    getSharedSketchIdForNode(command.node) !== command.sketch.id ||
-    command.node.props?.d !== command.sketch.path
-  ) return null;
-
   try {
+    if (project.id !== command.projectId || !project.svgSource) return null;
+    if (
+      command.node.type !== 'path' ||
+      command.node.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
+      getSharedSketchIdForNode(command.node) !== command.sketch.id ||
+      command.node.props?.d !== command.sketch.path
+    ) return null;
+
     const doc = parseSvg(project.svgSource);
     const existingNodes = locateNodes(
       doc.nodes,
@@ -1002,25 +1083,25 @@ function applySharedWhiteboardUpdateSnapshot(
   command: SharedWhiteboardUpdateCommand,
   forward: boolean,
 ): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
-  if (
-    project.id !== command.projectId ||
-    !project.svgSource ||
-    !isValidSharedWhiteboardUpdateCommand(command)
-  ) return null;
-  const fromNode = forward ? command.beforeNode : command.afterNode;
-  const toNode = forward ? command.afterNode : command.beforeNode;
-  const fromSketch = forward ? command.beforeSketch : command.afterSketch;
-  const toSketch = forward ? command.afterSketch : command.beforeSketch;
-  if (
-    fromNode.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
-    toNode.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
-    getSharedSketchIdForNode(fromNode) !== command.sketchId ||
-    getSharedSketchIdForNode(toNode) !== command.sketchId ||
-    fromNode.props?.d !== fromSketch.path ||
-    toNode.props?.d !== toSketch.path
-  ) return null;
-
   try {
+    if (
+      project.id !== command.projectId ||
+      !project.svgSource ||
+      !isValidSharedWhiteboardUpdateCommand(command)
+    ) return null;
+    const fromNode = forward ? command.beforeNode : command.afterNode;
+    const toNode = forward ? command.afterNode : command.beforeNode;
+    const fromSketch = forward ? command.beforeSketch : command.afterSketch;
+    const toSketch = forward ? command.afterSketch : command.beforeSketch;
+    if (
+      fromNode.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
+      toNode.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
+      getSharedSketchIdForNode(fromNode) !== command.sketchId ||
+      getSharedSketchIdForNode(toNode) !== command.sketchId ||
+      fromNode.props?.d !== fromSketch.path ||
+      toNode.props?.d !== toSketch.path
+    ) return null;
+
     const doc = parseSvg(project.svgSource);
     const locations = locateNodes(
       doc.nodes,

@@ -129,7 +129,7 @@ describe('shared whiteboard path command history', () => {
     expect(await history.undo()).toBe(true);
     expect(history.canRedo()).toBe(true);
 
-    const linkedSketch = { ...makeSketch('shared-wb-linked-existing'), path: 'M0 0 L5 5', locked: true };
+    const linkedSketch = { ...makeSketch('shared-wb-linked-existing'), type: 'path' as const, path: 'M0 0 L5 5', locked: true };
     expect(await history.addExistingPathToWhiteboard('existing', linkedSketch)).toBe(true);
     expect(history.canRedo()).toBe(false);
     expect(getCurrentProject().whiteboardSketches?.map((sketch) => sketch.id)).toEqual([
@@ -150,7 +150,7 @@ describe('shared whiteboard path command history', () => {
   it('reconstructs applied add and link history from persisted IDs after the ephemeral journal resets', async () => {
     const initialHistory = createSharedVectorHistoryController(commitToStore);
     expect(await initialHistory.addWhiteboardPath(makeSketch('shared-wb-persisted'))).toBe(true);
-    const linkedSketch = { ...makeSketch('shared-wb-linked-persisted'), path: 'M0 0 L5 5', locked: true };
+    const linkedSketch = { ...makeSketch('shared-wb-linked-persisted'), type: 'path' as const, path: 'M0 0 L5 5', locked: true };
     expect(await initialHistory.addExistingPathToWhiteboard('existing', linkedSketch)).toBe(true);
 
     useAppStore.setState({ sharedVectorHistoryByProject: { 'project-1': { commands: [], index: -1 } } });
@@ -244,9 +244,96 @@ describe('shared whiteboard path command history', () => {
     expect(useAppStore.getState().canUndoSharedVector('project-1')).toBe(false);
   });
 
+  it('rejects shared links for transformed paths, transformed ancestors, or non-path sketches', () => {
+    const sketch = { ...makeSketch('shared-wb-link-safety'), type: 'path' as const, path: 'M0 0 L5 5' };
+    const ownTransform = {
+      ...makeProject(),
+      svgSource: '<svg xmlns="http://www.w3.org/2000/svg"><path id="existing" transform="translate(1 2)" d="M0 0 L5 5" /></svg>',
+    };
+    const parentTransform = {
+      ...makeProject(),
+      svgSource: '<svg xmlns="http://www.w3.org/2000/svg"><g id="parent" transform="translate(1 2)"><path id="existing" d="M0 0 L5 5" /></g></svg>',
+    };
+
+    expect(createSharedWhiteboardLinkCommand(ownTransform, 'existing', sketch)).toBeNull();
+    expect(createSharedWhiteboardLinkCommand(parentTransform, 'existing', sketch)).toBeNull();
+    expect(createSharedWhiteboardLinkCommand(makeProject(), 'existing', { ...sketch, type: 'rectangle' })).toBeNull();
+
+    const presentationCases = [
+      makeProject().svgSource!.replace('<svg ', '<svg fill="red" '),
+      makeProject().svgSource!.replace('aria-label="keep me"', 'opacity="0" aria-label="keep me"'),
+      makeProject().svgSource!.replace('aria-label="keep me"', 'display="none" aria-label="keep me"'),
+      makeProject().svgSource!.replace('aria-label="keep me"', 'visibility="hidden" aria-label="keep me"'),
+      makeProject().svgSource!.replace('aria-label="keep me"', 'style="opacity:0" aria-label="keep me"'),
+      makeProject().svgSource!.replace('</svg>', '<defs><style>path { opacity: 0 }</style></defs></svg>'),
+    ];
+    for (const svgSource of presentationCases) {
+      expect(createSharedWhiteboardLinkCommand({ ...makeProject(), svgSource }, 'existing', sketch)).toBeNull();
+    }
+
+    const base = makeProject();
+    const command = createSharedWhiteboardLinkCommand(base, 'existing', sketch, 'duplicate-marker-command');
+    expect(command).not.toBeNull();
+    const withExistingMarker = { ...base };
+    const duplicateDoc = parseSvg(withExistingMarker.svgSource);
+    duplicateDoc.nodes.push({
+      id: 'other-marker-path', type: 'path', transform: { ...IDENTITY_TRANSFORM }, props: { d: 'M9 9 L10 10' },
+      attrs: { 'data-logoforge-shared-whiteboard-id': sketch.id },
+    });
+    withExistingMarker.svgSource = serializeSvg(duplicateDoc);
+    expect(createSharedWhiteboardLinkCommand(withExistingMarker, 'existing', sketch)).toBeNull();
+    expect(applySharedWhiteboardLinkCommand(withExistingMarker, command!)).toBeNull();
+
+    const applied = applySharedWhiteboardLinkCommand(base, command!);
+    expect(applied).not.toBeNull();
+    const duplicateAfterApply = parseSvg(applied!.svgSource);
+    duplicateAfterApply.nodes.push({
+      id: 'other-marker-path', type: 'path', transform: { ...IDENTITY_TRANSFORM }, props: { d: 'M9 9 L10 10' },
+      attrs: { 'data-logoforge-shared-whiteboard-id': sketch.id },
+    });
+    expect(undoSharedWhiteboardLinkCommand({ ...base, ...applied, svgSource: serializeSvg(duplicateAfterApply) }, command!)).toBeNull();
+  });
+
+  it('enforces shared sketch identity across add-path and existing-path link commands', () => {
+    const sketch = { ...makeSketch('shared-wb-identity'), type: 'path' as const, path: 'M0 0 L5 5' };
+    const base = makeProject();
+    const addCommand = createSharedWhiteboardPathCommand(base, sketch, 'add-identity');
+    const linkCommand = createSharedWhiteboardLinkCommand(base, 'existing', sketch, 'link-identity');
+    expect(addCommand).not.toBeNull();
+    expect(linkCommand).not.toBeNull();
+    expect(createSharedWhiteboardPathCommand({ ...base, whiteboardSketches: [sketch] }, sketch)).toBeNull();
+
+    const markerDoc = parseSvg(base.svgSource);
+    markerDoc.nodes.push({
+      id: 'orphan-marker', type: 'path', transform: { ...IDENTITY_TRANSFORM }, props: { d: 'M9 9 L10 10' },
+      attrs: { 'data-logoforge-shared-whiteboard-id': sketch.id },
+    });
+    const markerProject = { ...base, svgSource: serializeSvg(markerDoc) };
+    expect(createSharedWhiteboardPathCommand(markerProject, sketch)).toBeNull();
+    expect(applySharedWhiteboardPathCommand(markerProject, addCommand!)).toBeNull();
+
+    const reservedDoc = parseSvg(base.svgSource);
+    reservedDoc.nodes.push({
+      id: 'separate-reserved-path', type: 'path', transform: { ...IDENTITY_TRANSFORM }, props: { d: 'M9 9 L10 10' },
+      attrs: { 'data-logoforge-node-id': 'whiteboard-shared-wb-identity' },
+    });
+    const reservedProject = { ...base, svgSource: serializeSvg(reservedDoc) };
+    expect(createSharedWhiteboardLinkCommand(reservedProject, 'existing', sketch)).toBeNull();
+    expect(applySharedWhiteboardLinkCommand(reservedProject, linkCommand!)).toBeNull();
+
+    const selfProject = {
+      ...base,
+      svgSource: '<svg xmlns="http://www.w3.org/2000/svg"><path id="whiteboard-shared-wb-self" d="M0 0 L5 5" /></svg>',
+    };
+    const selfSketch = { ...sketch, id: 'shared-wb-self' };
+    const selfLink = createSharedWhiteboardLinkCommand(selfProject, 'whiteboard-shared-wb-self', selfSketch);
+    expect(selfLink).not.toBeNull();
+    expect(applySharedWhiteboardLinkCommand(selfProject, selfLink!)).not.toBeNull();
+  });
+
   it('links an existing SVG path into Whiteboard without duplicating it and restores the link on undo/redo', () => {
     const project = makeProject();
-    const sketch = { ...makeSketch('shared-wb-existing'), path: 'M0 0 L5 5', locked: true };
+    const sketch = { ...makeSketch('shared-wb-existing'), type: 'path' as const, path: 'M0 0 L5 5', locked: true };
     const command = createSharedWhiteboardLinkCommand(project, 'existing', sketch, 'link-existing-1');
     expect(command).not.toBeNull();
     expect(command!.previousNodeIdMarker).toBeUndefined();
@@ -290,6 +377,48 @@ describe('shared whiteboard path command history', () => {
     expect(markedRestoredNode.attrs?.['data-logoforge-shared-original-node-id']).toBeUndefined();
   });
 
+  it('binds shared add and link commands to their originating project', () => {
+    const projectA = makeProject();
+    const projectB = { ...projectA, id: 'project-b' };
+    const addSketch = makeSketch('shared-wb-cross-project-add');
+    const addCommand = createSharedWhiteboardPathCommand(projectA, addSketch, 'cross-project-add');
+    expect(addCommand?.projectId).toBe(projectA.id);
+    const addDelta = applySharedWhiteboardPathCommand(projectA, addCommand!);
+    expect(addDelta).not.toBeNull();
+    expect(applySharedWhiteboardPathCommand(projectB, addCommand!)).toBeNull();
+    expect(undoSharedWhiteboardPathCommand({ ...projectB, ...addDelta }, addCommand!)).toBeNull();
+
+    const linkSketch = { ...makeSketch('shared-wb-cross-project-link'), type: 'path' as const, path: 'M0 0 L5 5' };
+    const linkCommand = createSharedWhiteboardLinkCommand(projectA, 'existing', linkSketch, 'cross-project-link');
+    expect(linkCommand?.projectId).toBe(projectA.id);
+    const linkDelta = applySharedWhiteboardLinkCommand(projectA, linkCommand!);
+    expect(linkDelta).not.toBeNull();
+    expect(applySharedWhiteboardLinkCommand(projectB, linkCommand!)).toBeNull();
+    expect(undoSharedWhiteboardLinkCommand({ ...projectB, ...linkDelta }, linkCommand!)).toBeNull();
+  });
+
+  it('returns safe no-ops for malformed shared commands or project accessors', () => {
+    const project = makeProject();
+    const addCommand = createSharedWhiteboardPathCommand(project, makeSketch('shared-wb-malformed-command'), 'bad-command');
+    const linkSketch = { ...makeSketch('shared-wb-malformed-link'), type: 'path' as const, path: 'M0 0 L5 5' };
+    const linkCommand = createSharedWhiteboardLinkCommand(project, 'existing', linkSketch, 'bad-link-command');
+    const accessorProject = { ...project };
+    Object.defineProperty(accessorProject, 'id', { get: () => { throw new Error('must be caught'); }, enumerable: true });
+
+    expect(() => applySharedWhiteboardPathCommand(accessorProject as Project, addCommand!)).not.toThrow();
+    expect(applySharedWhiteboardPathCommand(accessorProject as Project, addCommand!)).toBeNull();
+    expect(() => applySharedWhiteboardLinkCommand(accessorProject as Project, linkCommand!)).not.toThrow();
+    expect(applySharedWhiteboardLinkCommand(accessorProject as Project, linkCommand!)).toBeNull();
+    expect(applySharedWhiteboardPathCommand(project, null as never)).toBeNull();
+    expect(applySharedWhiteboardLinkCommand(project, null as never)).toBeNull();
+    expect(undoSharedWhiteboardPathCommand(project, null as never)).toBeNull();
+    expect(undoSharedWhiteboardLinkCommand(project, null as never)).toBeNull();
+    expect(applySharedWhiteboardDeleteCommand(project, null as never)).toBeNull();
+    expect(undoSharedWhiteboardDeleteCommand(project, null as never)).toBeNull();
+    expect(applySharedWhiteboardUpdateCommand(project, null as never)).toBeNull();
+    expect(undoSharedWhiteboardUpdateCommand(project, null as never)).toBeNull();
+  });
+
   it('deletes a shared path with its sketch and restores the same root node/order on undo', () => {
     const project = makeProject();
     const sketch = makeSketch('shared-wb-delete-root');
@@ -318,9 +447,9 @@ describe('shared whiteboard path command history', () => {
   it('restores a deleted linked path inside the same nested SVG parent chain', () => {
     const project = {
       ...makeProject(),
-      svgSource: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><g id="outer" transform="translate(5 6)"><g id="inner"><path id="nested" d="M0 0 L5 5" /></g></g></svg>',
+      svgSource: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><g id="outer"><g id="inner"><path id="nested" d="M0 0 L5 5" /></g></g></svg>',
     };
-    const sketch = { ...makeSketch('shared-wb-nested-delete'), path: 'M0 0 L5 5', locked: true };
+    const sketch = { ...makeSketch('shared-wb-nested-delete'), type: 'path' as const, path: 'M0 0 L5 5', locked: true };
     const linkCommand = createSharedWhiteboardLinkCommand(project, 'nested', sketch, 'nested-link');
     const linked = { ...project, ...applySharedWhiteboardLinkCommand(project, linkCommand!)! };
     const deleteCommand = createSharedWhiteboardDeleteCommand(linked, 'nested', 'nested-delete');
@@ -379,6 +508,37 @@ describe('shared whiteboard path command history', () => {
       .toEqual([{ ...legacy, name: 'Local edit' }, shared]);
     expect(preserveSharedWhiteboardSketches([legacy, shared], [legacy])).toEqual([legacy, shared]);
     expect(preserveSharedWhiteboardSketches([legacy, shared], [attemptedMutation, legacy])).toEqual([legacy, shared]);
+  });
+
+  it('preserves authored n0 IDs across shared delete undo and detects ID-source changes', () => {
+    const project = {
+      ...makeProject(),
+      svgSource: '<svg xmlns="http://www.w3.org/2000/svg"><path id="n0" d="M 0 0 L5 5" /></svg>',
+    };
+    const sketch = { ...makeSketch('shared-wb-authored-n0'), type: 'path' as const, path: 'M 0 0 L5 5' };
+    const linkCommand = createSharedWhiteboardLinkCommand(project, 'n0', sketch, 'link-authored-n0');
+    const linked = applySharedWhiteboardLinkCommand(project, linkCommand!);
+    expect(linked).not.toBeNull();
+    const linkedProject = { ...project, ...linked };
+    const deleteCommand = createSharedWhiteboardDeleteCommand(linkedProject, 'n0', 'delete-authored-n0');
+    const deleted = applySharedWhiteboardDeleteCommand(linkedProject, deleteCommand!);
+    expect(deleted).not.toBeNull();
+    const restored = undoSharedWhiteboardDeleteCommand({ ...linkedProject, ...deleted }, deleteCommand!);
+    expect(restored).not.toBeNull();
+    expect(restored!.svgSource).toContain('id="n0"');
+
+    const updateCandidate = replacePathDataById(linked!.svgSource, 'n0', 'M 0 0 L8 8');
+    const updateCommand = createSharedWhiteboardUpdateCommand(linkedProject, 'n0', updateCandidate, 'update-authored-n0');
+    expect(updateCommand).not.toBeNull();
+    const updated = applySharedWhiteboardUpdateCommand(linkedProject, updateCommand!);
+    expect(updated).not.toBeNull();
+    expect(updated!.svgSource).toContain('id="n0"');
+    const updateUndone = undoSharedWhiteboardUpdateCommand({ ...linkedProject, ...updated }, updateCommand!);
+    expect(updateUndone).not.toBeNull();
+    expect(updateUndone!.svgSource).toContain('id="n0"');
+
+    const generatedLooking = linked!.svgSource.replace(' id="n0"', '');
+    expect(sharedWhiteboardPathsUnchanged(linked!.svgSource, generatedLooking)).toBe(false);
   });
 
   it('keeps mirrored shared SVG paths read-only while allowing unrelated path edits', () => {
@@ -548,9 +708,9 @@ describe('shared whiteboard path command history', () => {
 
     const nestedProject = {
       ...makeProject(),
-      svgSource: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><g id="outer" transform="translate(5 6)"><g id="inner"><path id="nested" d="M0 0 L5 5" /></g></g></svg>',
+      svgSource: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><g id="outer"><g id="inner"><path id="nested" d="M0 0 L5 5" /></g></g></svg>',
     };
-    const nestedSketch = { ...makeSketch('shared-wb-update-nested'), path: 'M0 0 L5 5', locked: true };
+    const nestedSketch = { ...makeSketch('shared-wb-update-nested'), type: 'path' as const, path: 'M0 0 L5 5', locked: true };
     const linkCommand = createSharedWhiteboardLinkCommand(nestedProject, 'nested', nestedSketch, 'nested-link-update');
     const linked = { ...nestedProject, ...applySharedWhiteboardLinkCommand(nestedProject, linkCommand!)! };
     const nestedCandidate = replacePathDataById(linked.svgSource, 'nested', 'M1 1 L6 6');
