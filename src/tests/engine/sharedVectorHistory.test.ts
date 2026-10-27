@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { deletePathById, listEditablePaths, replacePathDataById } from '../../engine/pathEditorBridge';
 import {
+  applySharedWhiteboardDeleteCommand,
   applySharedWhiteboardLinkCommand,
   applySharedWhiteboardPathCommand,
   createSharedVectorHistoryController,
+  createSharedWhiteboardDeleteCommand,
   createSharedWhiteboardLinkCommand,
   createSharedWhiteboardPathCommand,
   preserveSharedWhiteboardSketches,
   sharedWhiteboardPathsUnchanged,
+  undoSharedWhiteboardDeleteCommand,
   undoSharedWhiteboardLinkCommand,
   undoSharedWhiteboardPathCommand,
 } from '../../engine/sharedVectorHistory';
@@ -281,6 +284,86 @@ describe('shared whiteboard path command history', () => {
     expect(markedRestoredNode.attrs?.['data-logoforge-shared-whiteboard-id']).toBeUndefined();
     expect(markedRestoredNode.attrs?.['data-logoforge-shared-original-node-id-present']).toBeUndefined();
     expect(markedRestoredNode.attrs?.['data-logoforge-shared-original-node-id']).toBeUndefined();
+  });
+
+  it('deletes a shared path with its sketch and restores the same root node/order on undo', () => {
+    const project = makeProject();
+    const sketch = makeSketch('shared-wb-delete-root');
+    const addCommand = createSharedWhiteboardPathCommand(project, sketch, 'add-before-delete');
+    const withSharedPath = { ...project, ...applySharedWhiteboardPathCommand(project, addCommand!)! };
+    const deleteCommand = createSharedWhiteboardDeleteCommand(withSharedPath, addCommand!.nodeId, 'delete-root');
+    expect(deleteCommand).not.toBeNull();
+
+    const deleted = applySharedWhiteboardDeleteCommand(withSharedPath, deleteCommand!);
+    expect(deleted).not.toBeNull();
+    expect(listEditablePaths(deleted!.svgSource).map((path) => path.nodeId)).toEqual(['existing']);
+    expect(deleted!.whiteboardSketches).toEqual([]);
+
+    const restored = undoSharedWhiteboardDeleteCommand({ ...withSharedPath, ...deleted }, deleteCommand!);
+    expect(restored).not.toBeNull();
+    expect(listEditablePaths(restored!.svgSource).map((path) => path.nodeId)).toEqual(['existing', addCommand!.nodeId]);
+    expect(restored!.whiteboardSketches).toEqual([sketch]);
+    expect(sharedWhiteboardPathsUnchanged(withSharedPath.svgSource, restored!.svgSource)).toBe(true);
+
+    const redone = applySharedWhiteboardDeleteCommand({ ...withSharedPath, ...restored }, deleteCommand!);
+    expect(redone).not.toBeNull();
+    expect(listEditablePaths(redone!.svgSource).map((path) => path.nodeId)).toEqual(['existing']);
+    expect(redone!.whiteboardSketches).toEqual([]);
+  });
+
+  it('restores a deleted linked path inside the same nested SVG parent chain', () => {
+    const project = {
+      ...makeProject(),
+      svgSource: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><g id="outer" transform="translate(5 6)"><g id="inner"><path id="nested" d="M0 0 L5 5" /></g></g></svg>',
+    };
+    const sketch = { ...makeSketch('shared-wb-nested-delete'), path: 'M0 0 L5 5', locked: true };
+    const linkCommand = createSharedWhiteboardLinkCommand(project, 'nested', sketch, 'nested-link');
+    const linked = { ...project, ...applySharedWhiteboardLinkCommand(project, linkCommand!)! };
+    const deleteCommand = createSharedWhiteboardDeleteCommand(linked, 'nested', 'nested-delete');
+    expect(deleteCommand?.parentPath.map((step) => step.nodeId)).toEqual(['outer', 'inner']);
+
+    const changedParentDoc = parseSvg(linked.svgSource);
+    changedParentDoc.nodes.find((node) => node.id === 'outer')!.transformRaw = 'translate(9 10)';
+    expect(applySharedWhiteboardDeleteCommand({ ...linked, svgSource: serializeSvg(changedParentDoc) }, deleteCommand!))
+      .toBeNull();
+
+    const deleted = applySharedWhiteboardDeleteCommand(linked, deleteCommand!);
+    expect(deleted).not.toBeNull();
+    const changedDeletedDoc = parseSvg(deleted!.svgSource);
+    changedDeletedDoc.nodes.find((node) => node.id === 'outer')!.transformRaw = 'translate(9 10)';
+    expect(undoSharedWhiteboardDeleteCommand({
+      ...linked,
+      ...deleted,
+      svgSource: serializeSvg(changedDeletedDoc),
+    }, deleteCommand!)).toBeNull();
+    const restored = undoSharedWhiteboardDeleteCommand({ ...linked, ...deleted }, deleteCommand!);
+    expect(restored).not.toBeNull();
+    const outer = parseSvg(restored!.svgSource).nodes.find((node) => node.id === 'outer')!;
+    const inner = outer.children?.find((node) => node.id === 'inner') ?? null;
+    expect(inner?.children?.find((node) => node.id === 'nested')?.attrs?.['data-logoforge-shared-whiteboard-id'])
+      .toBe(sketch.id);
+    expect(restored!.whiteboardSketches).toEqual([sketch]);
+  });
+
+  it('rejects stale or ambiguous shared-path deletion targets without modifying either representation', () => {
+    const project = makeProject();
+    const addCommand = createSharedWhiteboardPathCommand(project, makeSketch('shared-wb-delete-safe'), 'add-delete-safe');
+    const withSharedPath = { ...project, ...applySharedWhiteboardPathCommand(project, addCommand!)! };
+    const deleteCommand = createSharedWhiteboardDeleteCommand(withSharedPath, addCommand!.nodeId, 'delete-safe');
+    const changedDoc = parseSvg(withSharedPath.svgSource);
+    changedDoc.nodes.find((node) => node.id === addCommand!.nodeId)!.props!.d = 'M 0,0 L 99,99';
+    expect(applySharedWhiteboardDeleteCommand({ ...withSharedPath, svgSource: serializeSvg(changedDoc) }, deleteCommand!))
+      .toBeNull();
+    expect(createSharedWhiteboardDeleteCommand({
+      ...withSharedPath,
+      whiteboardSketches: [...(withSharedPath.whiteboardSketches || []), addCommand!.sketch],
+    }, addCommand!.nodeId)).toBeNull();
+
+    const duplicateNodeDoc = parseSvg(withSharedPath.svgSource);
+    duplicateNodeDoc.nodes.push({ ...duplicateNodeDoc.nodes[1], id: 'duplicate-shared-node' });
+    duplicateNodeDoc.nodes[2].attrs = { ...duplicateNodeDoc.nodes[2].attrs, 'data-logoforge-node-id': addCommand!.nodeId };
+    expect(createSharedWhiteboardDeleteCommand({ ...withSharedPath, svgSource: serializeSvg(duplicateNodeDoc) }, addCommand!.nodeId))
+      .toBeNull();
   });
 
   it('preserves shared Whiteboard mirrors against local mutation, reordering, and deletion', () => {

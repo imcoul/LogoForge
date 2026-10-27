@@ -70,9 +70,10 @@ const EditorPair: React.FC<{
       )}
       <SVGPathEditor
         svgSource={project?.svgSource}
-        onUpdateSvg={(svg) => commitToStore({ svgSource: svg })}
-        onLinkExistingPathToWhiteboard={history.addExistingPathToWhiteboard}
-        onSharedUndo={history.undo}
+          onUpdateSvg={(svg) => commitToStore({ svgSource: svg })}
+          onLinkExistingPathToWhiteboard={history.addExistingPathToWhiteboard}
+          onDeleteSharedPath={history.deleteSharedWhiteboardPath}
+          onSharedUndo={history.undo}
         onSharedRedo={history.redo}
         canUndoShared={history.canUndo()}
         canRedoShared={history.canRedo()}
@@ -188,7 +189,52 @@ describe('shared vector history editor integration', () => {
 
     fireEvent.click(screen.getByTitle('Redo'));
     await waitFor(() => expect(getProject().whiteboardSketches).toHaveLength(2));
-    expect(listEditablePaths(getProject().svgSource)).toHaveLength(2);
+    const finalPathIds = listEditablePaths(getProject().svgSource).map((path) => path.nodeId);
+    expect(finalPathIds[0]).toBe('existing');
+    expect(finalPathIds).toHaveLength(2);
+  });
+
+  it('deletes a shared Precision layer and undoes/redoes it across both editors', async () => {
+    const history = createSharedVectorHistoryController(commitToStore);
+    const sketch = {
+      id: 'shared-wb-delete-ui',
+      name: 'Shared path to delete',
+      type: 'line' as const,
+      path: 'M 10,10 L 40,40',
+      color: '#123456',
+      strokeWidth: 4,
+      locked: true,
+    };
+    expect(await history.addWhiteboardPath(sketch)).toBe(true);
+    render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByText('Precision Handles'));
+    const deleteButtons = screen.getAllByTitle('Delete this path layer');
+    expect(deleteButtons).toHaveLength(2);
+    fireEvent.click(deleteButtons[1]);
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches).toEqual([]);
+      expect(listEditablePaths(getProject().svgSource).map((path) => path.nodeId)).toEqual(['existing']);
+    });
+
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.map((item) => item.id)).toEqual([sketch.id]);
+      expect(listEditablePaths(getProject().svgSource).map((path) => path.nodeId)).toEqual([
+        'existing', `whiteboard-${sketch.id}`,
+      ]);
+    });
+
+    fireEvent.click(screen.getByText('Touch Draw Board'));
+    fireEvent.click(screen.getByTitle('Redo stroke'));
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches).toEqual([]);
+      expect(listEditablePaths(getProject().svgSource).map((path) => path.nodeId)).toEqual(['existing']);
+    });
   });
 
   it('sends an existing SVG path to Whiteboard as a shared link and clears redo', async () => {

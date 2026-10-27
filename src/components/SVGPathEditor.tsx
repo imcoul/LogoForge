@@ -34,6 +34,7 @@ interface SVGPathEditorProps {
   onUpdateSvg?: (newSvg: string, throttleCloud?: boolean, options?: { preserveSharedRedo?: boolean }) => void;
   onChange?: (newSvg: string, throttleCloud?: boolean, options?: { preserveSharedRedo?: boolean }) => void;
   onLinkExistingPathToWhiteboard?: (nodeId: string, sketch: WhiteboardSketch) => Promise<boolean>;
+  onDeleteSharedPath?: (nodeId: string) => Promise<boolean>;
   onSharedUndo?: () => Promise<boolean>;
   onSharedRedo?: () => Promise<boolean>;
   canUndoShared?: boolean;
@@ -52,6 +53,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   onUpdateSvg,
   onChange,
   onLinkExistingPathToWhiteboard,
+  onDeleteSharedPath,
   onSharedUndo,
   onSharedRedo,
   canUndoShared = false,
@@ -663,19 +665,26 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   // Delete path element from SVG list
-  const handleDeletePath = (targetNodeId: string) => {
+  const handleDeletePath = async (targetNodeId: string) => {
     if (!actualSvgSource || !actualOnUpdateSvg) return;
 
     const targetIndex = parsedPaths.findIndex((path) => path.nodeId === targetNodeId);
+    const selectNextPath = () => {
+      if (selectedPathNodeId !== targetNodeId) return;
+      const remainingPaths = parsedPaths.filter((path) => path.nodeId !== targetNodeId);
+      const nextIndex = Math.min(Math.max(targetIndex, 0), remainingPaths.length - 1);
+      setSelectedPathNodeId(remainingPaths[nextIndex]?.nodeId ?? null);
+    };
+    if (onDeleteSharedPath && await onDeleteSharedPath(targetNodeId)) {
+      selectNextPath();
+      return;
+    }
+
     const nextSvg = deletePathById(actualSvgSource, targetNodeId);
     if (nextSvg === actualSvgSource) return;
 
     pushSvgChange(nextSvg);
-    if (selectedPathNodeId === targetNodeId) {
-      const remainingPaths = parsedPaths.filter((path) => path.nodeId !== targetNodeId);
-      const nextIndex = Math.min(Math.max(targetIndex, 0), remainingPaths.length - 1);
-      setSelectedPathNodeId(remainingPaths[nextIndex]?.nodeId ?? null);
-    }
+    selectNextPath();
   };
 
   // Initialize brand canvas manually from fresh slate

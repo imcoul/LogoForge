@@ -177,6 +177,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
     handleRedoLogo,
     addSharedWhiteboardPath,
     addExistingPathToWhiteboard,
+    deleteSharedWhiteboardPath,
     undoSharedVectorCommand,
     redoSharedVectorCommand,
     canUndoSharedVectorCommand,
@@ -724,6 +725,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                           fullscreen={fullscreen}
                           setFullscreen={setFullscreen}
                           onLinkExistingPathToWhiteboard={addExistingPathToWhiteboard}
+                          onDeleteSharedPath={deleteSharedWhiteboardPath}
                           onSharedUndo={undoSharedVectorCommand}
                           onSharedRedo={redoSharedVectorCommand}
                           canUndoShared={canUndoSharedVectorCommand}

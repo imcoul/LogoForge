@@ -2,6 +2,7 @@ import {
   IDENTITY_TRANSFORM,
   type Node,
   type SharedWhiteboardCommand,
+  type SharedWhiteboardDeleteCommand,
   type SharedWhiteboardLinkCommand,
   type SharedWhiteboardPathCommand,
   type WhiteboardSketch,
@@ -65,6 +66,76 @@ function stableValue(value: unknown): unknown {
 
 function sameSerializableValue(first: unknown, second: unknown): boolean {
   return JSON.stringify(stableValue(first)) === JSON.stringify(stableValue(second));
+}
+
+function nodeContextValue(node: Node) {
+  return {
+    id: node.id,
+    type: node.type,
+    name: node.name,
+    locked: node.locked,
+    visible: node.visible,
+    transform: node.transform,
+    transformRaw: node.transformRaw,
+    style: node.style,
+    props: node.props,
+    attrs: node.attrs,
+  };
+}
+
+function nodeContextSignature(node: Node): string {
+  return JSON.stringify(stableValue(nodeContextValue(node)));
+}
+
+type NodeLocation = {
+  node: Node;
+  nodeIndex: number;
+  parentPath: SharedWhiteboardDeleteCommand['parentPath'];
+};
+
+function locateNodes(
+  nodes: Node[],
+  matches: (node: Node) => boolean,
+  parentPath: SharedWhiteboardDeleteCommand['parentPath'] = [],
+): NodeLocation[] {
+  const locations: NodeLocation[] = [];
+  nodes.forEach((node, nodeIndex) => {
+    if (matches(node)) locations.push({ node, nodeIndex, parentPath });
+    if (node.children) {
+      locations.push(...locateNodes(node.children, matches, [
+        ...parentPath,
+        { nodeId: node.id, index: nodeIndex, context: nodeContextSignature(node) },
+      ]));
+    }
+  });
+  return locations;
+}
+
+function resolveParentContainer(
+  docNodes: Node[],
+  parentPath: SharedWhiteboardDeleteCommand['parentPath'],
+): Node[] | null {
+  let container = docNodes;
+  for (const step of parentPath) {
+    const parent = container[step.index];
+    if (
+      !parent ||
+      parent.id !== step.nodeId ||
+      parent.type !== 'group' ||
+      !parent.children ||
+      nodeContextSignature(parent) !== step.context
+    ) return null;
+    container = parent.children;
+  }
+  return container;
+}
+
+function getSharedSketchIdForNode(node: Node): string | null {
+  const linkedSketchId = node.attrs?.[SHARED_WHITEBOARD_SKETCH_ATTRIBUTE];
+  if (linkedSketchId?.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX)) return linkedSketchId;
+  const stableNodeId = node.attrs?.[NODE_ID_ATTRIBUTE] || node.id;
+  const addNodePrefix = `whiteboard-${SHARED_WHITEBOARD_SKETCH_PREFIX}`;
+  return stableNodeId.startsWith(addNodePrefix) ? stableNodeId.slice('whiteboard-'.length) : null;
 }
 
 function pathNodeExists(svgSource: string, nodeId: string): boolean {
@@ -463,6 +534,134 @@ export function undoSharedWhiteboardLinkCommand(
   }
 }
 
+/** Build a reversible deletion only for one exact shared SVG path and its matching sketch. */
+export function createSharedWhiteboardDeleteCommand(
+  project: Project,
+  nodeId: string,
+  commandId: string = globalThis.crypto?.randomUUID?.() ?? `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+): SharedWhiteboardDeleteCommand | null {
+  if (!project.svgSource?.trim() || !nodeId) return null;
+  try {
+    const doc = parseSvg(project.svgSource);
+    const locations = locateNodes(
+      doc.nodes,
+      (node) => node.id === nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === nodeId,
+    );
+    if (locations.length !== 1) return null;
+    const location = locations[0];
+    if (location.node.type !== 'path' || location.node.attrs?.[NODE_ID_ATTRIBUTE] !== nodeId) return null;
+
+    const sketchId = getSharedSketchIdForNode(location.node);
+    if (!sketchId) return null;
+    const sketches = project.whiteboardSketches || [];
+    const matchingSketches = sketches
+      .map((sketch, index) => ({ sketch, index }))
+      .filter(({ sketch }) => sketch.id === sketchId);
+    if (matchingSketches.length !== 1 || location.node.props?.d !== matchingSketches[0].sketch.path) return null;
+
+    return {
+      kind: 'delete-path',
+      commandId,
+      projectId: project.id,
+      nodeId,
+      node: cloneNode(location.node),
+      sketch: {
+        ...matchingSketches[0].sketch,
+        props: matchingSketches[0].sketch.props ? { ...matchingSketches[0].sketch.props } : undefined,
+      },
+      parentPath: location.parentPath.map((step) => ({ ...step })),
+      nodeIndex: location.nodeIndex,
+      sketchIndex: matchingSketches[0].index,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Apply the forward delta, removing only the exact shared node/sketch captured by the command. */
+export function applySharedWhiteboardDeleteCommand(
+  project: Project,
+  command: SharedWhiteboardDeleteCommand,
+): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
+  if (project.id !== command.projectId || !project.svgSource) return null;
+  try {
+    const doc = parseSvg(project.svgSource);
+    const locations = locateNodes(
+      doc.nodes,
+      (node) => node.id === command.nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === command.nodeId,
+    );
+    if (locations.length !== 1) return null;
+    const location = locations[0];
+    const container = resolveParentContainer(doc.nodes, command.parentPath);
+    if (
+      !container ||
+      location.nodeIndex !== command.nodeIndex ||
+      container[location.nodeIndex] !== location.node ||
+      !sameSerializableValue(location.parentPath, command.parentPath) ||
+      !sameSerializableValue(location.node, command.node) ||
+      location.node.type !== 'path' ||
+      location.node.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
+      getSharedSketchIdForNode(location.node) !== command.sketch.id ||
+      location.node.props?.d !== command.sketch.path
+    ) return null;
+
+    const sketches = project.whiteboardSketches || [];
+    const matchingIndexes = sketches
+      .map((sketch, index) => ({ sketch, index }))
+      .filter(({ sketch }) => sketch.id === command.sketch.id);
+    if (
+      matchingIndexes.length !== 1 ||
+      matchingIndexes[0].index !== command.sketchIndex ||
+      !sameSerializableValue(matchingIndexes[0].sketch, command.sketch)
+    ) return null;
+
+    container.splice(location.nodeIndex, 1);
+    const nextSketches = sketches.slice();
+    nextSketches.splice(matchingIndexes[0].index, 1);
+    return { svgSource: serializeSvg(doc), whiteboardSketches: nextSketches };
+  } catch {
+    return null;
+  }
+}
+
+/** Apply the inverse delta at the original parent and index; stale context is a safe no-op. */
+export function undoSharedWhiteboardDeleteCommand(
+  project: Project,
+  command: SharedWhiteboardDeleteCommand,
+): Pick<Project, 'svgSource' | 'whiteboardSketches'> | null {
+  if (project.id !== command.projectId || !project.svgSource) return null;
+  if (
+    command.node.type !== 'path' ||
+    command.node.attrs?.[NODE_ID_ATTRIBUTE] !== command.nodeId ||
+    getSharedSketchIdForNode(command.node) !== command.sketch.id ||
+    command.node.props?.d !== command.sketch.path
+  ) return null;
+
+  try {
+    const doc = parseSvg(project.svgSource);
+    const existingNodes = locateNodes(
+      doc.nodes,
+      (node) => node.id === command.nodeId || node.attrs?.[NODE_ID_ATTRIBUTE] === command.nodeId,
+    );
+    if (existingNodes.length > 0) return null;
+    const container = resolveParentContainer(doc.nodes, command.parentPath);
+    if (!container || command.nodeIndex > container.length) return null;
+
+    const sketches = project.whiteboardSketches || [];
+    if (sketches.some((sketch) => sketch.id === command.sketch.id) || command.sketchIndex > sketches.length) return null;
+
+    container.splice(command.nodeIndex, 0, cloneNode(command.node));
+    const nextSketches = sketches.slice();
+    nextSketches.splice(command.sketchIndex, 0, {
+      ...command.sketch,
+      props: command.sketch.props ? { ...command.sketch.props } : undefined,
+    });
+    return { svgSource: serializeSvg(doc), whiteboardSketches: nextSketches };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Coordinates delta application with the shared Zustand journal and the host's normal persistence
  * and collaboration callback. The history cursor advances only after the project update succeeds.
@@ -510,6 +709,20 @@ export function createSharedVectorHistoryController(commit: SharedHistoryCommit)
     return true;
   };
 
+  const deleteSharedWhiteboardPath = async (nodeId: string): Promise<boolean> => {
+    const project = getActiveProject();
+    if (!project) return false;
+    restoreAppliedHistory(project);
+    const command = createSharedWhiteboardDeleteCommand(project, nodeId);
+    if (!command) return false;
+    const updates = applySharedWhiteboardDeleteCommand(project, command);
+    if (!updates) return false;
+
+    await commit(updates, true, { recordLogoHistory: false });
+    useAppStore.getState().recordSharedVectorCommand(project.id, command);
+    return true;
+  };
+
   const undo = async (): Promise<boolean> => {
     const project = getActiveProject();
     if (!project) return false;
@@ -519,7 +732,9 @@ export function createSharedVectorHistoryController(commit: SharedHistoryCommit)
     if (!command) return false;
     const updates = command.kind === 'link-existing-path'
       ? undoSharedWhiteboardLinkCommand(project, command)
-      : undoSharedWhiteboardPathCommand(project, command);
+      : command.kind === 'delete-path'
+        ? undoSharedWhiteboardDeleteCommand(project, command)
+        : undoSharedWhiteboardPathCommand(project, command);
     if (!updates) {
       // Consume only this stale shared step; never fall through to legacy snapshot undo.
       useAppStore.getState().commitSharedVectorUndo(project.id, command.commandId);
@@ -539,7 +754,9 @@ export function createSharedVectorHistoryController(commit: SharedHistoryCommit)
     if (!command) return false;
     const updates = command.kind === 'link-existing-path'
       ? applySharedWhiteboardLinkCommand(project, command)
-      : applySharedWhiteboardPathCommand(project, command);
+      : command.kind === 'delete-path'
+        ? applySharedWhiteboardDeleteCommand(project, command)
+        : applySharedWhiteboardPathCommand(project, command);
     if (!updates) {
       // A conflicting or missing target is a safe no-op, not permission to redo elsewhere.
       useAppStore.getState().commitSharedVectorRedo(project.id, command.commandId);
@@ -565,5 +782,13 @@ export function createSharedVectorHistoryController(commit: SharedHistoryCommit)
     return project ? useAppStore.getState().canRedoSharedVector(project.id) : false;
   };
 
-  return { addWhiteboardPath, addExistingPathToWhiteboard, undo, redo, canUndo, canRedo };
+  return {
+    addWhiteboardPath,
+    addExistingPathToWhiteboard,
+    deleteSharedWhiteboardPath,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  };
 }

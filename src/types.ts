@@ -99,7 +99,23 @@ export type SharedWhiteboardLinkCommand = {
   previousNodeIdMarker?: string;
 };
 
-export type SharedWhiteboardCommand = SharedWhiteboardPathCommand | SharedWhiteboardLinkCommand;
+/** A reversible deletion of a shared SVG path and its Whiteboard mirror. */
+export type SharedWhiteboardDeleteCommand = {
+  kind: 'delete-path';
+  commandId: string;
+  projectId: string;
+  nodeId: string;
+  node: Node;
+  sketch: WhiteboardSketch;
+  parentPath: Array<{ nodeId: string; index: number; context: string }>;
+  nodeIndex: number;
+  sketchIndex: number;
+};
+
+export type SharedWhiteboardCommand =
+  | SharedWhiteboardPathCommand
+  | SharedWhiteboardLinkCommand
+  | SharedWhiteboardDeleteCommand;
 
 export type SharedVectorHistory = {
   commands: SharedWhiteboardCommand[];

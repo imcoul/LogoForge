@@ -958,6 +958,7 @@ ${guide.dosAndDonts.map((rule) => `- ${rule}`).join('\n')}
     handleRedoLogo,
     addSharedWhiteboardPath: sharedVectorHistory.addWhiteboardPath,
     addExistingPathToWhiteboard: sharedVectorHistory.addExistingPathToWhiteboard,
+    deleteSharedWhiteboardPath: sharedVectorHistory.deleteSharedWhiteboardPath,
     undoSharedVectorCommand: sharedVectorHistory.undo,
     redoSharedVectorCommand: sharedVectorHistory.redo,
     canUndoSharedVectorCommand: sharedVectorHistory.canUndo(),
