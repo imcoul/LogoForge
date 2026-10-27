@@ -11,6 +11,7 @@ import {
 } from '../services/geminiService';
 import { syncProjectToPostgres, syncProjectToSupabase } from '../utils/dbBackupClient';
 import { useToast } from '../components/Toast';
+import type { ChangeEvent } from 'react';
 
 export type StudioTab = 'preview' | 'draw' | 'precision' | 'mockups' | 'guide' | 'refine' | 'sonic' | 'competitor' | 'ecosystem';
 export type WorkspaceType = 'sandbox' | 'workbench' | 'identity' | 'strategy';
@@ -578,7 +579,7 @@ export function useStudioHandlers() {
     }
   };
 
-  const handleRefineUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleRefineUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeProject?.logoUrl || !activeProjectId) return;
 
@@ -636,7 +637,7 @@ export function useStudioHandlers() {
     }
   };
 
-  const handleSonicUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSonicUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeProjectId) return;
 
@@ -714,7 +715,7 @@ export function useStudioHandlers() {
     }
   };
 
-  const handleMockupUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMockupUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeProjectId || !activeProject) return;
     const reader = new FileReader();

@@ -7,5 +7,17 @@ playwright-report/
 .playwright/
 .DS_Store
 *.log
+
+# Local environment files may contain API keys or database URLs.
 .env*
 !.env.example
+
+# Local service credentials and private-key material.
+secrets/
+credentials*.json
+service-account*.json
+serviceAccount*.json
+*.pem
+*.key
+*.p12
+*.pfx
