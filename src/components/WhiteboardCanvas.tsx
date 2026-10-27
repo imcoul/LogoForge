@@ -1,6 +1,8 @@
 import { WhiteboardToolbar } from './WhiteboardToolbar';
 import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from '../store';
+import type { WhiteboardSketch } from '../types';
+import { preserveSharedWhiteboardSketches, SHARED_WHITEBOARD_SKETCH_PREFIX } from '../engine/sharedVectorHistory';
 import {
   getSqSegDist,
   snapCoords as snapCoordsToGrid,
@@ -18,6 +20,19 @@ import { ForgeAcademy } from './ForgeAcademy';
 import { useToast } from './Toast';
 import { AiPreviewSlider } from './AiPreviewSlider';
 
+type WhiteboardCanvasProps = {
+  fullscreen: boolean;
+  setFullscreen: (f: boolean) => void;
+  onUpdateAndSync?: (updates: any, throttleCloud?: boolean) => Promise<void>;
+  onGhostSync?: (ghostData: any) => void;
+  onRedirectToPrecision?: () => void;
+  onCreateSharedPath?: (sketch: WhiteboardSketch) => Promise<boolean>;
+  onSharedUndo?: () => Promise<boolean>;
+  onSharedRedo?: () => Promise<boolean>;
+  canUndoShared?: boolean;
+  canRedoShared?: boolean;
+};
+
 // Define a worker pool for geometric processing
 let pathWorkerInstance: Worker | null = null;
 if (typeof window !== 'undefined') {
@@ -28,29 +43,15 @@ if (typeof window !== 'undefined') {
   }
 }
 
-export const WhiteboardCanvas: React.FC<{ fullscreen: boolean, setFullscreen: (f: boolean) => void, onUpdateAndSync?: (updates: any, throttleCloud?: boolean) => Promise<void>, onGhostSync?: (ghostData: any) => void, onRedirectToPrecision?: () => void }> = ({ fullscreen, setFullscreen, onUpdateAndSync, onGhostSync, onRedirectToPrecision }) => {
-  const { activeProjectId, projects, updateProject, ephemeralGhosts, settings } = useAppStore();
+export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({ fullscreen, setFullscreen, onUpdateAndSync, onGhostSync, onRedirectToPrecision, onCreateSharedPath, onSharedUndo, onSharedRedo, canUndoShared = false, canRedoShared = false }) => {
+  const { activeProjectId, projects, updateProject, ephemeralGhosts, settings, discardSharedVectorRedoBranch } = useAppStore();
   const { toast } = useToast();
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
   const canvasRef = useRef<SVGSVGElement>(null);
   
   // States
   const [isDrawing, setIsDrawing] = useState(false);
-  const [sketches, setSketches] = useState<{ 
-    id: string; 
-    name: string; 
-    path?: string; 
-    color?: string; 
-    strokeWidth?: number; 
-    type?: 'path' | 'rectangle' | 'circle' | 'line'; 
-    props?: any;
-    fillColor?: string;
-    fillOpacity?: number;
-    strokeDashArray?: string;
-    locked?: boolean;
-    maskId?: string;
-    maskType?: 'hide' | 'reveal';
-  }[]>([]);
+  const [sketches, setSketches] = useState<WhiteboardSketch[]>([]);
   
   const [currentPoints, setCurrentPoints] = useState<string>('');
   const [mode, setMode] = useState<'drawing' | 'gallery'>('drawing');
@@ -182,27 +183,21 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
   };
 
   // Local History Stack for Undo/Redo
-  const [sketchesHistory, setSketchesHistory] = useState<{ 
-    id: string; 
-    name: string; 
-    path?: string; 
-    color?: string; 
-    strokeWidth?: number; 
-    type?: 'path' | 'rectangle' | 'circle' | 'line'; 
-    props?: any;
-    fillColor?: string;
-    fillOpacity?: number;
-    strokeDashArray?: string;
-    locked?: boolean;
-    maskId?: string;
-    maskType?: 'hide' | 'reveal';
-  }[][]>([]);
+  const [sketchesHistory, setSketchesHistory] = useState<WhiteboardSketch[][]>([]);
   const [sketchesHistoryIndex, setSketchesHistoryIndex] = useState<number>(-1);
+  const syncedSketchesRef = useRef<{ projectId: string | null; sketches: WhiteboardSketch[] }>({
+    projectId: null,
+    sketches: [],
+  });
+  const sharedAppliedHistoryRef = useRef<Array<{ sketchId: string; localIndex: number }>>([]);
+  const sharedRedoHistoryRef = useRef<Array<{ sketchId: string; localIndex: number; redoAtIndex: number }>>([]);
+  const sketchesHistoryIndexRef = useRef(sketchesHistoryIndex);
 
   // Multitouch Gesture Chords tracking
   const tapStartTimeRef = useRef<number>(0);
   const tapMaxFingersRef = useRef<number>(0);
   const tapMovedRef = useRef<boolean>(false);
+  const mouseUpHandledRef = useRef(false);
 
   const getSketchBoundingBox = (sketch: any) => {
     if (!sketch) return null;
@@ -249,16 +244,87 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     return { x: 100, y: 100, width: 200, height: 100 };
   };
 
+  const syncedProjectId = activeProject?.id ?? null;
+  const projectSketches = activeProject?.whiteboardSketches;
+
   useEffect(() => {
-    if (activeProject?.whiteboardSketches) {
-      setSketches(activeProject.whiteboardSketches);
-      // Initialize history stack on first load
-      if (sketchesHistory.length === 0) {
-        setSketchesHistory([activeProject.whiteboardSketches]);
-        setSketchesHistoryIndex(0);
+    sketchesHistoryIndexRef.current = sketchesHistoryIndex;
+  }, [sketchesHistoryIndex]);
+
+  useEffect(() => {
+    if (!syncedProjectId) {
+      setSketches([]);
+      setSketchesHistory([]);
+      setSketchesHistoryIndex(-1);
+      syncedSketchesRef.current = { projectId: null, sketches: [] };
+      sharedAppliedHistoryRef.current = [];
+      sharedRedoHistoryRef.current = [];
+      return;
+    }
+
+    const nextSketches = projectSketches || [];
+    const previous = syncedSketchesRef.current;
+    if (previous.projectId !== syncedProjectId) {
+      setSketches(nextSketches);
+      setSketchesHistory([nextSketches]);
+      setSketchesHistoryIndex(0);
+      syncedSketchesRef.current = { projectId: syncedProjectId, sketches: nextSketches };
+      sharedAppliedHistoryRef.current = nextSketches
+        .filter((sketch) => sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX))
+        .map((sketch) => ({ sketchId: sketch.id, localIndex: 0 }));
+      sharedRedoHistoryRef.current = [];
+      return;
+    }
+
+    const previousIds = new Set(previous.sketches.map((sketch) => sketch.id));
+    const nextIds = new Set(nextSketches.map((sketch) => sketch.id));
+    const sharedAdds = nextSketches.filter((sketch) =>
+      sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) && !previousIds.has(sketch.id),
+    );
+    const sharedRemovals = previous.sketches.filter((sketch) =>
+      sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) && !nextIds.has(sketch.id),
+    );
+
+    if (sharedAdds.length > 0 || sharedRemovals.length > 0) {
+      setSketchesHistory((history) => {
+        let rebased = history;
+        for (const removed of sharedRemovals) {
+          rebased = rebased.map((snapshot) => snapshot.filter((sketch) => sketch.id !== removed.id));
+        }
+        for (const added of sharedAdds) {
+          const insertAt = nextSketches.findIndex((sketch) => sketch.id === added.id);
+          rebased = rebased.map((snapshot) => {
+            if (snapshot.some((sketch) => sketch.id === added.id)) return snapshot;
+            const nextSnapshot = snapshot.slice();
+            nextSnapshot.splice(Math.max(0, Math.min(insertAt, nextSnapshot.length)), 0, added);
+            return nextSnapshot;
+          });
+        }
+        return rebased;
+      });
+
+      for (const removed of sharedRemovals) {
+        const appliedIndex = sharedAppliedHistoryRef.current.findIndex((entry) => entry.sketchId === removed.id);
+        if (appliedIndex >= 0) {
+          const [entry] = sharedAppliedHistoryRef.current.splice(appliedIndex, 1);
+          sharedRedoHistoryRef.current.push({ ...entry, redoAtIndex: sketchesHistoryIndexRef.current });
+        }
+      }
+      for (const added of sharedAdds) {
+        const redoIndex = sharedRedoHistoryRef.current.findIndex((entry) => entry.sketchId === added.id);
+        if (redoIndex >= 0) {
+          const [entry] = sharedRedoHistoryRef.current.splice(redoIndex, 1);
+          sharedAppliedHistoryRef.current.push({ sketchId: entry.sketchId, localIndex: entry.localIndex });
+        } else {
+          sharedRedoHistoryRef.current = [];
+          sharedAppliedHistoryRef.current.push({ sketchId: added.id, localIndex: sketchesHistoryIndexRef.current });
+        }
       }
     }
-  }, [activeProject?.whiteboardSketches]);
+
+    setSketches(nextSketches);
+    syncedSketchesRef.current = { projectId: syncedProjectId, sketches: nextSketches };
+  }, [syncedProjectId, projectSketches]);
 
   // Push updated sketches to store and commit to history
   const saveSketch = async (updatedSketches: typeof sketches, throttleCloud: boolean = true) => {
@@ -272,20 +338,28 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
   };
 
   const updateSketchesWithHistory = (updated: typeof sketches, throttleCloud: boolean = true) => {
-    // Basic deduplication
-    if (updated === sketches || (updated.length === sketches.length && JSON.stringify(updated) === JSON.stringify(sketches))) return;
+    const nextSketches = preserveSharedWhiteboardSketches(sketches, updated);
+    if (nextSketches === sketches || (nextSketches.length === sketches.length && JSON.stringify(nextSketches) === JSON.stringify(sketches))) return;
 
-    setSketches(updated);
-    saveSketch(updated, throttleCloud);
+    sharedRedoHistoryRef.current = [];
+    if (activeProjectId) discardSharedVectorRedoBranch(activeProjectId);
+    setSketches(nextSketches);
+    saveSketch(nextSketches, throttleCloud);
     
     // Slice current stack to index and append new change
     const nextHistory = sketchesHistory.slice(0, sketchesHistoryIndex + 1);
-    setSketchesHistory([...nextHistory, updated]);
+    setSketchesHistory([...nextHistory, nextSketches]);
     setSketchesHistoryIndex(nextHistory.length);
   };
 
   // Trigger local undo for whiteboard
-  const handleLocalUndo = () => {
+  const handleLocalUndo = async () => {
+    const sharedPosition = sharedAppliedHistoryRef.current[sharedAppliedHistoryRef.current.length - 1];
+    const sharedIsNext = canUndoShared && (!sharedPosition || sketchesHistoryIndex <= sharedPosition.localIndex);
+    if (sharedIsNext && onSharedUndo && await onSharedUndo()) {
+      triggerBanner("Shared vector undo applied");
+      return;
+    }
     if (sketchesHistoryIndex > 0) {
       const nextIndex = sketchesHistoryIndex - 1;
       setSketchesHistoryIndex(nextIndex);
@@ -293,13 +367,21 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       setSketches(restored);
       saveSketch(restored);
       triggerBanner("Whiteboard Undo Applied");
+    } else if (canUndoShared && onSharedUndo && await onSharedUndo()) {
+      triggerBanner("Shared vector undo applied");
     } else {
       triggerBanner("Nothing to undo on whiteboard");
     }
   };
 
   // Trigger local redo for whiteboard
-  const handleLocalRedo = () => {
+  const handleLocalRedo = async () => {
+    const sharedPosition = sharedRedoHistoryRef.current[sharedRedoHistoryRef.current.length - 1];
+    const sharedIsNext = canRedoShared && (!sharedPosition || sketchesHistoryIndex >= sharedPosition.redoAtIndex);
+    if (sharedIsNext && onSharedRedo && await onSharedRedo()) {
+      triggerBanner("Shared vector redo applied");
+      return;
+    }
     if (sketchesHistoryIndex < sketchesHistory.length - 1) {
       const nextIndex = sketchesHistoryIndex + 1;
       setSketchesHistoryIndex(nextIndex);
@@ -307,6 +389,8 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       setSketches(restored);
       saveSketch(restored);
       triggerBanner("Whiteboard Redo Applied");
+    } else if (canRedoShared && onSharedRedo && await onSharedRedo()) {
+      triggerBanner("Shared vector redo applied");
     } else {
       triggerBanner("Nothing to redo on whiteboard");
     }
@@ -407,6 +491,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     if (mode !== 'drawing') return;
+    mouseUpHandledRef.current = false;
 
     if ('touches' in e) {
       if (e.touches.length === 1) {
@@ -736,13 +821,16 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
   };
 
   const handleMouseUp = async (e?: React.MouseEvent | React.TouchEvent) => {
+    if (mouseUpHandledRef.current) return;
+    mouseUpHandledRef.current = true;
+
     if (e && 'changedTouches' in e && e.touches.length === 0 && tapMaxFingersRef.current >= 2) {
       const touchDuration = Date.now() - tapStartTimeRef.current;
       if (touchDuration < 350 && !tapMovedRef.current) {
         if (tapMaxFingersRef.current === 2) {
-           handleLocalUndo();
+           void handleLocalUndo();
         } else if (tapMaxFingersRef.current === 3) {
-           handleLocalRedo();
+           void handleLocalRedo();
         }
       }
       tapMaxFingersRef.current = 0;
@@ -792,15 +880,21 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                     const endPointY = Number(parts[1]);
                     if (!isNaN(endPointX) && !isNaN(endPointY)) {
                         const newSketch = {
-                            id: Date.now().toString(),
+                            id: `${SHARED_WHITEBOARD_SKETCH_PREFIX}${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
                             name: `Line ${sketches.length + 1}`,
                             type: 'line' as const,
                             path: `M ${startPoint.x},${startPoint.y} L ${endPointX},${endPointY}`,
                             color: strokeColor,
-                            strokeWidth
+                            strokeWidth,
+                            locked: true,
                         };
                         const updatedSketches = [...sketches, newSketch];
-                        updateSketchesWithHistory(updatedSketches);
+                        if (onCreateSharedPath && await onCreateSharedPath(newSketch)) {
+                            setSketches(updatedSketches);
+                        } else {
+                            const legacySketch = { ...newSketch, id: `legacy-${newSketch.id}`, locked: false };
+                            updateSketchesWithHistory([...sketches, legacySketch]);
+                        }
                     }
                 }
             }
@@ -1247,6 +1341,11 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
   const handlePushToSvgEditor = async () => {
     const selected = sketches.find(s => s.id === selectedSketchId);
     if (!selected || !activeProjectId || !activeProject) return;
+    if (selected.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX)) {
+      triggerBanner('This shared path already exists in Precision; opening it without duplication.');
+      onRedirectToPrecision?.();
+      return;
+    }
 
     const stroke = selected.color || '#6366f1';
     const fill = selected.fillColor || 'none';
@@ -1298,12 +1397,18 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
         ? currentSvg.substring(0, closingIdx) + '\n  ' + tag + '\n' + currentSvg.substring(closingIdx)
         : currentSvg + '\n' + tag;
 
-    await updateProject(activeProjectId, { svgSource: nextSvg });
+    if (onUpdateAndSync) {
+      await onUpdateAndSync({ svgSource: nextSvg });
+    } else {
+      if (activeProjectId) discardSharedVectorRedoBranch(activeProjectId);
+      await updateProject(activeProjectId, { svgSource: nextSvg });
+    }
     triggerBanner("⚡ Sent to Precision SVG Editor!");
     onRedirectToPrecision?.();
   };
 
   const selectedSketch = sketches.find(s => s.id === selectedSketchId);
+  const selectedSketchIsShared = selectedSketch?.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) ?? false;
 
   // Concentric circle centers
   const centerX = canvasRef.current ? canvasRef.current.clientWidth / 2 : 380;
@@ -2305,18 +2410,20 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
               {/* Lock/Unlock Toggle */}
               <button
+                disabled={selectedSketchIsShared}
                 onClick={() => handleUpdateSelectedSketch({ locked: !selectedSketch.locked })}
                 className={`p-1 rounded-full hover:bg-neutral-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer ${selectedSketch.locked ? 'text-red-500 bg-red-50 dark:bg-red-950/20' : 'text-neutral-500 dark:text-zinc-400'}`}
-                title={selectedSketch.locked ? "Unlock element" : "Lock element"}
+                title={selectedSketchIsShared ? "Shared path is read-only" : selectedSketch.locked ? "Unlock element" : "Lock element"}
               >
                 {selectedSketch.locked ? <Lock size={12} className="text-red-500" /> : <Unlock size={12} />}
               </button>
 
               {/* Delete Button */}
               <button
+                disabled={selectedSketchIsShared}
                 onClick={() => deleteSketch(selectedSketch.id)}
                 className="p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-950/20 text-neutral-400 hover:text-red-500 transition-colors cursor-pointer"
-                title="Delete element"
+                title={selectedSketchIsShared ? "Shared path is read-only" : "Delete element"}
               >
                 <Trash2 size={12} />
               </button>
@@ -2326,6 +2433,9 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
           {/* FIGMA-STYLE FLOATING PROPERTY PANEL */}
           {selectedSketchId && selectedSketch && showOptionsPanel && (!dragOffset || (dragOffset.x === 0 && dragOffset.y === 0)) && (
             <div className="absolute right-4 top-4 bottom-16 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border border-neutral-200 dark:border-zinc-800 rounded-2xl w-64 shadow-2xl z-dropdown p-4 space-y-4 overflow-y-auto duration-200">
+              {selectedSketchIsShared && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400">Shared path is read-only in this history slice. Use shared Undo/Redo to remove or restore it.</p>
+              )}
               <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-zinc-900">
                 <div className="flex items-center gap-1.5">
                   <Settings size={14} className="text-indigo-500 animate-spin" style={{ animationDuration: '6s' }} />
@@ -2346,13 +2456,14 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                   <span className="text-[9px] font-mono font-bold text-neutral-400 uppercase">{selectedSketch.type || 'freehand path'}</span>
                 </div>
                 <button
+                  disabled={selectedSketchIsShared}
                   onClick={() => handleUpdateSelectedSketch({ locked: !selectedSketch.locked })}
                   className={`p-1.5 px-2.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                     selectedSketch.locked 
                       ? 'bg-red-500/10 hover:bg-red-500/15 text-red-500 border-red-500/30 dark:border-red-500/20' 
                       : 'bg-neutral-50 hover:bg-neutral-100 dark:bg-zinc-900 text-neutral-500 border-neutral-300 dark:border-zinc-800 hover:text-indigo-500'
                   }`}
-                  title={selectedSketch.locked ? "Unlock element" : "Lock element"}
+                  title={selectedSketchIsShared ? "Shared path is read-only" : selectedSketch.locked ? "Unlock element" : "Lock element"}
                 >
                   {selectedSketch.locked ? <Lock size={12} className="text-red-500" /> : <Unlock size={12} />}
                   <span className="text-[9px] font-mono font-bold uppercase">{selectedSketch.locked ? "Locked" : "Lock"}</span>
@@ -2856,8 +2967,9 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                 <button
                   onClick={handlePushToSvgEditor}
                   className="w-full py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-all active:scale-95 shadow-md shadow-indigo-500/20"
+                  title={selectedSketchIsShared ? "Open existing path in Precision" : "Send to SVG Editor"}
                 >
-                  <Sparkles size={13} /> Send to SVG Editor
+                  <Sparkles size={13} /> {selectedSketchIsShared ? 'Open in Precision' : 'Send to SVG Editor'}
                 </button>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -2867,8 +2979,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                     <Copy size={11} /> Clone
                   </button>
                   <button
+                    disabled={selectedSketchIsShared}
                     onClick={() => deleteSketch(selectedSketch.id)}
                     className="py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 text-red-600 dark:text-red-400 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-1 cursor-pointer"
+                    title={selectedSketchIsShared ? "Shared path is read-only" : "Delete element"}
                   >
                     <Trash2 size={11} /> Delete
                   </button>

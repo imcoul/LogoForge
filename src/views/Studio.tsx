@@ -42,6 +42,7 @@ import {
 
 import { useStudioHandlers, StudioTab, WorkspaceType } from './StudioHandlers';
 import { useAppStore, Project } from '../store';
+import { SHARED_WHITEBOARD_SKETCH_PREFIX } from '../engine/sharedVectorHistory';
 import { AccessibilityScore } from '../components/AccessibilityScore';
 import { lazyNamed, ChunkBoundary } from '../lazyNamed';
 
@@ -173,6 +174,13 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
     handleUpdateAndSync,
     handleGhostSync,
     handleUndoLogo,
+    handleRedoLogo,
+    addSharedWhiteboardPath,
+    addExistingPathToWhiteboard,
+    undoSharedVectorCommand,
+    redoSharedVectorCommand,
+    canUndoSharedVectorCommand,
+    canRedoSharedVectorCommand,
     playBrandMelody,
     applySynthPreset,
     handleGenerateLogo,
@@ -190,6 +198,10 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
     handleDownloadBrandGuide,
   } = state;
 
+  const hasSharedWhiteboardPath = activeProject?.whiteboardSketches?.some((sketch) =>
+    sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX),
+  ) ?? false;
+
   const handleRedirectToPrecision = () => {
     setWorkbenchSubTab('precision');
   };
@@ -205,7 +217,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
           }
         }}
         onUndo={handleUndoLogo}
-        onRedo={() => console.log('Keyboard redo: Already latest revision.')}
+        onRedo={() => { void handleRedoLogo(); }}
         onExport={() => {
           if (activeProject) {
             handleDownloadSVG();
@@ -576,7 +588,7 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                 {workbenchSubTab === 'sketch' && (
                   <div className="bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-sm border border-neutral-200 dark:border-zinc-800">
                     <ChunkBoundary label="whiteboard">
-                      <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} onUpdateAndSync={handleUpdateAndSync} onGhostSync={handleGhostSync} onRedirectToPrecision={handleRedirectToPrecision} />
+                      <WhiteboardCanvas fullscreen={fullscreen} setFullscreen={setFullscreen} onUpdateAndSync={handleUpdateAndSync} onGhostSync={handleGhostSync} onRedirectToPrecision={handleRedirectToPrecision} onCreateSharedPath={addSharedWhiteboardPath} onSharedUndo={undoSharedVectorCommand} onSharedRedo={redoSharedVectorCommand} canUndoShared={canUndoSharedVectorCommand} canRedoShared={canRedoSharedVectorCommand} />
                     </ChunkBoundary>
                   </div>
                 )}
@@ -708,9 +720,14 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                         <SVGPathEditor
                           svgContent={activeProject.svgSource || ''}
                           onGhostSync={handleGhostSync}
-                          onChange={(newSvg, throttleCloud) => handleUpdateAndSync({ svgSource: newSvg }, throttleCloud)}
+                          onChange={(newSvg, throttleCloud, options) => handleUpdateAndSync({ svgSource: newSvg }, throttleCloud, options)}
                           fullscreen={fullscreen}
                           setFullscreen={setFullscreen}
+                          onLinkExistingPathToWhiteboard={addExistingPathToWhiteboard}
+                          onSharedUndo={undoSharedVectorCommand}
+                          onSharedRedo={redoSharedVectorCommand}
+                          canUndoShared={canUndoSharedVectorCommand}
+                          canRedoShared={canRedoSharedVectorCommand}
                         />
                       </ChunkBoundary>
 
@@ -718,10 +735,15 @@ export function Studio({ setView, isDarkMode, setIsDarkMode }: StudioViewProps) 
                       <div className="bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-800 rounded-3xl p-5 space-y-4">
                         <div>
                           <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Manual XML Buffer</h3>
-                          <p className="text-[10px] text-neutral-500">Edit XML nodes directly to override coordinates</p>
+                          <p className="text-[10px] text-neutral-500">
+                            {hasSharedWhiteboardPath
+                              ? 'Read-only while shared Whiteboard paths exist; use shared Undo/Redo first.'
+                              : 'Edit XML nodes directly to override coordinates'}
+                          </p>
                         </div>
 
                         <textarea
+                          disabled={hasSharedWhiteboardPath}
                           className="w-full h-44 bg-zinc-950 text-emerald-400 font-mono text-[10px] p-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none border border-zinc-800 leading-normal"
                           value={activeProject.svgSource || ''}
                           onChange={(e) => handleUpdateAndSync({ svgSource: e.target.value })}

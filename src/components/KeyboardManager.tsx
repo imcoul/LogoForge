@@ -41,6 +41,8 @@ export const KeyboardManager: React.FC<KeyboardManagerProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+
       // Don't trigger if user is typing in inputs or textareas
       const activeEl = document.activeElement;
       if (
@@ -232,4 +234,3 @@ export const KeyboardManager: React.FC<KeyboardManagerProps> = ({
     </div>
   );
 };
-

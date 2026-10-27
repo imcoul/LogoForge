@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { useToast } from './Toast';
 import { useAppStore } from '../store';
+import { sharedWhiteboardPathsUnchanged, SHARED_WHITEBOARD_SKETCH_PREFIX } from '../engine/sharedVectorHistory';
+import type { WhiteboardSketch } from '../types';
 import { ForgeAcademy } from './ForgeAcademy';
 import { PrecisionOverlay } from './PrecisionOverlay';
 import {
@@ -29,8 +31,13 @@ interface SVGPathEditorProps {
   onGhostSync?: (ghostData: any) => void;
   svgSource?: string | null;
   svgContent?: string | null;
-  onUpdateSvg?: (newSvg: string, throttleCloud?: boolean) => void;
-  onChange?: (newSvg: string, throttleCloud?: boolean) => void;
+  onUpdateSvg?: (newSvg: string, throttleCloud?: boolean, options?: { preserveSharedRedo?: boolean }) => void;
+  onChange?: (newSvg: string, throttleCloud?: boolean, options?: { preserveSharedRedo?: boolean }) => void;
+  onLinkExistingPathToWhiteboard?: (nodeId: string, sketch: WhiteboardSketch) => Promise<boolean>;
+  onSharedUndo?: () => Promise<boolean>;
+  onSharedRedo?: () => Promise<boolean>;
+  canUndoShared?: boolean;
+  canRedoShared?: boolean;
   fullscreen?: boolean;
   setFullscreen?: (f: boolean) => void;
 }
@@ -44,11 +51,16 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   svgContent,
   onUpdateSvg,
   onChange,
+  onLinkExistingPathToWhiteboard,
+  onSharedUndo,
+  onSharedRedo,
+  canUndoShared = false,
+  canRedoShared = false,
   fullscreen,
   setFullscreen
 }) => {
   // Store integration
-  const { activeProjectId, projects, updateProject } = useAppStore();
+  const { activeProjectId, projects } = useAppStore();
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
 
   // Map compatible props safely
@@ -76,19 +88,25 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   };
 
   const handleSendPathToWhiteboard = async (pathItem: ParsedPath) => {
-    if (!activeProjectId || !activeProject) return;
+    if (!activeProjectId || !activeProject || !onLinkExistingPathToWhiteboard) {
+      toast('Shared Whiteboard history is unavailable for this path.', 'info');
+      return;
+    }
     const currentSketches = activeProject.whiteboardSketches || [];
-    const newSketch = {
-      id: Date.now().toString(),
+    const newSketch: WhiteboardSketch = {
+      id: `${SHARED_WHITEBOARD_SKETCH_PREFIX}${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
       name: `Imported Path ${currentSketches.length + 1}`,
       path: pathItem.d,
       color: pathItem.stroke || '#6366f1',
       strokeWidth: pathItem.strokeWidth || 3,
       fillColor: pathItem.fill || 'none',
-      type: 'path' as const
+      type: 'path',
+      locked: true,
     };
-    const updated = [...currentSketches, newSketch];
-    await updateProject(activeProjectId, { whiteboardSketches: updated });
+    if (!await onLinkExistingPathToWhiteboard(pathItem.nodeId, newSketch)) {
+      toast('This SVG path could not be linked to shared Whiteboard history.', 'info');
+      return;
+    }
     toast("⚡ Layer Sent to Whiteboard Canvas!", "info");
   };
   
@@ -145,6 +163,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const [contextMenuNode, setContextMenuNode] = useState<{ nodeId: number; valIdx: number } | null>(null);
   const [lockedAngles, setLockedAngles] = useState<Record<string, { angle: number; length: number; type: 'angle' | 'length' }>>({});
   const [localSvg, setLocalSvg] = useState<string>(actualSvgSource || '');
+  const lastObservedSvgRef = useRef<string>(actualSvgSource || '');
+  const lastLocalSvgUpdateRef = useRef<string | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [precisionStep, setPrecisionStep] = useState<number>(1);
   const [loupeCoords, setLoupeCoords] = useState<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
@@ -154,13 +174,6 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const [translateStart, setTranslateStart] = useState<{ x: number, y: number } | null>(null);
   const [translateOriginalNodes, setTranslateOriginalNodes] = useState<PathNode[]>([]);
   
-  // Keep localSvg in sync with actualSvgSource when not dragging
-  useEffect(() => {
-    if (draggedNode === null && !isTranslatingPath) {
-      setLocalSvg(actualSvgSource || '');
-    }
-  }, [actualSvgSource, draggedNode, isTranslatingPath]);
-  
   // Precision Mode UI controls
   const [snappingLines, setSnappingLines] = useState<{ x?: number; y?: number; angleLine?: { x1: number; y1: number; x2: number; y2: number } } | null>(null);
   const [showGestureMap, setShowGestureMap] = useState<boolean>(false);
@@ -168,6 +181,20 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   // Local undo/redo stacks
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
+
+  // External shared-command updates invalidate local snapshots; local edits retain their own stack.
+  useEffect(() => {
+    const nextSource = actualSvgSource || '';
+    if (lastObservedSvgRef.current !== nextSource) {
+      if (lastLocalSvgUpdateRef.current !== nextSource) {
+        setUndoStack([]);
+        setRedoStack([]);
+      }
+      lastLocalSvgUpdateRef.current = null;
+      lastObservedSvgRef.current = nextSource;
+    }
+    if (draggedNode === null && !isTranslatingPath) setLocalSvg(nextSource);
+  }, [actualSvgSource, draggedNode, isTranslatingPath]);
 
   // Multitouch Gesture Chords tracking
   const tapStartTimeRef = useRef<number>(0);
@@ -281,16 +308,28 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
   const pushSvgChange = (nextSvg: string, throttleCloud?: boolean) => {
     if (!actualOnUpdateSvg || !actualSvgSource) return;
     if (nextSvg === actualSvgSource) return;
+    if (!sharedWhiteboardPathsUnchanged(actualSvgSource, nextSvg)) {
+      toast('Shared Whiteboard paths are read-only in the Precision editor for now; use shared Undo/Redo.', 'info');
+      return;
+    }
+    const activeProjectId = useAppStore.getState().activeProjectId;
+    if (activeProjectId) useAppStore.getState().discardSharedVectorRedoBranch(activeProjectId);
 
     // Track state for Touch Undo/Redo
     setUndoStack((prev) => [...prev, actualSvgSource]);
     setRedoStack([]); // Clear redo on fresh manual action
+    lastLocalSvgUpdateRef.current = nextSvg;
 
     actualOnUpdateSvg(nextSvg, throttleCloud);
   };
 
   // Undo manual design actions (Triggered via toolbar or two-finger swipe)
-  const handleUndo = () => {
+  const handleUndo = async () => {
+    if (undoStack.length === 0 && onSharedUndo && await onSharedUndo()) {
+      triggerHaptic(25);
+      toast('Undo Action', 'info');
+      return;
+    }
     if (undoStack.length === 0 || !actualSvgSource || !actualOnUpdateSvg) {
       triggerHaptic(40);
       return;
@@ -299,13 +338,19 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     const prevSvg = undoStack[undoStack.length - 1];
     setUndoStack((prev) => prev.slice(0, prev.length - 1));
     setRedoStack((prev) => [...prev, actualSvgSource]);
-    actualOnUpdateSvg(prevSvg);
+    lastLocalSvgUpdateRef.current = prevSvg;
+    actualOnUpdateSvg(prevSvg, undefined, { preserveSharedRedo: true });
 
     toast('Undo Action', 'info');
   };
 
   // Redo manual design actions (Triggered via toolbar or two-finger swipe)
-  const handleRedo = () => {
+  const handleRedo = async () => {
+    if (redoStack.length === 0 && onSharedRedo && await onSharedRedo()) {
+      triggerHaptic(25);
+      toast('Redo Action', 'info');
+      return;
+    }
     if (redoStack.length === 0 || !actualSvgSource || !actualOnUpdateSvg) {
       triggerHaptic(40);
       return;
@@ -314,7 +359,8 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
     const nextSvg = redoStack[redoStack.length - 1];
     setRedoStack((prev) => prev.slice(0, prev.length - 1));
     setUndoStack((prev) => [...prev, actualSvgSource]);
-    actualOnUpdateSvg(nextSvg);
+    lastLocalSvgUpdateRef.current = nextSvg;
+    actualOnUpdateSvg(nextSvg, undefined, { preserveSharedRedo: true });
 
     toast('Redo Action', 'info');
   };
@@ -2157,7 +2203,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
               <div className="absolute top-3 right-3 flex bg-white/90 dark:bg-zinc-900/90 border border-neutral-200/50 dark:border-zinc-800 rounded-xl p-1 gap-1 z-dropdown shadow-md">
                 <button
                   onClick={handleUndo}
-                  disabled={undoStack.length === 0}
+                  disabled={undoStack.length === 0 && !canUndoShared}
                   className="p-1.5 hover:bg-neutral-100 dark:hover:bg-zinc-800 text-neutral-600 dark:text-zinc-400 disabled:opacity-40 rounded-lg transition-colors cursor-pointer"
                   title="Undo last stroke"
                 >
@@ -2165,7 +2211,7 @@ export const SVGPathEditor: React.FC<SVGPathEditorProps> = ({
                 </button>
                 <button
                   onClick={handleRedo}
-                  disabled={redoStack.length === 0}
+                  disabled={redoStack.length === 0 && !canRedoShared}
                   className="p-1.5 hover:bg-neutral-100 dark:hover:bg-zinc-800 text-neutral-600 dark:text-zinc-400 disabled:opacity-40 rounded-lg transition-colors cursor-pointer"
                   title="Redo stroke"
                 >

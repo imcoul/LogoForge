@@ -11,6 +11,11 @@ import { collection, getDocs } from 'firebase/firestore';
 import { syncProjectToPostgres, syncProjectToSupabase } from './utils/dbBackupClient';
 import { KeyboardManager } from './components/KeyboardManager';
 import { lazyNamed, ChunkBoundary } from './lazyNamed';
+import {
+  createSharedVectorHistoryController,
+  sharedWhiteboardPathsUnchanged,
+  SHARED_WHITEBOARD_SKETCH_PREFIX,
+} from './engine/sharedVectorHistory';
 
 /*
  * Code splitting (Phase 4).
@@ -226,19 +231,42 @@ export default function App() {
   
   // Custom update and broadcast coordination
 
-  const handleUpdateAndSync = async (updates: Partial<Project>, throttleCloud?: boolean) => {
+  const handleUpdateAndSync = async (
+    updates: Partial<Project>,
+    throttleCloud?: boolean,
+    options?: { recordLogoHistory?: boolean; preserveSharedRedo?: boolean },
+  ) => {
     if (!activeProjectId) return;
+    const nextSvgSource = typeof updates.svgSource === 'string' ? updates.svgSource : null;
+    const isSvgSourceChange = nextSvgSource !== null && nextSvgSource !== activeProject?.svgSource;
+    const hasSharedWhiteboardPath = activeProject?.whiteboardSketches?.some((sketch) =>
+      sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX),
+    ) ?? false;
+    if (
+      isSvgSourceChange &&
+      hasSharedWhiteboardPath &&
+      options?.recordLogoHistory !== false &&
+      options?.preserveSharedRedo !== true &&
+      nextSvgSource !== null &&
+      !sharedWhiteboardPathsUnchanged(activeProject?.svgSource ?? '', nextSvgSource)
+    ) {
+      toast('Shared Whiteboard paths are read-only until edits are recorded as shared commands.', 'info');
+      return;
+    }
     const start = performance.now();
     setIsSaving(true);
     
     // Maintain logoHistory stack for Undo (Batch 1 feature)
     const nextUpdates = { ...updates };
-    if (updates.svgSource && updates.svgSource !== activeProject?.svgSource) {
+    if (isSvgSourceChange) {
       const history = activeProject?.logoHistory || [];
-      if (activeProject?.svgSource) {
+      if (options?.recordLogoHistory !== false && activeProject?.svgSource) {
         nextUpdates.logoHistory = [...history, activeProject.svgSource];
       }
-      nextUpdates.logoUrl = `data:image/svg+xml;utf8,${encodeURIComponent(updates.svgSource)}`;
+      if (nextSvgSource) nextUpdates.logoUrl = `data:image/svg+xml;utf8,${encodeURIComponent(nextSvgSource)}`;
+      if (options?.recordLogoHistory !== false && options?.preserveSharedRedo !== true) {
+        useAppStore.getState().discardSharedVectorRedoBranch(activeProjectId);
+      }
     }
 
     await updateProject(activeProjectId, nextUpdates, throttleCloud);
@@ -285,12 +313,22 @@ export default function App() {
   // Phase D Handlers
 
 
-  // Undo Logo History navigation
-  const handleUndoLogo = () => {
+  const sharedVectorHistory = createSharedVectorHistoryController(handleUpdateAndSync);
+
+  // Undo shared vector commands first; retain snapshot undo for unrelated legacy edits.
+  const handleUndoLogo = async () => {
+    if (await sharedVectorHistory.undo()) return;
     if (!activeProject || !activeProject.logoHistory || activeProject.logoHistory.length === 0) return;
     const history = [...activeProject.logoHistory];
     const prevSvg = history.pop();
     if (prevSvg) {
+      const hasSharedWhiteboardPath = activeProject.whiteboardSketches?.some((sketch) =>
+        sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX),
+      ) ?? false;
+      if (hasSharedWhiteboardPath && !sharedWhiteboardPathsUnchanged(activeProject.svgSource ?? '', prevSvg)) {
+        toast('Snapshot undo would desynchronize a shared Whiteboard path; use shared Undo instead.', 'info');
+        return;
+      }
       const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(prevSvg)}`;
       updateProject(activeProjectId!, {
         svgSource: prevSvg,
@@ -630,7 +668,7 @@ export default function App() {
           }
         }}
         onUndo={handleUndoLogo}
-        onRedo={() => console.log("Keyboard redo: Already latest revision.")}
+        onRedo={() => { void sharedVectorHistory.redo(); }}
         onExport={() => {
           if (activeProject) {
             handleDownloadSVG();

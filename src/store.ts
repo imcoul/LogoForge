@@ -5,7 +5,7 @@ import { collection, query, where, getDocs, getDoc, setDoc, doc, deleteDoc, disa
 import { db, handleFirestoreError, OperationType } from './services/firebase';
 import { BrandGuide, RefinementSuggestion } from './services/geminiService';
 import { syncProjectToPostgres, syncProjectToSupabase, deleteProjectFromPostgres, deleteProjectFromSupabase, loadProjectsFromSupabase } from './utils/dbBackupClient';
-import { Node } from './types';
+import { Node, SharedVectorHistory, SharedWhiteboardCommand, WhiteboardSketch } from './types';
 
 const cloudSyncTimeouts: Record<string, NodeJS.Timeout | null> = {};
 const pendingCloudUpdates: Record<string, Partial<Project>> = {};
@@ -130,7 +130,7 @@ export type Project = {
   logoHistory?: string[]; // Stack of logo history
   snapshots?: Snapshot[]; // List of version snapshots
   stickyNotes?: StickyNote[]; // Interactive sticky notes anchored to canvas
-  whiteboardSketches?: { id: string; name: string; path?: string; color?: string; strokeWidth?: number; type?: 'path' | 'rectangle' | 'circle' | 'line'; props?: any; fillColor?: string; fillOpacity?: number; strokeDashArray?: string; locked?: boolean; maskId?: string; maskType?: 'hide' | 'reveal' }[];
+  whiteboardSketches?: WhiteboardSketch[];
   driveFileId?: string; // Linked Google Drive file identifier
   tags?: string[]; // Bulk tags for organization
 };
@@ -182,6 +182,8 @@ interface AppState {
   isHydrated: boolean;
   user: User | null;
   isCloudSyncSuspended: boolean;
+  /** Ephemeral command journal; project documents remain in their existing persisted schema. */
+  sharedVectorHistoryByProject: Record<string, SharedVectorHistory>;
   loadProjects: () => Promise<void>;
   setUser: (user: User | null) => Promise<void>;
   createProject: (name?: string) => Promise<Project>;
@@ -195,6 +197,14 @@ interface AppState {
   addNodeToScene: (node: Node) => Promise<void>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
+  recordSharedVectorCommand: (projectId: string, command: SharedWhiteboardCommand) => void;
+  getSharedVectorUndoCommand: (projectId: string) => SharedWhiteboardCommand | null;
+  getSharedVectorRedoCommand: (projectId: string) => SharedWhiteboardCommand | null;
+  commitSharedVectorUndo: (projectId: string, commandId: string) => void;
+  commitSharedVectorRedo: (projectId: string, commandId: string) => void;
+  canUndoSharedVector: (projectId: string) => boolean;
+  canRedoSharedVector: (projectId: string) => boolean;
+  discardSharedVectorRedoBranch: (projectId: string) => void;
   ephemeralGhosts: Record<string, any>;
   setEphemeralGhost: (id: string, ghostData: any) => void;
   clearEphemeralGhost: (id: string) => void;
@@ -510,6 +520,7 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
   isHydrated: false,
   user: null,
   isCloudSyncSuspended: false,
+  sharedVectorHistoryByProject: {},
   ephemeralGhosts: {},
   setEphemeralGhost: (id, ghostData) => setStore((state) => ({
     ephemeralGhosts: { ...state.ephemeralGhosts, [id]: ghostData }
@@ -518,6 +529,71 @@ export const useAppStore = create<AppState>((setStore, getStore) => ({
     const next = { ...state.ephemeralGhosts };
     delete next[id];
     return { ephemeralGhosts: next };
+  }),
+
+  recordSharedVectorCommand: (projectId, command) => setStore((state) => {
+    if (command.projectId !== projectId) return state;
+    const current = state.sharedVectorHistoryByProject[projectId] || { commands: [], index: -1 };
+    const commands = current.commands.slice(0, current.index + 1);
+    const nextCommands = [...commands, command];
+    return {
+      sharedVectorHistoryByProject: {
+        ...state.sharedVectorHistoryByProject,
+        [projectId]: { commands: nextCommands, index: nextCommands.length - 1 },
+      },
+    };
+  }),
+  getSharedVectorUndoCommand: (projectId) => {
+    const history = getStore().sharedVectorHistoryByProject[projectId];
+    return history && history.index >= 0 ? history.commands[history.index] || null : null;
+  },
+  getSharedVectorRedoCommand: (projectId) => {
+    const history = getStore().sharedVectorHistoryByProject[projectId];
+    return history && history.index < history.commands.length - 1
+      ? history.commands[history.index + 1] || null
+      : null;
+  },
+  commitSharedVectorUndo: (projectId, commandId) => setStore((state) => {
+    const history = state.sharedVectorHistoryByProject[projectId];
+    if (!history || history.index < 0 || history.commands[history.index]?.commandId !== commandId) return state;
+    return {
+      sharedVectorHistoryByProject: {
+        ...state.sharedVectorHistoryByProject,
+        [projectId]: { ...history, index: history.index - 1 },
+      },
+    };
+  }),
+  commitSharedVectorRedo: (projectId, commandId) => setStore((state) => {
+    const history = state.sharedVectorHistoryByProject[projectId];
+    const nextIndex = history ? history.index + 1 : -1;
+    if (!history || nextIndex >= history.commands.length || history.commands[nextIndex]?.commandId !== commandId) return state;
+    return {
+      sharedVectorHistoryByProject: {
+        ...state.sharedVectorHistoryByProject,
+        [projectId]: { ...history, index: nextIndex },
+      },
+    };
+  }),
+  canUndoSharedVector: (projectId) => {
+    const history = getStore().sharedVectorHistoryByProject[projectId];
+    return !!history && history.index >= 0;
+  },
+  canRedoSharedVector: (projectId) => {
+    const history = getStore().sharedVectorHistoryByProject[projectId];
+    return !!history && history.index < history.commands.length - 1;
+  },
+  discardSharedVectorRedoBranch: (projectId) => setStore((state) => {
+    const history = state.sharedVectorHistoryByProject[projectId];
+    if (!history || history.index >= history.commands.length - 1) return state;
+    return {
+      sharedVectorHistoryByProject: {
+        ...state.sharedVectorHistoryByProject,
+        [projectId]: {
+          commands: history.commands.slice(0, history.index + 1),
+          index: history.index,
+        },
+      },
+    };
   }),
 
   // ... (existing methods remain the same, just adding undo/redo)

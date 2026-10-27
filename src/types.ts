@@ -59,6 +59,53 @@ export type Node = {
   meta?: { createdBy: string; timestamp: string; [key: string]: any };
 };
 
+/** The legacy whiteboard record mirrored during the gradual vector-document migration. */
+export type WhiteboardSketch = {
+  id: string;
+  name: string;
+  path?: string;
+  color?: string;
+  strokeWidth?: number;
+  type?: 'path' | 'rectangle' | 'circle' | 'line';
+  props?: any;
+  fillColor?: string;
+  fillOpacity?: number;
+  strokeDashArray?: string;
+  locked?: boolean;
+  maskId?: string;
+  maskType?: 'hide' | 'reveal';
+};
+
+/** A reversible add-path delta shared by the whiteboard and precision editor. */
+export type SharedWhiteboardPathCommand = {
+  kind: 'add-path';
+  commandId: string;
+  projectId: string;
+  nodeId: string;
+  node: Node;
+  sketch: WhiteboardSketch;
+  nodeIndex: number;
+  sketchIndex: number;
+};
+
+/** A reversible Whiteboard link to a path that already exists in the SVG document. */
+export type SharedWhiteboardLinkCommand = {
+  kind: 'link-existing-path';
+  commandId: string;
+  projectId: string;
+  nodeId: string;
+  sketch: WhiteboardSketch;
+  sketchIndex: number;
+  previousNodeIdMarker?: string;
+};
+
+export type SharedWhiteboardCommand = SharedWhiteboardPathCommand | SharedWhiteboardLinkCommand;
+
+export type SharedVectorHistory = {
+  commands: SharedWhiteboardCommand[];
+  index: number;
+};
+
 /** A parsed SVG document: its root attributes plus the node tree. */
 export type SvgDocument = {
   /** Root `<svg>` attributes that are not part of the node tree (viewBox, width, xmlns, ...). */
