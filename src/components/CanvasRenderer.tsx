@@ -62,6 +62,16 @@ function strokeWidthOf(node: Node): number | string | undefined {
   return node.props?.strokeWidth ?? node.props?.['stroke-width'];
 }
 
+function strokeLinecapOf(node: Node): React.SVGProps<SVGPathElement>['strokeLinecap'] {
+  const value = node.attrs?.['stroke-linecap'];
+  return value === 'butt' || value === 'round' || value === 'square' || value === 'inherit' ? value : undefined;
+}
+
+function strokeLinejoinOf(node: Node): React.SVGProps<SVGPathElement>['strokeLinejoin'] {
+  const value = node.attrs?.['stroke-linejoin'];
+  return value === 'miter' || value === 'round' || value === 'bevel' || value === 'inherit' ? value : undefined;
+}
+
 function transformOf(node: Node): string | undefined {
   // Prefer the source string when the decomposed form could not represent it.
   if (node.transformRaw) return node.transformRaw;
@@ -84,6 +94,11 @@ export function renderNode(node: Node): React.ReactNode {
     fill: paintValue(node, 'fill'),
     stroke: paintValue(node, 'stroke'),
     strokeWidth: strokeWidthOf(node),
+    fillOpacity: node.attrs?.['fill-opacity'],
+    strokeDasharray: node.attrs?.['stroke-dasharray'],
+    strokeLinecap: strokeLinecapOf(node),
+    strokeLinejoin: strokeLinejoinOf(node),
+    mask: node.attrs?.mask,
     opacity: node.style?.opacity,
     style: node.style?.blendMode
       ? ({ mixBlendMode: node.style.blendMode } as React.CSSProperties)

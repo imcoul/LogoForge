@@ -7,6 +7,7 @@ import { WhiteboardCanvas } from '../../components/WhiteboardCanvas';
 import { listEditablePaths, replacePathDataById } from '../../engine/pathEditorBridge';
 import { createSharedVectorHistoryController } from '../../engine/sharedVectorHistory';
 import { useAppStore, type Project } from '../../store';
+import type { WhiteboardSketch } from '../../types';
 
 const makeProject = (): Project => ({
   id: 'integration-project',
@@ -91,6 +92,122 @@ describe('shared vector history editor integration', () => {
       activeProjectId: 'integration-project',
       sharedVectorHistoryByProject: {},
     });
+  });
+
+  it('renders persisted Whiteboard sketches through shared Nodes and preserves legacy fallback', async () => {
+    const project = makeProject();
+    project.whiteboardSketches = [
+      {
+        id: 'render-rect',
+        name: 'Rendered rectangle',
+        type: 'rectangle',
+        props: { x: 12, y: 34, width: 56, height: 78, rx: 4 },
+        color: '#123456',
+        strokeWidth: 4,
+        fillColor: '#abcdef',
+        fillOpacity: 0.35,
+        strokeDashArray: '5 2',
+      },
+      {
+        id: 'render-ellipse',
+        name: 'Rendered ellipse',
+        type: 'circle',
+        props: { cx: 200, cy: 110, rx: 18, ry: 10 },
+        color: '#224466',
+        strokeWidth: 3,
+        fillColor: 'none',
+      },
+      {
+        id: 'render-line',
+        name: 'Rendered line',
+        type: 'line',
+        props: { x1: 250, y1: 20, x2: 280, y2: 50 },
+        color: '#884422',
+        strokeWidth: 5,
+      },
+      {
+        id: 'render-path',
+        name: 'Rendered path',
+        type: 'path',
+        path: 'M 150,150 Q 160,170 180,180',
+        color: '#118833',
+        strokeWidth: 2,
+        fillColor: 'none',
+      },
+      {
+        id: 'render-mask-source',
+        name: 'Mask source',
+        type: 'rectangle',
+        props: { x: 10, y: 180, width: 80, height: 80, rx: 0 },
+        color: '#334455',
+        strokeWidth: 3,
+        fillColor: '#778899',
+      },
+      {
+        id: 'render-mask-target',
+        name: 'Masked ellipse',
+        type: 'circle',
+        props: { cx: 330, cy: 300, rx: 20, ry: 12 },
+        color: '#123123',
+        strokeWidth: 2,
+        fillColor: '#abcdef',
+        maskId: 'render-mask-source',
+        maskType: 'hide',
+      },
+      {
+        id: 'legacy-fallback',
+        name: 'Legacy fallback',
+        type: 'unsupported',
+        path: 'M 5,6 L 7,8',
+      } as unknown as WhiteboardSketch,
+    ];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    expect(whiteboardSvg).not.toBeNull();
+    const nodeLayer = await waitFor(() => {
+      const layer = whiteboardSvg!.querySelector('[data-logoforge-node-id="whiteboard-render-rect"]');
+      expect(layer).not.toBeNull();
+      return layer!;
+    });
+    const rect = nodeLayer.querySelector('rect');
+    expect(rect?.getAttribute('x')).toBe('12');
+    expect(rect?.getAttribute('y')).toBe('34');
+    expect(rect?.getAttribute('fill')).toBe('#abcdef');
+    expect(rect?.getAttribute('stroke')).toBe('#123456');
+    expect(rect?.getAttribute('stroke-width')).toBe('4');
+    expect(rect?.getAttribute('fill-opacity')).toBe('0.35');
+    expect(rect?.getAttribute('stroke-dasharray')).toBe('5 2');
+    expect(Array.from(whiteboardSvg!.querySelectorAll('path')).some(
+      (path) => path.getAttribute('d') === 'M 5,6 L 7,8',
+    )).toBe(true);
+
+    expect(whiteboardSvg!.querySelector('[data-logoforge-whiteboard-id="render-ellipse"] ellipse')).not.toBeNull();
+    expect(whiteboardSvg!.querySelector('[data-logoforge-whiteboard-id="render-line"] line')).not.toBeNull();
+    expect(whiteboardSvg!.querySelector('[data-logoforge-whiteboard-id="render-path"] path')?.getAttribute('d'))
+      .toBe('M 150,150 Q 160,170 180,180');
+    const maskedEllipse = whiteboardSvg!.querySelector('[data-logoforge-whiteboard-id="render-mask-target"] ellipse');
+    expect(maskedEllipse?.getAttribute('mask')).toBe('url(#mask-render-mask-source)');
+    expect(whiteboardSvg!.querySelector('[data-logoforge-whiteboard-id="render-mask-source"]')).toBeNull();
+
+    fireEvent.mouseDown(whiteboardSvg!, { clientX: 20, clientY: 190 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 40, clientY: 210 });
+    const selectedMask = await waitFor(() => {
+      const layer = whiteboardSvg!.querySelector('[data-logoforge-whiteboard-id="render-mask-source"]');
+      expect(layer).not.toBeNull();
+      expect(layer?.getAttribute('transform')).toBe('translate(20, 20)');
+      return layer!;
+    });
+    expect(selectedMask.getAttribute('class')).toContain('opacity-50');
+    expect(selectedMask.getAttribute('class')).toContain('drop-shadow-sm');
+    expect(selectedMask.querySelector('rect')?.getAttribute('fill-opacity')).toBe('0.45');
+    expect(selectedMask.querySelector('rect')?.getAttribute('stroke-dasharray')).toBe('4 4');
   });
 
   it('creates in Whiteboard, undoes in SVGPathEditor, redoes in Whiteboard, and preserves local history order', async () => {

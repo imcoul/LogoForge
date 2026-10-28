@@ -108,6 +108,28 @@ describe('styling', () => {
     expect(rect?.getAttribute('stroke')).toBe('#0f0');
   });
 
+  it('renders standard presentation attributes from Node.attrs without forwarding arbitrary attributes', () => {
+    const svg = draw(node({
+      type: 'rect',
+      props: { x: 0, y: 0, width: 1, height: 1 },
+      attrs: {
+        'fill-opacity': '0.35',
+        'stroke-dasharray': '5 2',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'bevel',
+        mask: 'url(#mask-a)',
+        onclick: 'alert(1)',
+      },
+    }));
+    const rect = svg.querySelector('rect');
+    expect(rect?.getAttribute('fill-opacity')).toBe('0.35');
+    expect(rect?.getAttribute('stroke-dasharray')).toBe('5 2');
+    expect(rect?.getAttribute('stroke-linecap')).toBe('round');
+    expect(rect?.getAttribute('stroke-linejoin')).toBe('bevel');
+    expect(rect?.getAttribute('mask')).toBe('url(#mask-a)');
+    expect(rect?.hasAttribute('onclick')).toBe(false);
+  });
+
   it('renders a gradient fill as a url() reference, which the old renderer dropped', () => {
     const svg = draw(
       node({

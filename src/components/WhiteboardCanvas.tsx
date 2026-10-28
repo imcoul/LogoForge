@@ -2,6 +2,8 @@ import { WhiteboardToolbar } from './WhiteboardToolbar';
 import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import type { WhiteboardSketch } from '../types';
+import { renderNode } from './CanvasRenderer';
+import { whiteboardSketchToNode } from '../engine/whiteboardNodeAdapter';
 import { preserveSharedWhiteboardSketches, SHARED_WHITEBOARD_SKETCH_PREFIX } from '../engine/sharedVectorHistory';
 import {
   getSqSegDist,
@@ -1800,6 +1802,40 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                   }
 
                   const maskAttr = sketch.maskId ? `url(#mask-${sketch.maskId})` : undefined;
+
+                  const converted = whiteboardSketchToNode(sketch);
+                  if (converted.ok) {
+                    const node = converted.node;
+                    const renderableNode = {
+                      ...node,
+                      style: {
+                        ...node.style,
+                        // Match the legacy Whiteboard renderer's visual defaults exactly.
+                        fill: sketch.fillColor || 'none',
+                        stroke: sketch.color || 'currentColor',
+                      },
+                      props: { ...node.props, strokeWidth: sketch.strokeWidth || 2 },
+                      attrs: {
+                        ...node.attrs,
+                        'fill-opacity': String(maskOpacity),
+                        'stroke-dasharray': maskStrokeDash,
+                      },
+                    };
+
+                    return (
+                      <g
+                        key={sketch.id}
+                        data-logoforge-node-id={node.id}
+                        data-logoforge-whiteboard-id={sketch.id}
+                        transform={transform}
+                        className={strokeClass}
+                      >
+                        {renderNode(renderableNode)}
+                      </g>
+                    );
+                  }
+
+                  // Unsupported/malformed legacy records retain the historical renderer below.
                   
                   if (sketch.type === 'rectangle' && sketch.props) {
                       return (
