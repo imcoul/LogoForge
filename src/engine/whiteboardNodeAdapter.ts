@@ -1,5 +1,6 @@
 import { IDENTITY_TRANSFORM } from '../types';
 import type { Node, WhiteboardSketch } from '../types';
+import { translatePathData } from './pathData';
 
 export const WHITEBOARD_NODE_ID_PREFIX = 'whiteboard-';
 export const WHITEBOARD_NODE_MIGRATION_VERSION = 1 as const;
@@ -37,6 +38,13 @@ export type WhiteboardNodeMigrationBatch = {
   skipped: Array<{ index: number; sketchId: string; nodeId: string }>;
   rejected: Array<{ index: number; sketchId?: string; reason: WhiteboardMigrationFailureReason | 'duplicate-id' }>;
 };
+
+export type WhiteboardSketchTranslationFailureReason =
+  | WhiteboardMigrationFailureReason
+  | 'invalid-offset'
+  | 'invalid-path-data'
+  | 'unsupported-node-type'
+  | 'unprojectable-node';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -494,7 +502,9 @@ function mergeEditedProjection(
     if (sameValue(node.props?.[nodeKey], expected.props?.[nodeKey])) return;
     const value = projected.props?.[legacyKey];
     if (value === undefined) delete sourceProps[legacyKey];
-    else sourceProps[legacyKey] = cloneValue(value);
+    else if (typeof sourceProps[legacyKey] === 'string' && typeof value === 'number') {
+      sourceProps[legacyKey] = String(value);
+    } else sourceProps[legacyKey] = cloneValue(value);
     propsChanged = true;
   };
 
@@ -550,6 +560,56 @@ function mergeEditedProjection(
     else merged.props = sourceProps;
   }
   return merged as unknown as WhiteboardSketch;
+}
+
+export function translateWhiteboardSketch(
+  input: unknown,
+  dx: number,
+  dy: number,
+): { ok: true; sketch: WhiteboardSketch } | { ok: false; reason: WhiteboardSketchTranslationFailureReason } {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return { ok: false, reason: 'invalid-offset' };
+
+  const converted = whiteboardSketchToNode(input);
+  if (converted.ok === false) return converted;
+
+  const node = converted.node;
+  let translatedNode: Node;
+  if (node.type === 'rect') {
+    const x = numberProp(node, 'x');
+    const y = numberProp(node, 'y');
+    if (x === undefined || y === undefined) return { ok: false, reason: 'unsupported-node-type' };
+    translatedNode = { ...node, props: { ...node.props, x: x + dx, y: y + dy } };
+  } else if (node.type === 'ellipse' || node.type === 'circle') {
+    const cx = numberProp(node, 'cx');
+    const cy = numberProp(node, 'cy');
+    if (cx === undefined || cy === undefined) return { ok: false, reason: 'unsupported-node-type' };
+    translatedNode = { ...node, props: { ...node.props, cx: cx + dx, cy: cy + dy } };
+  } else if (node.type === 'line') {
+    const x1 = numberProp(node, 'x1');
+    const y1 = numberProp(node, 'y1');
+    const x2 = numberProp(node, 'x2');
+    const y2 = numberProp(node, 'y2');
+    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
+      return { ok: false, reason: 'unsupported-node-type' };
+    }
+    translatedNode = {
+      ...node,
+      props: { ...node.props, x1: x1 + dx, y1: y1 + dy, x2: x2 + dx, y2: y2 + dy },
+    };
+  } else if (node.type === 'path') {
+    const pathKey = typeof node.props?.d === 'string' ? 'd' : 'pathData';
+    const path = node.props?.[pathKey];
+    if (typeof path !== 'string') return { ok: false, reason: 'invalid-path-data' };
+    const translatedPath = translatePathData(path, dx, dy);
+    if (translatedPath === null) return { ok: false, reason: 'invalid-path-data' };
+    translatedNode = { ...node, props: { ...node.props, [pathKey]: translatedPath } };
+  } else {
+    return { ok: false, reason: 'unsupported-node-type' };
+  }
+
+  const sketch = whiteboardNodeToSketch(translatedNode);
+  if (!sketch) return { ok: false, reason: 'unprojectable-node' };
+  return { ok: true, sketch };
 }
 
 export function whiteboardNodeToSketch(node: Node): WhiteboardSketch | null {

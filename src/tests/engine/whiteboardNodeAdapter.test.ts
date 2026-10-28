@@ -6,6 +6,7 @@ import {
   whiteboardNodeToSketch,
   whiteboardSketchesToNodes,
   whiteboardSketchToNode,
+  translateWhiteboardSketch,
 } from '../../engine/whiteboardNodeAdapter';
 
 function sketch(overrides: Record<string, unknown> = {}): WhiteboardSketch {
@@ -336,6 +337,91 @@ describe('whiteboardNodeToSketch fallback', () => {
       props: { textContent: 'Not a Whiteboard sketch' },
     };
     expect(whiteboardNodeToSketch(node)).toBeNull();
+  });
+});
+
+describe('translateWhiteboardSketch', () => {
+  it('translates rectangle geometry through Nodes and preserves provenance fields', () => {
+    const source = sketch({
+      id: 'moved-rect',
+      name: 'Move me',
+      type: 'rectangle',
+      path: undefined,
+      props: { x: 10, y: 20, width: 30, height: 40, rx: 6, customProp: 'keep' },
+      maskId: 'mask-1',
+      maskType: 'reveal',
+      customLegacyField: { nested: [1, 2] },
+    });
+    const original = structuredClone(source);
+
+    expect(translateWhiteboardSketch(source, 7, -3)).toEqual({
+      ok: true,
+      sketch: { ...source, props: { ...source.props, x: 17, y: 17 } },
+    });
+    expect(source).toEqual(original);
+  });
+
+  it('translates ellipse centers and endpoint-only line coordinates without adding path data', () => {
+    const ellipse = sketch({
+      id: 'moved-ellipse',
+      type: 'circle',
+      path: undefined,
+      props: { cx: 25, cy: 35, rx: 12, ry: 8 },
+    });
+    const line = sketch({
+      id: 'moved-line',
+      type: 'line',
+      path: undefined,
+      props: { x1: 1, y1: 2, x2: 9, y2: 10, lineStyle: 'straight', customProp: 'keep' },
+    });
+
+    expect(translateWhiteboardSketch(ellipse, -4, 9)).toEqual({
+      ok: true,
+      sketch: { ...ellipse, props: { ...ellipse.props, cx: 21, cy: 44 } },
+    });
+    expect(translateWhiteboardSketch(line, 5, -2)).toEqual({
+      ok: true,
+      sketch: { ...line, props: { ...line.props, x1: 6, y1: 0, x2: 14, y2: 8 } },
+    });
+  });
+
+  it('translates path-backed line geometry without changing arc radii or flags', () => {
+    const source = sketch({
+      id: 'arc-line',
+      type: 'line',
+      path: 'M 50,100 a50,50 0 1,0 100,0 Z',
+      props: { lineStyle: 'curved', customProp: 'keep' },
+      customLegacyField: 'unchanged',
+    });
+
+    expect(translateWhiteboardSketch(source, 5, 5)).toEqual({
+      ok: true,
+      sketch: { ...source, path: 'M55,105 a50,50,0,1,0,100,0 Z' },
+    });
+  });
+
+  it('rejects malformed path geometry and invalid offsets without mutating the source', () => {
+    const malformed = sketch({ path: 'M0 0 L10' });
+    const original = structuredClone(malformed);
+
+    expect(translateWhiteboardSketch(malformed, 5, 5)).toEqual({ ok: false, reason: 'invalid-path-data' });
+    expect(translateWhiteboardSketch(sketch(), Number.POSITIVE_INFINITY, 1))
+      .toEqual({ ok: false, reason: 'invalid-offset' });
+    expect(malformed).toEqual(original);
+  });
+
+  it('preserves numeric-string legacy geometry fields when applying a Node translation', () => {
+    const source = sketch({
+      type: 'rectangle',
+      path: undefined,
+      props: { x: '10', y: '20', width: '30', height: '40' },
+    });
+    const result = translateWhiteboardSketch(source, 2, 3);
+
+    expect(result).toEqual({
+      ok: true,
+      sketch: { ...source, props: { x: '12', y: '23', width: '30', height: '40' } },
+    });
   });
 });
 

@@ -210,6 +210,104 @@ describe('shared vector history editor integration', () => {
     expect(selectedMask.querySelector('rect')?.getAttribute('stroke-dasharray')).toBe('4 4');
   });
 
+  it('moves path-backed sketches through strict Node translation and leaves malformed paths unchanged', async () => {
+    const project = makeProject();
+    project.whiteboardSketches = [
+      {
+        id: 'arc-drag',
+        name: 'Arc path',
+        type: 'path',
+        path: 'M 50 100 a50 50 0 1 0 100 0 Z',
+        color: '#123456',
+        strokeWidth: 2,
+        customLegacyField: 'preserve-me',
+      } as WhiteboardSketch,
+      {
+        id: 'malformed-drag',
+        name: 'Malformed path',
+        type: 'path',
+        path: 'M 200,200 L 210,210 L',
+      } as WhiteboardSketch,
+      {
+        id: 'endpoint-line-drag',
+        name: 'Endpoint line',
+        type: 'line',
+        props: { x1: 250, y1: 300, x2: 280, y2: 300 },
+      } as WhiteboardSketch,
+    ];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    expect(whiteboardSvg).not.toBeNull();
+    const arcPath = whiteboardSvg!.querySelector<SVGPathElement>('[data-logoforge-whiteboard-id="arc-drag"] path');
+    expect(arcPath).not.toBeNull();
+
+    fireEvent.mouseDown(arcPath!, { clientX: 50, clientY: 100 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 70, clientY: 120 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 70, clientY: 120 });
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].path).toBe('M70,120 a50,50,0,1,0,100,0 Z');
+    });
+    const movedArc = getProject().whiteboardSketches?.[0] as (WhiteboardSketch & { customLegacyField?: unknown }) | undefined;
+    expect(movedArc?.customLegacyField).toBe('preserve-me');
+    fireEvent.doubleClick(arcPath!, { clientX: 70, clientY: 120 });
+    const arcNudge = await screen.findByLabelText('Path X position') as HTMLInputElement;
+    expect(arcNudge.disabled).toBe(true);
+
+    const malformedPath = whiteboardSvg!.querySelector<SVGPathElement>('[data-logoforge-whiteboard-id="malformed-drag"] path');
+    expect(malformedPath).not.toBeNull();
+    fireEvent.mouseDown(malformedPath!, { clientX: 200, clientY: 200 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 210, clientY: 210 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 210, clientY: 210 });
+    expect(await screen.findByText('Could not safely move this sketch; it was left unchanged.')).toBeTruthy();
+    expect(getProject().whiteboardSketches?.[1].path).toBe('M 200,200 L 210,210 L');
+
+    const endpointLine = whiteboardSvg!.querySelector<SVGLineElement>('[data-logoforge-whiteboard-id="endpoint-line-drag"] line');
+    expect(endpointLine).not.toBeNull();
+    fireEvent.mouseDown(endpointLine!, { clientX: 250, clientY: 300 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 260, clientY: 310 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 260, clientY: 310 });
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[2].props).toMatchObject({ x1: 260, y1: 310, x2: 290, y2: 310 });
+    });
+  });
+
+  it('keeps same-value fractional path nudges inert and applies exact linear offsets', async () => {
+    const project = makeProject();
+    project.whiteboardSketches = [{
+      id: 'linear-nudge',
+      name: 'Linear path',
+      type: 'path',
+      path: 'M10.4 20.6 L30.4 40.6',
+    } as WhiteboardSketch];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    const path = whiteboardSvg?.querySelector<SVGPathElement>('[data-logoforge-whiteboard-id="linear-nudge"] path');
+    expect(path).not.toBeNull();
+
+    fireEvent.doubleClick(path!, { clientX: 10, clientY: 20 });
+    const xPosition = await screen.findByLabelText('Path X position') as HTMLInputElement;
+    expect(xPosition.value).toBe('10.4');
+    fireEvent.change(xPosition, { target: { value: '10.4' } });
+    expect(getProject().whiteboardSketches?.[0].path).toBe('M10.4 20.6 L30.4 40.6');
+
+    fireEvent.change(xPosition, { target: { value: '11.4' } });
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].path).toBe('M11.4,20.6 L31.4,40.6');
+    });
+  });
+
   it('creates in Whiteboard, undoes in SVGPathEditor, redoes in Whiteboard, and preserves local history order', async () => {
     const history = createSharedVectorHistoryController(commitToStore);
     const { container } = render(

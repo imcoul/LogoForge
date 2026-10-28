@@ -105,19 +105,15 @@ function scanFlag(input: string, start: number): { value: number; next: number }
   return null;
 }
 
-/**
- * Parses a path `d` string into its commands.
- *
- * Malformed trailing input is ignored rather than throwing: real-world SVG contains
- * truncated paths, and refusing to open the document would be worse than dropping the
- * incomplete tail.
- */
-export function parsePathData(d: string): PathCommand[] {
-  if (!d) return [];
+type PathParseResult = { commands: PathCommand[]; complete: boolean };
+
+function parsePathDataResult(d: string): PathParseResult {
+  if (!d) return { commands: [], complete: true };
 
   const out: PathCommand[] = [];
   let i = 0;
   let currentCommand = '';
+  let complete = true;
 
   const skipSeparators = () => {
     while (i < d.length && isWhitespaceOrComma(d[i])) i++;
@@ -132,13 +128,17 @@ export function parsePathData(d: string): PathCommand[] {
       skipSeparators();
     } else if (!currentCommand) {
       // Junk before any command; nothing sensible to do with it.
+      complete = false;
       break;
     }
 
     const upper = currentCommand.toUpperCase();
     const argCount = ARG_COUNT[upper];
 
-    if (argCount === undefined) break;
+    if (argCount === undefined) {
+      complete = false;
+      break;
+    }
 
     if (argCount === 0) {
       out.push({ command: currentCommand, args: [] });
@@ -167,7 +167,10 @@ export function parsePathData(d: string): PathCommand[] {
       i = scanned.next;
     }
 
-    if (malformed) break;
+    if (malformed) {
+      complete = false;
+      break;
+    }
 
     out.push({ command: currentCommand, args });
 
@@ -176,7 +179,26 @@ export function parsePathData(d: string): PathCommand[] {
     skipSeparators();
   }
 
-  return out;
+  return { commands: out, complete };
+}
+
+/**
+ * Parses a path `d` string into its complete commands.
+ *
+ * Malformed trailing input is ignored rather than throwing: real-world SVG contains
+ * truncated paths, and refusing to open the document would be worse than dropping the
+ * incomplete tail.
+ */
+export function parsePathData(d: string): PathCommand[] {
+  return parsePathDataResult(d).commands;
+}
+
+/** Parses only when the entire input is consumed and every numeric argument is finite. */
+export function parsePathDataStrict(d: string): PathCommand[] | null {
+  const result = parsePathDataResult(d);
+  if (!result.complete || result.commands.length === 0) return null;
+  if (result.commands.some((command) => command.args.some((value) => !Number.isFinite(value)))) return null;
+  return result.commands;
 }
 
 /** Serializes commands back into a `d` string. */
@@ -184,6 +206,50 @@ export function serializePathData(commands: PathCommand[]): string {
   return commands
     .map(({ command, args }) => (args.length === 0 ? command : `${command}${args.join(',')}`))
     .join(' ');
+}
+
+/**
+ * Translate every absolute coordinate in a valid SVG path while preserving relative deltas.
+ * Arc radii, rotation, and flags are parameters rather than points and are never offset.
+ * Returns null for malformed paths or offsets rather than serializing a partial parse.
+ */
+export function translatePathData(d: string, dx: number, dy: number): string | null {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null;
+  const commands = parsePathDataStrict(d);
+  if (!commands || (commands[0].command !== 'M' && commands[0].command !== 'm')) return null;
+  if (dx === 0 && dy === 0) return d;
+
+  const translated: PathCommand[] = [];
+  for (const [index, item] of commands.entries()) {
+    const args = [...item.args];
+    const command = item.command.toUpperCase();
+
+    if (item.command === item.command.toLowerCase()) {
+      // A relative path moves only its initial placement; subsequent values are deltas.
+      if (index === 0 && item.command === 'm') {
+        args[0] += dx;
+        args[1] += dy;
+      }
+    } else if (command === 'H') {
+      for (let i = 0; i < args.length; i++) args[i] += dx;
+    } else if (command === 'V') {
+      for (let i = 0; i < args.length; i++) args[i] += dy;
+    } else if (command === 'A') {
+      args[5] += dx;
+      args[6] += dy;
+    } else if (command === 'M' || command === 'L' || command === 'T'
+      || command === 'C' || command === 'S' || command === 'Q') {
+      for (let i = 0; i < args.length; i += 2) {
+        args[i] += dx;
+        args[i + 1] += dy;
+      }
+    }
+
+    if (args.some((value) => !Number.isFinite(value))) return null;
+    translated.push({ command: item.command, args });
+  }
+
+  return serializePathData(translated);
 }
 
 /**

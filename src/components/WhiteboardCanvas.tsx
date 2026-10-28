@@ -3,12 +3,12 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import type { WhiteboardSketch } from '../types';
 import { renderNode } from './CanvasRenderer';
-import { whiteboardSketchToNode } from '../engine/whiteboardNodeAdapter';
+import { translateWhiteboardSketch, whiteboardSketchToNode } from '../engine/whiteboardNodeAdapter';
+import { parsePathDataStrict } from '../engine/pathData';
 import { preserveSharedWhiteboardSketches, SHARED_WHITEBOARD_SKETCH_PREFIX } from '../engine/sharedVectorHistory';
 import {
   getSqSegDist,
   snapCoords as snapCoordsToGrid,
-  translatePath,
   convertShapeToPath,
   isPointInsideShape,
 } from '../engine/legacyWhiteboardGeometry';
@@ -248,6 +248,58 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
   const syncedProjectId = activeProject?.id ?? null;
   const projectSketches = activeProject?.whiteboardSketches;
+  const getLinearPathBounds = (path?: string) => {
+    if (!path) return null;
+    const commands = parsePathDataStrict(path);
+    if (!commands || (commands[0].command !== 'M' && commands[0].command !== 'm')) return null;
+
+    let x = 0;
+    let y = 0;
+    let subpathX = 0;
+    let subpathY = 0;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const include = () => {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    };
+
+    for (const item of commands) {
+      const upper = item.command.toUpperCase();
+      const relative = item.command !== upper;
+      if (upper === 'M' || upper === 'L') {
+        x = relative ? x + item.args[0] : item.args[0];
+        y = relative ? y + item.args[1] : item.args[1];
+        include();
+        if (upper === 'M') {
+          subpathX = x;
+          subpathY = y;
+        }
+      } else if (upper === 'H') {
+        x = relative ? x + item.args[0] : item.args[0];
+        include();
+      } else if (upper === 'V') {
+        y = relative ? y + item.args[0] : item.args[0];
+        include();
+      } else if (upper === 'Z') {
+        x = subpathX;
+        y = subpathY;
+        include();
+      } else {
+        // Curves and arcs need exact rendered bounds; keep their nudge inputs disabled.
+        return null;
+      }
+    }
+
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      return null;
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  };
 
   useEffect(() => {
     sketchesHistoryIndexRef.current = sketchesHistoryIndex;
@@ -481,10 +533,17 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       });
   };
 
+  const getSketchFromEventTarget = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return undefined;
+    const layer = target.closest('[data-logoforge-whiteboard-id]');
+    const id = layer?.getAttribute('data-logoforge-whiteboard-id');
+    return id ? sketches.find((sketch) => sketch.id === id) : undefined;
+  };
+
   const handleDoubleClick = (e: React.MouseEvent) => {
     if (tool !== 'select') return;
     const rawPoint = getPoint(e);
-    const hit = getHitSketch(rawPoint);
+    const hit = getSketchFromEventTarget(e.target) ?? getHitSketch(rawPoint);
     if (hit) {
       setSelectedSketchId(hit.id);
       setShowOptionsPanel(true);
@@ -516,7 +575,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     const point = snapCoords(rawPoint);
     
     if (tool === 'select') {
-        const hit = getHitSketch(rawPoint);
+        const hit = getSketchFromEventTarget(e.target) ?? getHitSketch(rawPoint);
         if (hit) {
             setSelectedSketchId(hit.id);
             setIsDrawing(true);
@@ -851,21 +910,18 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
         const dx = dragOffset.x;
         const dy = dragOffset.y;
         if (dx !== 0 || dy !== 0) {
-            const updatedSketches = sketches.map(s => {
-                if (s.id !== selectedSketchId) return s;
-                if (s.type === 'rectangle' && s.props) {
-                    return { ...s, props: { ...s.props, x: s.props.x + dx, y: s.props.y + dy } };
-                } else if (s.type === 'circle' && s.props) {
-                    return { ...s, props: { ...s.props, cx: s.props.cx + dx, cy: s.props.cy + dy } };
-                } else if (s.path) {
-                    const translatedPath = s.path.replace(/([0-9.-]+),([0-9.-]+)/g, (match, px, py) => {
-                        return `${Number(px) + dx},${Number(py) + dy}`;
-                    });
-                    return { ...s, path: translatedPath };
+            let rejectedMove = false;
+            const updatedSketches = sketches.map((sketch) => {
+                if (sketch.id !== selectedSketchId) return sketch;
+                const translated = translateWhiteboardSketch(sketch, dx, dy);
+                if (!translated.ok) {
+                    rejectedMove = true;
+                    return sketch;
                 }
-                return s;
+                return translated.sketch;
             });
-            updateSketchesWithHistory(updatedSketches);
+            if (rejectedMove) triggerBanner('Could not safely move this sketch; it was left unchanged.');
+            else updateSketchesWithHistory(updatedSketches);
         }
         setDragOffset(null);
         setStartPoint(null);
@@ -2892,35 +2948,48 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <span className="text-[9px] font-mono text-neutral-400">X (Left Bound)</span>
                       <input
                         type="number"
-                        value={Math.round(getSketchBoundingBox(selectedSketch)?.x ?? 0)}
+                        value={getLinearPathBounds(selectedSketch.path)?.x ?? 0}
+                        step="any"
+                        disabled={!getLinearPathBounds(selectedSketch.path)}
+                        aria-label="Path X position"
                         onChange={(e) => {
-                          const bbox = getSketchBoundingBox(selectedSketch);
-                          const currentX = bbox ? bbox.x : 0;
-                          const newX = Number(e.target.value);
-                          const dx = newX - currentX;
-                          const translated = translatePath(selectedSketch.path, dx, 0);
-                          handleUpdateSelectedSketch({ path: translated });
+                          const bounds = getLinearPathBounds(selectedSketch.path);
+                          const newX = e.currentTarget.valueAsNumber;
+                          if (!bounds || !Number.isFinite(newX)) return;
+                          const dx = newX - bounds.x;
+                          if (dx === 0) return;
+                          const translated = translateWhiteboardSketch(selectedSketch, dx, 0);
+                          if (translated.ok) handleUpdateSelectedSketch({ path: translated.sketch.path });
+                          else triggerBanner('Could not safely change this sketch position; it was left unchanged.');
                         }}
-                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center animate-pulse"
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center animate-pulse disabled:opacity-40"
                       />
                     </div>
                     <div>
                       <span className="text-[9px] font-mono text-neutral-400">Y (Top Bound)</span>
                       <input
                         type="number"
-                        value={Math.round((getSketchBoundingBox(selectedSketch)?.y ?? 0) + 45)}
+                        value={getLinearPathBounds(selectedSketch.path)?.y ?? 0}
+                        step="any"
+                        disabled={!getLinearPathBounds(selectedSketch.path)}
+                        aria-label="Path Y position"
                         onChange={(e) => {
-                          const bbox = getSketchBoundingBox(selectedSketch);
-                          const currentY = bbox ? bbox.y + 45 : 0;
-                          const newY = Number(e.target.value);
-                          const dy = newY - currentY;
-                          const translated = translatePath(selectedSketch.path, 0, dy);
-                          handleUpdateSelectedSketch({ path: translated });
+                          const bounds = getLinearPathBounds(selectedSketch.path);
+                          const newY = e.currentTarget.valueAsNumber;
+                          if (!bounds || !Number.isFinite(newY)) return;
+                          const dy = newY - bounds.y;
+                          if (dy === 0) return;
+                          const translated = translateWhiteboardSketch(selectedSketch, 0, dy);
+                          if (translated.ok) handleUpdateSelectedSketch({ path: translated.sketch.path });
+                          else triggerBanner('Could not safely change this sketch position; it was left unchanged.');
                         }}
-                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center animate-pulse"
+                        className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center animate-pulse disabled:opacity-40"
                       />
                     </div>
                   </div>
+                  {!getLinearPathBounds(selectedSketch.path) && (
+                    <p className="text-[9px] text-neutral-400">Use canvas drag to reposition curves, arcs, or malformed paths.</p>
+                  )}
                 </div>
               )}
 

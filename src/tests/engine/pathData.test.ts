@@ -7,7 +7,14 @@
  * replaced it, the same inputs are asserted against their correct values.
  */
 import { describe, it, expect } from 'vitest';
-import { parsePathData, serializePathData, toAnchors, fromAnchors } from '../../engine/pathData';
+import {
+  parsePathData,
+  parsePathDataStrict,
+  serializePathData,
+  toAnchors,
+  fromAnchors,
+  translatePathData,
+} from '../../engine/pathData';
 
 describe('parsePathData — basics', () => {
   it('parses a moveto and lineto', () => {
@@ -126,6 +133,56 @@ describe('serializePathData', () => {
 
   it('returns an empty string for no commands', () => {
     expect(serializePathData([])).toBe('');
+  });
+});
+
+describe('translatePathData', () => {
+  it('translates absolute coordinates with mixed comma and whitespace separators', () => {
+    expect(translatePathData('M 10 20 L 30,40', 5, -2)).toBe('M15,18 L35,38');
+  });
+
+  it('translates coordinates written with exponent notation', () => {
+    expect(translatePathData('M1e3 0 L2e3 1e3', 5, 5)).toBe('M1005,5 L2005,1005');
+  });
+
+  it('translates every implicit repeated coordinate group', () => {
+    expect(translatePathData('M0,0 10,10 L20,20 30,30', 5, -2))
+      .toBe('M5,-2 L15,8 L25,18 L35,28');
+  });
+
+  it('translates H/V and every coordinate pair in curve commands', () => {
+    const path = 'M1,2 H3 V4 C5,6 7,8 9,10 S11,12 13,14 Q15,16 17,18 T19,20';
+    expect(translatePathData(path, 10, -2))
+      .toBe('M11,0 H13 V2 C15,4,17,6,19,8 S21,10,23,12 Q25,14,27,16 T29,18');
+  });
+
+  it('moves only the absolute endpoint of an arc and preserves its radii and flags', () => {
+    expect(translatePathData('M50,100 A50,60 30 1,0 100,0', 5, -5))
+      .toBe('M55,95 A50,60,30,1,0,105,-5');
+  });
+
+  it('preserves relative command deltas, including relative arcs and later subpaths', () => {
+    expect(translatePathData('m10 20 l5 5 a50,60 30 1,0 100,0 m2,3 z', 5, -3))
+      .toBe('m15,17 l5,5 a50,60,30,1,0,100,0 m2,3 z');
+  });
+
+  it('keeps adjacent arc flags intact when flags run into endpoint numbers', () => {
+    expect(translatePathData('M0 0 a50,50 0 1150,0', 5, 5))
+      .toBe('M5,5 a50,50,0,1,1,50,0');
+  });
+
+  it('rejects malformed tails, non-finite numbers, non-moveto starts, and invalid offsets', () => {
+    expect(parsePathDataStrict('M0 0 L10')).toBeNull();
+    expect(translatePathData('M0 0 L10', 5, 5)).toBeNull();
+    expect(translatePathData('M1e999 0 L1 1', 5, 5)).toBeNull();
+    expect(translatePathData('L0 0', 5, 5)).toBeNull();
+    expect(translatePathData('M0 0', Number.POSITIVE_INFINITY, 5)).toBeNull();
+    expect(translatePathData('M0 0', 5, Number.NaN)).toBeNull();
+  });
+
+  it('preserves the original text for a zero-distance translation', () => {
+    const path = 'M 10 20 L 30,40';
+    expect(translatePathData(path, 0, 0)).toBe(path);
   });
 });
 
