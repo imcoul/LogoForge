@@ -7,6 +7,7 @@ import {
   whiteboardSketchesToNodes,
   whiteboardSketchToNode,
   translateWhiteboardSketch,
+  updateWhiteboardSketchGeometry,
 } from '../../engine/whiteboardNodeAdapter';
 
 function sketch(overrides: Record<string, unknown> = {}): WhiteboardSketch {
@@ -422,6 +423,85 @@ describe('translateWhiteboardSketch', () => {
       ok: true,
       sketch: { ...source, props: { x: '12', y: '23', width: '30', height: '40' } },
     });
+  });
+});
+
+describe('updateWhiteboardSketchGeometry', () => {
+  it('updates rectangle geometry through Nodes and preserves legacy metadata and numeric-string types', () => {
+    const source = sketch({
+      type: 'rectangle',
+      path: undefined,
+      props: { x: '10', y: '20', width: '30', height: '40', rx: 6, customProp: 'keep' },
+      customLegacyField: { note: 'preserve' },
+    });
+    const original = structuredClone(source);
+
+    expect(updateWhiteboardSketchGeometry(source, {
+      kind: 'rect', x: 12, y: 23, width: 60, height: 70,
+    })).toEqual({
+      ok: true,
+      sketch: {
+        ...source,
+        props: { x: '12', y: '23', width: '60', height: '70', rx: 6, customProp: 'keep' },
+      },
+    });
+    expect(source).toEqual(original);
+  });
+
+  it('updates ellipse radius geometry through Nodes and preserves the untouched axis', () => {
+    const source = sketch({
+      type: 'circle',
+      path: undefined,
+      props: { cx: 25, cy: 35, rx: 12, ry: '8', customProp: 'keep' },
+      maskId: 'mask-ellipse',
+      maskType: 'reveal',
+    });
+
+    expect(updateWhiteboardSketchGeometry(source, {
+      kind: 'ellipse', cx: 25, cy: 35, rx: 20, ry: 8,
+    })).toEqual({
+      ok: true,
+      sketch: {
+        ...source,
+        props: { cx: 25, cy: 35, rx: 20, ry: '8', customProp: 'keep' },
+      },
+    });
+  });
+
+  it('rejects mismatched, extra-key, non-finite, and too-small geometry without mutation', () => {
+    const source = sketch({
+      type: 'rectangle',
+      path: undefined,
+      props: { x: 10, y: 20, width: 30, height: 40 },
+    });
+    const original = structuredClone(source);
+
+    expect(updateWhiteboardSketchGeometry(source, {
+      kind: 'ellipse', cx: 10, cy: 20, rx: 30, ry: 40,
+    })).toEqual({ ok: false, reason: 'unsupported-node-type' });
+    expect(updateWhiteboardSketchGeometry(source, {
+      kind: 'rect', x: 10, y: 20, width: 4, height: 40,
+    })).toEqual({ ok: false, reason: 'invalid-geometry' });
+    expect(updateWhiteboardSketchGeometry(source, {
+      kind: 'rect', x: 10, y: 20, width: Number.NaN, height: 40,
+    })).toEqual({ ok: false, reason: 'invalid-geometry' });
+    expect(updateWhiteboardSketchGeometry(source, {
+      kind: 'rect', x: 10, y: 20, width: 30, height: 40, opacity: 0.5,
+    })).toEqual({ ok: false, reason: 'invalid-geometry' });
+    const inheritedUpdate = Object.create({
+      kind: 'rect', x: 10, y: 20, width: 30, height: 40,
+    }) as object;
+    expect(updateWhiteboardSketchGeometry(source, inheritedUpdate))
+      .toEqual({ ok: false, reason: 'invalid-geometry' });
+    let accessorWasRead = false;
+    const accessorUpdate = Object.defineProperties(
+      { kind: 'rect', y: 20, width: 30, height: 40 },
+      { x: { enumerable: true, get: () => { accessorWasRead = true; return 10; } } },
+    );
+    expect(updateWhiteboardSketchGeometry(source, accessorUpdate))
+      .toEqual({ ok: false, reason: 'invalid-geometry' });
+    expect(accessorWasRead).toBe(false);
+    expect(source).toEqual(original);
   });
 });
 

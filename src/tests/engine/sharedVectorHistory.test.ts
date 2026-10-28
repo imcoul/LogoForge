@@ -11,6 +11,7 @@ import {
   createSharedWhiteboardUpdateCommand,
   mergeLocalSharedHistoryIntoRemoteProject,
   preserveSharedWhiteboardSketches,
+  rebaseSharedWhiteboardSketches,
   sharedWhiteboardPathsUnchanged,
   undoSharedWhiteboardDeleteCommand,
   undoSharedWhiteboardLinkCommand,
@@ -508,6 +509,25 @@ describe('shared whiteboard path command history', () => {
       .toEqual([{ ...legacy, name: 'Local edit' }, shared]);
     expect(preserveSharedWhiteboardSketches([legacy, shared], [legacy])).toEqual([legacy, shared]);
     expect(preserveSharedWhiteboardSketches([legacy, shared], [attemptedMutation, legacy])).toEqual([legacy, shared]);
+  });
+
+  it('rebases shared mirror edits, additions, and removals while retaining local geometry changes', () => {
+    const legacy = makeSketch('legacy-sketch');
+    const resized = { ...legacy, name: 'Locally resized' };
+    const originalShared = { ...makeSketch('shared-wb-rebase'), locked: true };
+    const currentShared = { ...originalShared, path: 'M 11,11 L 41,41' };
+    const addedShared = { ...makeSketch('shared-wb-added-during-resize'), locked: true };
+
+    expect(rebaseSharedWhiteboardSketches(
+      [legacy, originalShared],
+      [legacy, currentShared, addedShared],
+      [resized, originalShared],
+    )).toEqual([resized, currentShared, addedShared]);
+    expect(rebaseSharedWhiteboardSketches(
+      [legacy, originalShared],
+      [legacy],
+      [resized, originalShared],
+    )).toEqual([resized]);
   });
 
   it('preserves authored n0 IDs across shared delete undo and detects ID-source changes', () => {

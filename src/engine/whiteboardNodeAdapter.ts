@@ -46,6 +46,15 @@ export type WhiteboardSketchTranslationFailureReason =
   | 'unsupported-node-type'
   | 'unprojectable-node';
 
+export type WhiteboardSketchGeometryUpdate =
+  | { kind: 'rect'; x: number; y: number; width: number; height: number }
+  | { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number };
+
+export type WhiteboardSketchGeometryUpdateFailureReason =
+  | WhiteboardMigrationFailureReason
+  | 'unsupported-node-type'
+  | 'unprojectable-node';
+
 type UnknownRecord = Record<string, unknown>;
 
 type NormalizedSketch = {
@@ -66,6 +75,19 @@ type NormalizedSketch = {
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasExactOwnDataProperties(value: UnknownRecord, keys: readonly string[]): boolean {
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.length !== keys.length || ownKeys.some((key) => typeof key !== 'string' || !keys.includes(key))) {
+    return false;
+  }
+  return keys.every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor !== undefined && 'value' in descriptor && descriptor.enumerable;
+  });
 }
 
 function finiteNumber(record: UnknownRecord | undefined, key: string): number | null {
@@ -610,6 +632,59 @@ export function translateWhiteboardSketch(
   const sketch = whiteboardNodeToSketch(translatedNode);
   if (!sketch) return { ok: false, reason: 'unprojectable-node' };
   return { ok: true, sketch };
+}
+
+/** Update native rectangle/ellipse geometry through the shared Node representation. */
+export function updateWhiteboardSketchGeometry(
+  input: unknown,
+  update: unknown,
+): { ok: true; sketch: WhiteboardSketch } | { ok: false; reason: WhiteboardSketchGeometryUpdateFailureReason } {
+  try {
+    const converted = whiteboardSketchToNode(input);
+    if (converted.ok === false) return converted;
+    if (!isRecord(update)) return { ok: false, reason: 'invalid-geometry' };
+
+    const kindDescriptor = Object.getOwnPropertyDescriptor(update, 'kind');
+    if (!kindDescriptor || !('value' in kindDescriptor)) return { ok: false, reason: 'invalid-geometry' };
+    let updatedNode: Node;
+    if (kindDescriptor.value === 'rect') {
+      if (!hasExactOwnDataProperties(update, ['kind', 'x', 'y', 'width', 'height'])) {
+        return { ok: false, reason: 'invalid-geometry' };
+      }
+      if (converted.node.type !== 'rect') return { ok: false, reason: 'unsupported-node-type' };
+      const { x, y, width, height } = update;
+      if ([x, y, width, height].some((value) => typeof value !== 'number' || !Number.isFinite(value))
+        || (width as number) < 5 || (height as number) < 5) {
+        return { ok: false, reason: 'invalid-geometry' };
+      }
+      updatedNode = {
+        ...converted.node,
+        props: { ...converted.node.props, x, y, width, height },
+      };
+    } else if (kindDescriptor.value === 'ellipse') {
+      if (!hasExactOwnDataProperties(update, ['kind', 'cx', 'cy', 'rx', 'ry'])) {
+        return { ok: false, reason: 'invalid-geometry' };
+      }
+      if (converted.node.type !== 'ellipse') return { ok: false, reason: 'unsupported-node-type' };
+      const { cx, cy, rx, ry } = update;
+      if ([cx, cy, rx, ry].some((value) => typeof value !== 'number' || !Number.isFinite(value))
+        || (rx as number) < 5 || (ry as number) < 5) {
+        return { ok: false, reason: 'invalid-geometry' };
+      }
+      updatedNode = {
+        ...converted.node,
+        props: { ...converted.node.props, cx, cy, rx, ry },
+      };
+    } else {
+      return { ok: false, reason: 'invalid-geometry' };
+    }
+
+    const sketch = whiteboardNodeToSketch(updatedNode);
+    if (!sketch) return { ok: false, reason: 'unprojectable-node' };
+    return { ok: true, sketch };
+  } catch {
+    return { ok: false, reason: 'invalid-record' };
+  }
 }
 
 export function whiteboardNodeToSketch(node: Node): WhiteboardSketch | null {

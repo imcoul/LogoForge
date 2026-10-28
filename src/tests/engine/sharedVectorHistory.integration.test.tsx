@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SVGPathEditor } from '../../components/SVGPathEditor';
 import { ToastProvider } from '../../components/Toast';
@@ -208,6 +208,199 @@ describe('shared vector history editor integration', () => {
     expect(selectedMask.getAttribute('class')).toContain('drop-shadow-sm');
     expect(selectedMask.querySelector('rect')?.getAttribute('fill-opacity')).toBe('0.45');
     expect(selectedMask.querySelector('rect')?.getAttribute('stroke-dasharray')).toBe('4 4');
+  });
+
+  it('resizes rectangles and ellipses through Node geometry after a prior handled gesture', async () => {
+    const project = makeProject();
+    project.whiteboardSketches = [
+      {
+        id: 'rect-resize',
+        name: 'Resizable rectangle',
+        type: 'rectangle',
+        path: undefined,
+        props: { x: '50', y: '60', width: '100', height: '80', rx: 8, customProp: 'rect-kept' },
+        color: '#123456',
+        customLegacyField: 'rectangle-kept',
+      } as WhiteboardSketch,
+      {
+        id: 'ellipse-resize',
+        name: 'Resizable ellipse',
+        type: 'circle',
+        path: undefined,
+        props: { cx: '260', cy: '220', rx: '40', ry: '30', customProp: 'ellipse-kept' },
+        color: '#654321',
+        customLegacyField: 'ellipse-kept',
+      } as WhiteboardSketch,
+    ];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    const rectangle = whiteboardSvg?.querySelector<SVGRectElement>('[data-logoforge-whiteboard-id="rect-resize"] rect');
+    expect(rectangle).not.toBeNull();
+
+    fireEvent.mouseDown(rectangle!, { clientX: 100, clientY: 100 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 100, clientY: 100 });
+    const rectangleHandle = whiteboardSvg!.querySelector<SVGRectElement>(
+      '[data-logoforge-resize-handle="rect-resize:br"]',
+    );
+    expect(rectangleHandle).not.toBeNull();
+    expect(rectangleHandle?.getAttribute('x')).toBe('128');
+    expect(rectangleHandle?.getAttribute('y')).toBe('118');
+    fireEvent.mouseDown(rectangleHandle!, { clientX: 150, clientY: 140 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 180, clientY: 170 });
+    expect(whiteboardSvg!.querySelector('[data-logoforge-whiteboard-id="rect-resize"] rect')?.getAttribute('width'))
+      .toBe('130');
+    expect(getProject().whiteboardSketches?.[0].props.width).toBe('100');
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 180, clientY: 170 });
+    expect(whiteboardSvg!.querySelector('[data-logoforge-whiteboard-id="rect-resize"] rect')?.getAttribute('width'))
+      .toBe('130');
+
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].props).toMatchObject({
+        x: '50', y: '60', width: '130', height: '110', rx: 8, customProp: 'rect-kept',
+      });
+    });
+    expect((getProject().whiteboardSketches?.[0] as WhiteboardSketch & { customLegacyField?: string }).customLegacyField)
+      .toBe('rectangle-kept');
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => expect(getProject().whiteboardSketches?.[0].props.width).toBe('100'));
+    fireEvent.click(screen.getByTitle('Redo'));
+    await waitFor(() => expect(getProject().whiteboardSketches?.[0].props.width).toBe('130'));
+
+    const ellipse = whiteboardSvg!.querySelector<SVGEllipseElement>(
+      '[data-logoforge-whiteboard-id="ellipse-resize"] ellipse',
+    );
+    expect(ellipse).not.toBeNull();
+    fireEvent.mouseDown(ellipse!, { clientX: 260, clientY: 220 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 260, clientY: 220 });
+    const ellipseHandle = whiteboardSvg!.querySelector<SVGCircleElement>(
+      '[data-logoforge-resize-handle="ellipse-resize:right"]',
+    );
+    expect(ellipseHandle).not.toBeNull();
+    expect(ellipseHandle?.getAttribute('cx')).toBe('300');
+    expect(whiteboardSvg!.querySelector<SVGCircleElement>(
+      '[data-logoforge-resize-handle="ellipse-resize:bottom"]',
+    )?.getAttribute('cy')).toBe('250');
+    fireEvent.mouseDown(ellipseHandle!, { clientX: 300, clientY: 220 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 320, clientY: 220 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 320, clientY: 220 });
+
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[1].props).toMatchObject({
+        cx: '260', cy: '220', rx: '60', ry: '30', customProp: 'ellipse-kept',
+      });
+    });
+    expect((getProject().whiteboardSketches?.[1] as WhiteboardSketch & { customLegacyField?: string }).customLegacyField)
+      .toBe('ellipse-kept');
+  });
+
+  it('rebases an in-flight resize onto concurrent shared mirror edits and removals', async () => {
+    const project = makeProject();
+    const rectangle: WhiteboardSketch = {
+      id: 'resize-with-shared-change',
+      name: 'Resizable rectangle',
+      type: 'rectangle',
+      props: { x: 50, y: 60, width: 100, height: 80 },
+    };
+    const sharedPath: WhiteboardSketch = {
+      id: 'shared-wb-concurrent-resize',
+      name: 'Concurrent shared path',
+      type: 'path',
+      path: 'M 10 10 L 30 30',
+      color: '#123456',
+      strokeWidth: 2,
+      locked: true,
+    };
+    project.whiteboardSketches = [rectangle, sharedPath];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    const rectangleShape = whiteboardSvg?.querySelector<SVGRectElement>(
+      '[data-logoforge-whiteboard-id="resize-with-shared-change"] rect',
+    );
+    expect(rectangleShape).not.toBeNull();
+
+    fireEvent.mouseDown(rectangleShape!, { clientX: 100, clientY: 100 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 100, clientY: 100 });
+    const firstHandle = whiteboardSvg!.querySelector<SVGRectElement>(
+      '[data-logoforge-resize-handle="resize-with-shared-change:br"]',
+    );
+    expect(firstHandle).not.toBeNull();
+    fireEvent.mouseDown(firstHandle!, { clientX: 150, clientY: 140 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 180, clientY: 170 });
+
+    const editedSharedPath = { ...sharedPath, path: 'M 12 12 L 34 34' };
+    act(() => {
+      useAppStore.setState((state) => ({
+        projects: state.projects.map((item) => item.id === project.id
+          ? { ...item, whiteboardSketches: [rectangle, editedSharedPath] }
+          : item),
+      }));
+    });
+    await waitFor(() => {
+      expect(whiteboardSvg!.querySelector(
+        '[data-logoforge-whiteboard-id="shared-wb-concurrent-resize"] path',
+      )?.getAttribute('d')).toBe('M 12 12 L 34 34');
+      expect(whiteboardSvg!.querySelector(
+        '[data-logoforge-whiteboard-id="resize-with-shared-change"] rect',
+      )?.getAttribute('width')).toBe('130');
+    });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 180, clientY: 170 });
+
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].props.width).toBe(130);
+      expect(getProject().whiteboardSketches?.[1].path).toBe('M 12 12 L 34 34');
+    });
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].props.width).toBe(100);
+      expect(getProject().whiteboardSketches?.[1].path).toBe('M 12 12 L 34 34');
+    });
+    fireEvent.click(screen.getByTitle('Redo'));
+    await waitFor(() => expect(getProject().whiteboardSketches?.[0].props.width).toBe(130));
+
+    const secondHandle = whiteboardSvg!.querySelector<SVGRectElement>(
+      '[data-logoforge-resize-handle="resize-with-shared-change:br"]',
+    );
+    expect(secondHandle).not.toBeNull();
+    fireEvent.mouseDown(secondHandle!, { clientX: 180, clientY: 170 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 200, clientY: 190 });
+    act(() => {
+      useAppStore.setState((state) => ({
+        projects: state.projects.map((item) => item.id === project.id
+          ? { ...item, whiteboardSketches: item.whiteboardSketches?.filter((sketch) => sketch.id !== sharedPath.id) }
+          : item),
+      }));
+    });
+    await waitFor(() => {
+      expect(whiteboardSvg!.querySelector(
+        '[data-logoforge-whiteboard-id="shared-wb-concurrent-resize"]',
+      )).toBeNull();
+      expect(whiteboardSvg!.querySelector(
+        '[data-logoforge-whiteboard-id="resize-with-shared-change"] rect',
+      )?.getAttribute('width')).toBe('150');
+    });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 200, clientY: 190 });
+
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].props.width).toBe(150);
+      expect(getProject().whiteboardSketches?.some((sketch) => sketch.id === sharedPath.id)).toBe(false);
+    });
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].props.width).toBe(130);
+      expect(getProject().whiteboardSketches?.some((sketch) => sketch.id === sharedPath.id)).toBe(false);
+    });
   });
 
   it('moves path-backed sketches through strict Node translation and leaves malformed paths unchanged', async () => {

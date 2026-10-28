@@ -66,6 +66,30 @@ export function preserveSharedWhiteboardSketches(
   return preserved;
 }
 
+/** Replace shared mirrors known at the transaction boundary with their latest canonical state. */
+export function rebaseSharedWhiteboardSketches(
+  baseline: WhiteboardSketch[],
+  current: WhiteboardSketch[],
+  proposed: WhiteboardSketch[],
+): WhiteboardSketch[] {
+  const baselineSharedIds = new Set(
+    baseline.filter((sketch) => sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX)).map((sketch) => sketch.id),
+  );
+  const currentShared = current
+    .map((sketch, index) => ({ sketch, index }))
+    .filter(({ sketch }) => sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX));
+  const currentSharedIds = new Set(currentShared.map(({ sketch }) => sketch.id));
+  const rebased = proposed.filter((sketch) =>
+    !sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) ||
+    (!baselineSharedIds.has(sketch.id) && !currentSharedIds.has(sketch.id)),
+  );
+
+  for (const { sketch, index } of currentShared) {
+    rebased.splice(Math.max(0, Math.min(index, rebased.length)), 0, sketch);
+  }
+  return rebased;
+}
+
 function cloneNode(node: Node): Node {
   const clone: Node = {
     ...node,

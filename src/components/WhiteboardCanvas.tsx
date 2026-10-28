@@ -3,9 +3,14 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import type { WhiteboardSketch } from '../types';
 import { renderNode } from './CanvasRenderer';
-import { translateWhiteboardSketch, whiteboardSketchToNode } from '../engine/whiteboardNodeAdapter';
+import {
+  translateWhiteboardSketch,
+  updateWhiteboardSketchGeometry,
+  whiteboardSketchToNode,
+  type WhiteboardSketchGeometryUpdate,
+} from '../engine/whiteboardNodeAdapter';
 import { parsePathDataStrict } from '../engine/pathData';
-import { preserveSharedWhiteboardSketches, SHARED_WHITEBOARD_SKETCH_PREFIX } from '../engine/sharedVectorHistory';
+import { rebaseSharedWhiteboardSketches, SHARED_WHITEBOARD_SKETCH_PREFIX } from '../engine/sharedVectorHistory';
 import {
   getSqSegDist,
   snapCoords as snapCoordsToGrid,
@@ -200,6 +205,71 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
   const tapMaxFingersRef = useRef<number>(0);
   const tapMovedRef = useRef<boolean>(false);
   const mouseUpHandledRef = useRef(false);
+  const resizeFailureNotifiedRef = useRef(false);
+  const activeHandleStartSketchesRef = useRef<WhiteboardSketch[] | null>(null);
+  const activeHandleRef = useRef<{ sketchId: string; handleId: string } | null>(null);
+
+  const reapplyActiveResizePreview = (
+    latestSketches: WhiteboardSketch[],
+    localSketches: WhiteboardSketch[],
+  ): WhiteboardSketch[] => {
+    const activeHandle = activeHandleRef.current;
+    const handleStartSketches = activeHandleStartSketchesRef.current;
+    if (!activeHandle || !handleStartSketches) return latestSketches;
+
+    const startSketch = handleStartSketches.find((sketch) => sketch.id === activeHandle.sketchId);
+    const previewSketch = localSketches.find((sketch) => sketch.id === activeHandle.sketchId);
+    const latestSketch = latestSketches.find((sketch) => sketch.id === activeHandle.sketchId);
+    if (!startSketch || !previewSketch || !latestSketch) return latestSketches;
+
+    const startNode = whiteboardSketchToNode(startSketch);
+    const previewNode = whiteboardSketchToNode(previewSketch);
+    const latestNode = whiteboardSketchToNode(latestSketch);
+    if (!startNode.ok || !previewNode.ok || !latestNode.ok) return latestSketches;
+
+    let geometry: WhiteboardSketchGeometryUpdate;
+    if (
+      startSketch.type === 'rectangle' && previewSketch.type === 'rectangle' && latestSketch.type === 'rectangle' &&
+      startNode.node.type === 'rect' && previewNode.node.type === 'rect' && latestNode.node.type === 'rect'
+    ) {
+      const keys = ['x', 'y', 'width', 'height'] as const;
+      const values: Record<(typeof keys)[number], number> = { x: 0, y: 0, width: 0, height: 0 };
+      let changed = false;
+      for (const key of keys) {
+        const startValue = Number(startNode.node.props?.[key]);
+        const previewValue = Number(previewNode.node.props?.[key]);
+        const latestValue = Number(latestNode.node.props?.[key]);
+        if (![startValue, previewValue, latestValue].every(Number.isFinite)) return latestSketches;
+        if (startValue !== previewValue) changed = true;
+        values[key] = startValue !== previewValue ? previewValue : latestValue;
+      }
+      if (!changed) return latestSketches;
+      geometry = { kind: 'rect', ...values };
+    } else if (
+      startSketch.type === 'circle' && previewSketch.type === 'circle' && latestSketch.type === 'circle' &&
+      startNode.node.type === 'ellipse' && previewNode.node.type === 'ellipse' && latestNode.node.type === 'ellipse'
+    ) {
+      const keys = ['cx', 'cy', 'rx', 'ry'] as const;
+      const values: Record<(typeof keys)[number], number> = { cx: 0, cy: 0, rx: 0, ry: 0 };
+      let changed = false;
+      for (const key of keys) {
+        const startValue = Number(startNode.node.props?.[key]);
+        const previewValue = Number(previewNode.node.props?.[key]);
+        const latestValue = Number(latestNode.node.props?.[key]);
+        if (![startValue, previewValue, latestValue].every(Number.isFinite)) return latestSketches;
+        if (startValue !== previewValue) changed = true;
+        values[key] = startValue !== previewValue ? previewValue : latestValue;
+      }
+      if (!changed) return latestSketches;
+      geometry = { kind: 'ellipse', ...values };
+    } else {
+      return latestSketches;
+    }
+
+    const result = updateWhiteboardSketchGeometry(latestSketch, geometry);
+    if (!result.ok) return latestSketches;
+    return latestSketches.map((sketch) => sketch.id === latestSketch.id ? result.sketch : sketch);
+  };
 
   const getSketchBoundingBox = (sketch: any) => {
     if (!sketch) return null;
@@ -339,24 +409,19 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) && !nextIds.has(sketch.id),
     );
 
-    if (sharedAdds.length > 0 || sharedRemovals.length > 0) {
-      setSketchesHistory((history) => {
-        let rebased = history;
-        for (const removed of sharedRemovals) {
-          rebased = rebased.map((snapshot) => snapshot.filter((sketch) => sketch.id !== removed.id));
-        }
-        for (const added of sharedAdds) {
-          const insertAt = nextSketches.findIndex((sketch) => sketch.id === added.id);
-          rebased = rebased.map((snapshot) => {
-            if (snapshot.some((sketch) => sketch.id === added.id)) return snapshot;
-            const nextSnapshot = snapshot.slice();
-            nextSnapshot.splice(Math.max(0, Math.min(insertAt, nextSnapshot.length)), 0, added);
-            return nextSnapshot;
-          });
-        }
-        return rebased;
-      });
+    const previousSharedSketches = previous.sketches.filter((sketch) =>
+      sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX),
+    );
+    const nextSharedSketches = nextSketches.filter((sketch) =>
+      sketch.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX),
+    );
+    if (JSON.stringify(previousSharedSketches) !== JSON.stringify(nextSharedSketches)) {
+      setSketchesHistory((history) => history.map((snapshot) =>
+        rebaseSharedWhiteboardSketches(previous.sketches, nextSketches, snapshot),
+      ));
+    }
 
+    if (sharedAdds.length > 0 || sharedRemovals.length > 0) {
       for (const removed of sharedRemovals) {
         const appliedIndex = sharedAppliedHistoryRef.current.findIndex((entry) => entry.sketchId === removed.id);
         if (appliedIndex >= 0) {
@@ -376,7 +441,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       }
     }
 
-    setSketches(nextSketches);
+    setSketches((localSketches) => reapplyActiveResizePreview(nextSketches, localSketches));
     syncedSketchesRef.current = { projectId: syncedProjectId, sketches: nextSketches };
   }, [syncedProjectId, projectSketches]);
 
@@ -391,9 +456,15 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     }
   };
 
-  const updateSketchesWithHistory = (updated: typeof sketches, throttleCloud: boolean = true) => {
-    const nextSketches = preserveSharedWhiteboardSketches(sketches, updated);
-    if (nextSketches === sketches || (nextSketches.length === sketches.length && JSON.stringify(nextSketches) === JSON.stringify(sketches))) return;
+  const updateSketchesWithHistory = (
+    updated: typeof sketches,
+    throttleCloud: boolean = true,
+    baseline: typeof sketches = sketches,
+    sharedBaseline: typeof sketches = baseline,
+    sharedCurrent: typeof sketches = sketches,
+  ) => {
+    const nextSketches = rebaseSharedWhiteboardSketches(sharedBaseline, sharedCurrent, updated);
+    if (nextSketches === baseline || (nextSketches.length === baseline.length && JSON.stringify(nextSketches) === JSON.stringify(baseline))) return;
 
     sharedRedoHistoryRef.current = [];
     if (activeProjectId) discardSharedVectorRedoBranch(activeProjectId);
@@ -455,6 +526,21 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     setTimeout(() => {
       setBridgeNotification(null);
     }, 4000);
+  };
+
+  const beginHandleDrag = (sketchId: string, handleId: string) => {
+    mouseUpHandledRef.current = false;
+    resizeFailureNotifiedRef.current = false;
+    activeHandleStartSketchesRef.current = sketches;
+    activeHandleRef.current = { sketchId, handleId };
+    setIsDrawing(true);
+    setActiveHandle({ sketchId, handleId });
+  };
+
+  const notifyResizeFailure = () => {
+    if (resizeFailureNotifiedRef.current) return;
+    resizeFailureNotifiedRef.current = true;
+    triggerBanner('Could not safely resize this sketch; it was left unchanged.');
   };
 
   const deleteSketch = (id: string) => {
@@ -618,54 +704,80 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       const sketch = sketches.find(s => s.id === activeHandle.sketchId);
       if (sketch && !sketch.locked) {
         let updatedSketches = sketches;
+        const updateNodePreview = (geometry: WhiteboardSketchGeometryUpdate) => {
+          const result = updateWhiteboardSketchGeometry(sketch, geometry);
+          if (!result.ok) {
+            notifyResizeFailure();
+            return;
+          }
+          resizeFailureNotifiedRef.current = false;
+          updatedSketches = sketches.map((item) => item.id === sketch.id ? result.sketch : item);
+        };
+
         if (sketch.type === 'rectangle' && sketch.props) {
-          const props = sketch.props;
-          let newX = props.x;
-          let newY = props.y;
-          let newW = props.width;
-          let newH = props.height;
-          
-          if (activeHandle.handleId === 'br') {
-            newW = Math.max(5, point.x - props.x);
-            newH = Math.max(5, point.y - props.y);
-          } else if (activeHandle.handleId === 'tl') {
-            newX = Math.min(props.x + props.width - 5, point.x);
-            newY = Math.min(props.y + props.height - 5, point.y);
-            newW = props.x + props.width - newX;
-            newH = props.y + props.height - newY;
-          } else if (activeHandle.handleId === 'tr') {
-            newY = Math.min(props.y + props.height - 5, point.y);
-            newW = Math.max(5, point.x - props.x);
-            newH = props.y + props.height - newY;
-          } else if (activeHandle.handleId === 'bl') {
-            newX = Math.min(props.x + props.width - 5, point.x);
-            newW = props.x + props.width - newX;
-            newH = Math.max(5, point.y - props.y);
-          }
-          
-          updatedSketches = sketches.map(s => {
-            if (s.id === sketch.id) {
-              return { ...s, props: { ...s.props, x: newX, y: newY, width: newW, height: newH } };
+          const converted = whiteboardSketchToNode(sketch);
+          if (!converted.ok) {
+            notifyResizeFailure();
+          } else {
+            const props = converted.node.props ?? {};
+            const x = Number(props.x);
+            const y = Number(props.y);
+            const width = Number(props.width);
+            const height = Number(props.height);
+            if (![x, y, width, height].every(Number.isFinite)) {
+              notifyResizeFailure();
+            } else {
+              let newX = x;
+              let newY = y;
+              let newWidth = width;
+              let newHeight = height;
+
+              if (activeHandle.handleId === 'br') {
+                newWidth = Math.max(5, point.x - x);
+                newHeight = Math.max(5, point.y - y);
+              } else if (activeHandle.handleId === 'tl') {
+                newX = Math.min(x + width - 5, point.x);
+                newY = Math.min(y + height - 5, point.y);
+                newWidth = x + width - newX;
+                newHeight = y + height - newY;
+              } else if (activeHandle.handleId === 'tr') {
+                newY = Math.min(y + height - 5, point.y);
+                newWidth = Math.max(5, point.x - x);
+                newHeight = y + height - newY;
+              } else if (activeHandle.handleId === 'bl') {
+                newX = Math.min(x + width - 5, point.x);
+                newWidth = x + width - newX;
+                newHeight = Math.max(5, point.y - y);
+              }
+
+              updateNodePreview({ kind: 'rect', x: newX, y: newY, width: newWidth, height: newHeight });
             }
-            return s;
-          });
+          }
         } else if (sketch.type === 'circle' && sketch.props) {
-          const props = sketch.props;
-          let newRx = props.rx;
-          let newRy = props.ry;
-          
-          if (activeHandle.handleId === 'top' || activeHandle.handleId === 'bottom') {
-            newRy = Math.max(5, Math.abs(point.y - props.cy));
-          } else if (activeHandle.handleId === 'left' || activeHandle.handleId === 'right') {
-            newRx = Math.max(5, Math.abs(point.x - props.cx));
-          }
-          
-          updatedSketches = sketches.map(s => {
-            if (s.id === sketch.id) {
-              return { ...s, props: { ...s.props, rx: newRx, ry: newRy } };
+          const converted = whiteboardSketchToNode(sketch);
+          if (!converted.ok) {
+            notifyResizeFailure();
+          } else {
+            const props = converted.node.props ?? {};
+            const cx = Number(props.cx);
+            const cy = Number(props.cy);
+            const rx = Number(props.rx);
+            const ry = Number(props.ry);
+            if (![cx, cy, rx, ry].every(Number.isFinite)) {
+              notifyResizeFailure();
+            } else {
+              let newRx = rx;
+              let newRy = ry;
+
+              if (activeHandle.handleId === 'top' || activeHandle.handleId === 'bottom') {
+                newRy = Math.max(5, Math.abs(point.y - cy));
+              } else if (activeHandle.handleId === 'left' || activeHandle.handleId === 'right') {
+                newRx = Math.max(5, Math.abs(point.x - cx));
+              }
+
+              updateNodePreview({ kind: 'ellipse', cx, cy, rx: newRx, ry: newRy });
             }
-            return s;
-          });
+          }
         } else if (sketch.type === 'line') {
           let x1 = sketch.props?.x1;
           let y1 = sketch.props?.y1;
@@ -901,7 +1013,23 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     setIsDrawing(false);
 
     if (activeHandle) {
-      updateSketchesWithHistory(sketches);
+      const handleStartSketches = activeHandleStartSketchesRef.current ?? sketches;
+      const latestProjectSketches = useAppStore.getState().projects
+        .find((project) => project.id === activeProjectId)?.whiteboardSketches ?? sketches;
+      const rebasedHistoryBaseline = rebaseSharedWhiteboardSketches(
+        handleStartSketches,
+        latestProjectSketches,
+        handleStartSketches,
+      );
+      updateSketchesWithHistory(
+        sketches,
+        true,
+        rebasedHistoryBaseline,
+        handleStartSketches,
+        latestProjectSketches,
+      );
+      activeHandleStartSketchesRef.current = null;
+      activeHandleRef.current = null;
       setActiveHandle(null);
       return;
     }
@@ -2171,10 +2299,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       />
                       {/* Corner Handles */}
                       {[
-                        { id: 'tl', x: selectedSketch.props.x, y: selectedSketch.props.y, cursor: 'nwse-resize' },
-                        { id: 'tr', x: selectedSketch.props.x + selectedSketch.props.width, y: selectedSketch.props.y, cursor: 'nesw-resize' },
-                        { id: 'bl', x: selectedSketch.props.x, y: selectedSketch.props.y + selectedSketch.props.height, cursor: 'nesw-resize' },
-                        { id: 'br', x: selectedSketch.props.x + selectedSketch.props.width, y: selectedSketch.props.y + selectedSketch.props.height, cursor: 'nwse-resize' },
+                        { id: 'tl', x: Number(selectedSketch.props.x), y: Number(selectedSketch.props.y), cursor: 'nwse-resize' },
+                        { id: 'tr', x: Number(selectedSketch.props.x) + Number(selectedSketch.props.width), y: Number(selectedSketch.props.y), cursor: 'nesw-resize' },
+                        { id: 'bl', x: Number(selectedSketch.props.x), y: Number(selectedSketch.props.y) + Number(selectedSketch.props.height), cursor: 'nesw-resize' },
+                        { id: 'br', x: Number(selectedSketch.props.x) + Number(selectedSketch.props.width), y: Number(selectedSketch.props.y) + Number(selectedSketch.props.height), cursor: 'nwse-resize' },
                       ].map(h => (
                         <g key={h.id}>
                           {/* Visual Handle */}
@@ -2196,17 +2324,16 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                             width={44}
                             height={44}
                             fill="transparent"
+                            data-logoforge-resize-handle={`${selectedSketch.id}:${h.id}`}
                             style={{ cursor: h.cursor }}
                             onMouseDown={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              setIsDrawing(true);
-                              setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                              beginHandleDrag(selectedSketch.id, h.id);
                             }}
                             onTouchStart={(e) => {
                               e.stopPropagation();
-                              setIsDrawing(true);
-                              setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                              beginHandleDrag(selectedSketch.id, h.id);
                             }}
                           />
                         </g>
@@ -2231,10 +2358,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       />
                       {/* Axis handles */}
                       {[
-                        { id: 'top', x: selectedSketch.props.cx, y: selectedSketch.props.cy - selectedSketch.props.ry, cursor: 'ns-resize' },
-                        { id: 'bottom', x: selectedSketch.props.cx, y: selectedSketch.props.cy + selectedSketch.props.ry, cursor: 'ns-resize' },
-                        { id: 'left', x: selectedSketch.props.cx - selectedSketch.props.rx, y: selectedSketch.props.cy, cursor: 'ew-resize' },
-                        { id: 'right', x: selectedSketch.props.cx + selectedSketch.props.rx, y: selectedSketch.props.cy, cursor: 'ew-resize' },
+                        { id: 'top', x: Number(selectedSketch.props.cx), y: Number(selectedSketch.props.cy) - Number(selectedSketch.props.ry), cursor: 'ns-resize' },
+                        { id: 'bottom', x: Number(selectedSketch.props.cx), y: Number(selectedSketch.props.cy) + Number(selectedSketch.props.ry), cursor: 'ns-resize' },
+                        { id: 'left', x: Number(selectedSketch.props.cx) - Number(selectedSketch.props.rx), y: Number(selectedSketch.props.cy), cursor: 'ew-resize' },
+                        { id: 'right', x: Number(selectedSketch.props.cx) + Number(selectedSketch.props.rx), y: Number(selectedSketch.props.cy), cursor: 'ew-resize' },
                       ].map(h => (
                         <g key={h.id}>
                           {/* Visual Handle */}
@@ -2254,17 +2381,16 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                             cy={h.y}
                             r={22}
                             fill="transparent"
+                            data-logoforge-resize-handle={`${selectedSketch.id}:${h.id}`}
                             style={{ cursor: h.cursor }}
                             onMouseDown={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              setIsDrawing(true);
-                              setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                              beginHandleDrag(selectedSketch.id, h.id);
                             }}
                             onTouchStart={(e) => {
                               e.stopPropagation();
-                              setIsDrawing(true);
-                              setActiveHandle({ sketchId: selectedSketch.id, handleId: h.id });
+                              beginHandleDrag(selectedSketch.id, h.id);
                             }}
                           />
                         </g>
@@ -2331,17 +2457,16 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                               cy={y1}
                               r={22}
                               fill="transparent"
+                              data-logoforge-resize-handle={`${selectedSketch.id}:start`}
                               style={{ cursor: 'move' }}
                               onMouseDown={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                setIsDrawing(true);
-                                setActiveHandle({ sketchId: selectedSketch.id, handleId: 'start' });
+                                beginHandleDrag(selectedSketch.id, 'start');
                               }}
                               onTouchStart={(e) => {
                                 e.stopPropagation();
-                                setIsDrawing(true);
-                                setActiveHandle({ sketchId: selectedSketch.id, handleId: 'start' });
+                                beginHandleDrag(selectedSketch.id, 'start');
                               }}
                             />
                           </g>
@@ -2362,17 +2487,16 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                               cy={y2}
                               r={22}
                               fill="transparent"
+                              data-logoforge-resize-handle={`${selectedSketch.id}:end`}
                               style={{ cursor: 'move' }}
                               onMouseDown={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                setIsDrawing(true);
-                                setActiveHandle({ sketchId: selectedSketch.id, handleId: 'end' });
+                                beginHandleDrag(selectedSketch.id, 'end');
                               }}
                               onTouchStart={(e) => {
                                 e.stopPropagation();
-                                setIsDrawing(true);
-                                setActiveHandle({ sketchId: selectedSketch.id, handleId: 'end' });
+                                beginHandleDrag(selectedSketch.id, 'end');
                               }}
                             />
                           </g>
@@ -2415,17 +2539,16 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                                   cy={cy}
                                   r={22}
                                   fill="transparent"
+                                  data-logoforge-resize-handle={`${selectedSketch.id}:curve`}
                                   style={{ cursor: 'pointer' }}
                                   onMouseDown={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    setIsDrawing(true);
-                                    setActiveHandle({ sketchId: selectedSketch.id, handleId: 'curve' });
+                                    beginHandleDrag(selectedSketch.id, 'curve');
                                   }}
                                   onTouchStart={(e) => {
                                     e.stopPropagation();
-                                    setIsDrawing(true);
-                                    setActiveHandle({ sketchId: selectedSketch.id, handleId: 'curve' });
+                                    beginHandleDrag(selectedSketch.id, 'curve');
                                   }}
                                 />
                               </g>
