@@ -1304,6 +1304,74 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     updateSketchesWithHistory(updated, throttleCloud);
   };
 
+  const handleUpdateSelectedPrimitiveGeometry = (
+    field: 'x' | 'y' | 'width' | 'height' | 'cx' | 'cy' | 'rx' | 'ry',
+    rawValue: string,
+  ) => {
+    if (!selectedSketchId) return;
+    const target = sketches.find((sketch) => sketch.id === selectedSketchId);
+    if (!target || target.locked) return;
+    const value = rawValue.trim() === '' ? Number.NaN : Number(rawValue);
+    if (!Number.isFinite(value)) {
+      notifyResizeFailure();
+      return;
+    }
+
+    const converted = whiteboardSketchToNode(target);
+    if (!converted.ok) {
+      notifyResizeFailure();
+      return;
+    }
+    const props = converted.node.props ?? {};
+    let geometry: WhiteboardSketchGeometryUpdate;
+    if (target.type === 'rectangle' && converted.node.type === 'rect') {
+      if (field === 'cx' || field === 'cy' || field === 'rx' || field === 'ry') return;
+      const x = Number(props.x);
+      const y = Number(props.y);
+      const width = Number(props.width);
+      const height = Number(props.height);
+      if (![x, y, width, height].every(Number.isFinite)) {
+        notifyResizeFailure();
+        return;
+      }
+      geometry = {
+        kind: 'rect',
+        x: field === 'x' ? value : x,
+        y: field === 'y' ? value : y,
+        width: field === 'width' ? value : width,
+        height: field === 'height' ? value : height,
+      };
+    } else if (target.type === 'circle' && converted.node.type === 'ellipse') {
+      if (field === 'x' || field === 'y' || field === 'width' || field === 'height') return;
+      const cx = Number(props.cx);
+      const cy = Number(props.cy);
+      const rx = Number(props.rx);
+      const ry = Number(props.ry);
+      if (![cx, cy, rx, ry].every(Number.isFinite)) {
+        notifyResizeFailure();
+        return;
+      }
+      geometry = {
+        kind: 'ellipse',
+        cx: field === 'cx' ? value : cx,
+        cy: field === 'cy' ? value : cy,
+        rx: field === 'rx' ? value : rx,
+        ry: field === 'ry' ? value : ry,
+      };
+    } else {
+      notifyResizeFailure();
+      return;
+    }
+
+    const result = updateWhiteboardSketchGeometry(target, geometry);
+    if (!result.ok) {
+      notifyResizeFailure();
+      return;
+    }
+    resizeFailureNotifiedRef.current = false;
+    updateSketchesWithHistory(sketches.map((sketch) => sketch.id === target.id ? result.sketch : sketch));
+  };
+
   // Helper: Offset/translate all coordinates in a path string by dx and dy
   // Geometry helpers live in ../engine/legacyWhiteboardGeometry so they can be characterized.
 
@@ -2753,6 +2821,7 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                     min="0"
                     max="50"
                     value={selectedSketch.props.rx || 0}
+                    aria-label="Rectangle Corner Radius"
                     onChange={(e) => handleUpdateSelectedProps({ rx: Number(e.target.value) }, true)}
                     onMouseUp={() => saveSketch(sketches, false)}
                     onTouchEnd={() => saveSketch(sketches, false)}
@@ -2765,7 +2834,8 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <input
                         type="number"
                         value={selectedSketch.props.x || 0}
-                        onChange={(e) => handleUpdateSelectedProps({ x: Number(e.target.value) })}
+                        aria-label="Rectangle X"
+                        onChange={(e) => handleUpdateSelectedPrimitiveGeometry('x', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2774,7 +2844,8 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <input
                         type="number"
                         value={selectedSketch.props.y || 0}
-                        onChange={(e) => handleUpdateSelectedProps({ y: Number(e.target.value) })}
+                        aria-label="Rectangle Y"
+                        onChange={(e) => handleUpdateSelectedPrimitiveGeometry('y', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2782,8 +2853,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <span className="text-[9px] font-mono text-neutral-400">Width</span>
                       <input
                         type="number"
+                        min={5}
                         value={selectedSketch.props.width || 0}
-                        onChange={(e) => handleUpdateSelectedProps({ width: Number(e.target.value) })}
+                        aria-label="Rectangle Width"
+                        onChange={(e) => handleUpdateSelectedPrimitiveGeometry('width', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2791,8 +2864,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <span className="text-[9px] font-mono text-neutral-400">Height</span>
                       <input
                         type="number"
+                        min={5}
                         value={selectedSketch.props.height || 0}
-                        onChange={(e) => handleUpdateSelectedProps({ height: Number(e.target.value) })}
+                        aria-label="Rectangle Height"
+                        onChange={(e) => handleUpdateSelectedPrimitiveGeometry('height', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2810,7 +2885,8 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <input
                         type="number"
                         value={selectedSketch.props.cx || 0}
-                        onChange={(e) => handleUpdateSelectedProps({ cx: Number(e.target.value) })}
+                        aria-label="Ellipse Center X"
+                        onChange={(e) => handleUpdateSelectedPrimitiveGeometry('cx', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2819,7 +2895,8 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <input
                         type="number"
                         value={selectedSketch.props.cy || 0}
-                        onChange={(e) => handleUpdateSelectedProps({ cy: Number(e.target.value) })}
+                        aria-label="Ellipse Center Y"
+                        onChange={(e) => handleUpdateSelectedPrimitiveGeometry('cy', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2827,8 +2904,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <span className="text-[9px] font-mono text-neutral-400">Radius X</span>
                       <input
                         type="number"
+                        min={5}
                         value={selectedSketch.props.rx || 0}
-                        onChange={(e) => handleUpdateSelectedProps({ rx: Number(e.target.value) })}
+                        aria-label="Ellipse Radius X"
+                        onChange={(e) => handleUpdateSelectedPrimitiveGeometry('rx', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2836,8 +2915,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <span className="text-[9px] font-mono text-neutral-400">Radius Y</span>
                       <input
                         type="number"
+                        min={5}
                         value={selectedSketch.props.ry || 0}
-                        onChange={(e) => handleUpdateSelectedProps({ ry: Number(e.target.value) })}
+                        aria-label="Ellipse Radius Y"
+                        onChange={(e) => handleUpdateSelectedPrimitiveGeometry('ry', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>

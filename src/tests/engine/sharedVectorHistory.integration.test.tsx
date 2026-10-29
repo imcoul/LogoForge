@@ -299,6 +299,143 @@ describe('shared vector history editor integration', () => {
       .toBe('ellipse-kept');
   });
 
+  it('edits rectangle and ellipse inspector geometry through shared Nodes', async () => {
+    const project = makeProject();
+    project.whiteboardSketches = [
+      {
+        id: 'inspector-rect',
+        name: 'Inspector rectangle',
+        type: 'rectangle',
+        props: { x: '10', y: '20', width: '50', height: '40', rx: '6', customProp: 'rect-kept' },
+        color: '#123456',
+        strokeWidth: 3,
+        fillColor: '#abcdef',
+        fillOpacity: 0.4,
+        strokeDashArray: '5 2',
+        customLegacyField: 'rectangle-kept',
+      } as WhiteboardSketch,
+      {
+        id: 'inspector-ellipse',
+        name: 'Inspector ellipse',
+        type: 'circle',
+        props: { cx: '120', cy: '140', rx: '20', ry: '25', customProp: 'ellipse-kept' },
+        color: '#654321',
+        strokeWidth: 2,
+        fillColor: 'none',
+        customLegacyField: 'ellipse-kept',
+      } as WhiteboardSketch,
+      {
+        id: 'locked-inspector-rect',
+        name: 'Locked inspector rectangle',
+        type: 'rectangle',
+        props: { x: '300', y: '300', width: '50', height: '50' },
+        locked: true,
+      } as WhiteboardSketch,
+    ];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    const rectSketch = () => {
+      const sketch = getProject().whiteboardSketches?.find((item) => item.id === 'inspector-rect');
+      if (!sketch) throw new Error('Inspector rectangle should remain in the project');
+      return sketch;
+    };
+    const ellipseSketch = () => {
+      const sketch = getProject().whiteboardSketches?.find((item) => item.id === 'inspector-ellipse');
+      if (!sketch) throw new Error('Inspector ellipse should remain in the project');
+      return sketch;
+    };
+    const lockedSketch = () => {
+      const sketch = getProject().whiteboardSketches?.find((item) => item.id === 'locked-inspector-rect');
+      if (!sketch) throw new Error('Locked inspector rectangle should remain in the project');
+      return sketch;
+    };
+    const editNumber = async (label: string, value: string, readValue: () => unknown) => {
+      fireEvent.change(screen.getByRole('spinbutton', { name: label }), { target: { value } });
+      await waitFor(() => expect(readValue()).toBe(value));
+    };
+
+    const rectangle = whiteboardSvg?.querySelector<SVGRectElement>(
+      '[data-logoforge-whiteboard-id="inspector-rect"] rect',
+    );
+    expect(rectangle).not.toBeNull();
+    fireEvent.doubleClick(rectangle!, { clientX: 20, clientY: 30 });
+    await screen.findByRole('spinbutton', { name: 'Rectangle X' });
+
+    await editNumber('Rectangle X', '15', () => rectSketch().props.x);
+    await editNumber('Rectangle Y', '25', () => rectSketch().props.y);
+    await editNumber('Rectangle Width', '60', () => rectSketch().props.width);
+    await editNumber('Rectangle Height', '55', () => rectSketch().props.height);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Rectangle X' }), { target: { value: '' } });
+    await waitFor(() => expect(rectSketch().props.x).toBe('15'));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Rectangle Width' }), { target: { value: '' } });
+    await waitFor(() => expect(rectSketch().props.width).toBe('60'));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Rectangle Width' }), { target: { value: '4' } });
+    await waitFor(() => expect(rectSketch().props.width).toBe('60'));
+    expect(rectangle?.getAttribute('x')).toBe('15');
+    expect(rectangle?.getAttribute('y')).toBe('25');
+    expect(rectangle?.getAttribute('width')).toBe('60');
+    expect(rectangle?.getAttribute('height')).toBe('55');
+    expect(rectSketch().props.rx).toBe('6');
+    expect(rectSketch().props.customProp).toBe('rect-kept');
+    expect(rectSketch().color).toBe('#123456');
+    expect(rectSketch().fillOpacity).toBe(0.4);
+    expect((rectSketch() as WhiteboardSketch & { customLegacyField?: string }).customLegacyField)
+      .toBe('rectangle-kept');
+
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => expect(rectSketch().props.height).toBe('40'));
+    expect(rectSketch().props.width).toBe('60');
+    fireEvent.click(screen.getByTitle('Redo'));
+    await waitFor(() => expect(rectSketch().props.height).toBe('55'));
+
+    const cornerRadius = screen.getByRole('slider', { name: 'Rectangle Corner Radius' });
+    fireEvent.change(cornerRadius, { target: { value: '9' } });
+    await waitFor(() => expect(rectSketch().props.rx).toBe(9));
+
+    const ellipse = whiteboardSvg?.querySelector<SVGEllipseElement>(
+      '[data-logoforge-whiteboard-id="inspector-ellipse"] ellipse',
+    );
+    expect(ellipse).not.toBeNull();
+    fireEvent.doubleClick(ellipse!, { clientX: 120, clientY: 140 });
+    await screen.findByRole('spinbutton', { name: 'Ellipse Center X' });
+
+    await editNumber('Ellipse Center X', '130', () => ellipseSketch().props.cx);
+    await editNumber('Ellipse Center Y', '150', () => ellipseSketch().props.cy);
+    await editNumber('Ellipse Radius X', '30', () => ellipseSketch().props.rx);
+    await editNumber('Ellipse Radius Y', '35', () => ellipseSketch().props.ry);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Ellipse Radius X' }), { target: { value: '4' } });
+    await waitFor(() => expect(ellipseSketch().props.rx).toBe('30'));
+    expect(ellipse?.getAttribute('cx')).toBe('130');
+    expect(ellipse?.getAttribute('cy')).toBe('150');
+    expect(ellipse?.getAttribute('rx')).toBe('30');
+    expect(ellipse?.getAttribute('ry')).toBe('35');
+    expect(ellipseSketch().props.customProp).toBe('ellipse-kept');
+    expect(ellipseSketch().color).toBe('#654321');
+    expect((ellipseSketch() as WhiteboardSketch & { customLegacyField?: string }).customLegacyField)
+      .toBe('ellipse-kept');
+
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => expect(ellipseSketch().props.ry).toBe('25'));
+    expect(ellipseSketch().props.rx).toBe('30');
+    fireEvent.click(screen.getByTitle('Redo'));
+    await waitFor(() => expect(ellipseSketch().props.ry).toBe('35'));
+
+    const lockedRectangle = whiteboardSvg?.querySelector<SVGRectElement>(
+      '[data-logoforge-whiteboard-id="locked-inspector-rect"] rect',
+    );
+    expect(lockedRectangle).not.toBeNull();
+    fireEvent.doubleClick(lockedRectangle!, { clientX: 320, clientY: 320 });
+    const lockedWidth = await screen.findByRole('spinbutton', { name: 'Rectangle Width' });
+    fireEvent.change(lockedWidth, { target: { value: '70' } });
+    await waitFor(() => expect(lockedSketch().props.width).toBe('50'));
+  });
+
   it('reshapes Node-backed straight, quadratic, and elbow line handles with numeric-safe geometry', async () => {
     const project = makeProject();
     project.whiteboardSketches = [
