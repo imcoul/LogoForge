@@ -4,8 +4,10 @@ import { useAppStore } from '../store';
 import type { WhiteboardSketch } from '../types';
 import { renderNode } from './CanvasRenderer';
 import {
+  readWhiteboardSketchLineGeometry,
   translateWhiteboardSketch,
   updateWhiteboardSketchGeometry,
+  updateWhiteboardSketchLineHandle,
   whiteboardSketchToNode,
   type WhiteboardSketchGeometryUpdate,
 } from '../engine/whiteboardNodeAdapter';
@@ -262,6 +264,38 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
       }
       if (!changed) return latestSketches;
       geometry = { kind: 'ellipse', ...values };
+    } else if (
+      startSketch.type === 'line' && previewSketch.type === 'line' && latestSketch.type === 'line'
+    ) {
+      const startLine = readWhiteboardSketchLineGeometry(startSketch);
+      const previewLine = readWhiteboardSketchLineGeometry(previewSketch);
+      const latestLine = readWhiteboardSketchLineGeometry(latestSketch);
+      if (!startLine.ok || !previewLine.ok || !latestLine.ok) return latestSketches;
+      if (
+        startLine.geometry.kind !== previewLine.geometry.kind
+        || previewLine.geometry.kind !== latestLine.geometry.kind
+      ) return latestSketches;
+
+      const getHandlePoint = (line: typeof startLine.geometry) => {
+        if (activeHandle.handleId === 'start') return { x: line.x1, y: line.y1 };
+        if (activeHandle.handleId === 'end') return { x: line.x2, y: line.y2 };
+        if (activeHandle.handleId === 'curve' && line.kind === 'curved') {
+          return { x: line.curveX, y: line.curveY };
+        }
+        return null;
+      };
+      const startPoint = getHandlePoint(startLine.geometry);
+      const previewPoint = getHandlePoint(previewLine.geometry);
+      if (!startPoint || !previewPoint) return latestSketches;
+      if (startPoint.x === previewPoint.x && startPoint.y === previewPoint.y) return latestSketches;
+
+      const result = updateWhiteboardSketchLineHandle(latestSketch, {
+        handleId: activeHandle.handleId,
+        x: previewPoint.x,
+        y: previewPoint.y,
+      });
+      if (!result.ok) return latestSketches;
+      return latestSketches.map((sketch) => sketch.id === latestSketch.id ? result.sketch : sketch);
     } else {
       return latestSketches;
     }
@@ -389,6 +423,11 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     const nextSketches = projectSketches || [];
     const previous = syncedSketchesRef.current;
     if (previous.projectId !== syncedProjectId) {
+      activeHandleRef.current = null;
+      activeHandleStartSketchesRef.current = null;
+      resizeFailureNotifiedRef.current = false;
+      setActiveHandle(null);
+      setIsDrawing(false);
       setSketches(nextSketches);
       setSketchesHistory([nextSketches]);
       setSketchesHistoryIndex(0);
@@ -438,6 +477,19 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
           sharedRedoHistoryRef.current = [];
           sharedAppliedHistoryRef.current.push({ sketchId: added.id, localIndex: sketchesHistoryIndexRef.current });
         }
+      }
+    }
+
+    const activeHandle = activeHandleRef.current;
+    if (activeHandle && !nextIds.has(activeHandle.sketchId)) {
+      activeHandleRef.current = null;
+      activeHandleStartSketchesRef.current = null;
+      setActiveHandle(null);
+      setIsDrawing(false);
+      if (!activeHandle.sketchId.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX)) {
+        setSketchesHistory((history) => history.map((snapshot) =>
+          snapshot.filter((sketch) => sketch.id !== activeHandle.sketchId),
+        ));
       }
     }
 
@@ -541,6 +593,12 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     if (resizeFailureNotifiedRef.current) return;
     resizeFailureNotifiedRef.current = true;
     triggerBanner('Could not safely resize this sketch; it was left unchanged.');
+  };
+
+  const notifyLineReshapeFailure = () => {
+    if (resizeFailureNotifiedRef.current) return;
+    resizeFailureNotifiedRef.current = true;
+    triggerBanner('Could not safely reshape this line; it was left unchanged.');
   };
 
   const deleteSketch = (id: string) => {
@@ -779,82 +837,17 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
             }
           }
         } else if (sketch.type === 'line') {
-          let x1 = sketch.props?.x1;
-          let y1 = sketch.props?.y1;
-          let x2 = sketch.props?.x2;
-          let y2 = sketch.props?.y2;
-          let cx = sketch.props?.curveX;
-          let cy = sketch.props?.curveY;
-
-          const lineStyle = sketch.props?.lineStyle || (sketch.path?.includes('Q') ? 'curved' : 'straight');
-
-          if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
-            const matchQ = sketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*Q\s*([0-9.-]+),([0-9.-]+)\s*([0-9.-]+),([0-9.-]+)/i);
-            const matchL = sketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*L\s*([0-9.-]+),([0-9.-]+)/i);
-            if (matchQ) {
-              x1 = parseFloat(matchQ[1]);
-              y1 = parseFloat(matchQ[2]);
-              cx = parseFloat(matchQ[3]);
-              cy = parseFloat(matchQ[4]);
-              x2 = parseFloat(matchQ[5]);
-              y2 = parseFloat(matchQ[6]);
-            } else if (matchL) {
-              x1 = parseFloat(matchL[1]);
-              y1 = parseFloat(matchL[2]);
-              x2 = parseFloat(matchL[3]);
-              y2 = parseFloat(matchL[4]);
-              cx = (x1 + x2) / 2;
-              cy = (y1 + y2) / 2;
-            } else {
-              x1 = 0; y1 = 0; x2 = 100; y2 = 100;
-              cx = 50; cy = 50;
-            }
-          }
-
-          if (cx === undefined || cy === undefined) {
-            cx = (x1 + x2) / 2;
-            cy = (y1 + y2) / 2;
-          }
-
-          if (activeHandle.handleId === 'start') {
-            x1 = point.x;
-            y1 = point.y;
-          } else if (activeHandle.handleId === 'end') {
-            x2 = point.x;
-            y2 = point.y;
-          } else if (activeHandle.handleId === 'curve') {
-            cx = point.x;
-            cy = point.y;
-          }
-
-          let newPath = '';
-          if (lineStyle === 'curved') {
-            newPath = `M ${x1},${y1} Q ${cx},${cy} ${x2},${y2}`;
-          } else if (lineStyle === 'elbow') {
-            newPath = `M ${x1},${y1} L ${x2},${y1} L ${x2},${y2}`;
-          } else {
-            newPath = `M ${x1},${y1} L ${x2},${y2}`;
-          }
-
-          updatedSketches = sketches.map(s => {
-            if (s.id === sketch.id) {
-              return { 
-                ...s, 
-                path: newPath,
-                props: { 
-                  ...s.props,
-                  x1,
-                  y1,
-                  x2,
-                  y2,
-                  curveX: cx,
-                  curveY: cy,
-                  lineStyle
-                } 
-              };
-            }
-            return s;
+          const result = updateWhiteboardSketchLineHandle(sketch, {
+            handleId: activeHandle.handleId,
+            x: point.x,
+            y: point.y,
           });
+          if (!result.ok) {
+            notifyLineReshapeFailure();
+          } else {
+            resizeFailureNotifiedRef.current = false;
+            updatedSketches = sketches.map((item) => item.id === sketch.id ? result.sketch : item);
+          }
         }
         
         setSketches(updatedSketches);
@@ -2401,42 +2394,13 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                   {/* Line Handles */}
                   {selectedSketch.type === 'line' && (
                     (() => {
-                      let x1 = selectedSketch.props?.x1;
-                      let y1 = selectedSketch.props?.y1;
-                      let x2 = selectedSketch.props?.x2;
-                      let y2 = selectedSketch.props?.y2;
-                      let cx = selectedSketch.props?.curveX;
-                      let cy = selectedSketch.props?.curveY;
-
-                      const isCurved = selectedSketch.path?.includes('Q') || selectedSketch.props?.lineStyle === 'curved';
-
-                      if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
-                        const matchQ = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*Q\s*([0-9.-]+),([0-9.-]+)\s*([0-9.-]+),([0-9.-]+)/i);
-                        const matchL = selectedSketch.path?.match(/M\s*([0-9.-]+),([0-9.-]+)\s*L\s*([0-9.-]+),([0-9.-]+)/i);
-                        if (matchQ) {
-                          x1 = parseFloat(matchQ[1]);
-                          y1 = parseFloat(matchQ[2]);
-                          cx = parseFloat(matchQ[3]);
-                          cy = parseFloat(matchQ[4]);
-                          x2 = parseFloat(matchQ[5]);
-                          y2 = parseFloat(matchQ[6]);
-                        } else if (matchL) {
-                          x1 = parseFloat(matchL[1]);
-                          y1 = parseFloat(matchL[2]);
-                          x2 = parseFloat(matchL[3]);
-                          y2 = parseFloat(matchL[4]);
-                          cx = (x1 + x2) / 2;
-                          cy = (y1 + y2) / 2;
-                        } else {
-                          x1 = 0; y1 = 0; x2 = 100; y2 = 100;
-                          cx = 50; cy = 50;
-                        }
-                      }
-
-                      if (cx === undefined || cy === undefined) {
-                        cx = (x1 + x2) / 2;
-                        cy = (y1 + y2) / 2;
-                      }
+                      const lineResult = readWhiteboardSketchLineGeometry(selectedSketch);
+                      if (!lineResult.ok) return null;
+                      const { geometry } = lineResult;
+                      const { x1, y1, x2, y2 } = geometry;
+                      const isCurved = geometry.kind === 'curved';
+                      const cx = geometry.kind === 'curved' ? geometry.curveX : undefined;
+                      const cy = geometry.kind === 'curved' ? geometry.curveY : undefined;
 
                       return (
                         <>

@@ -1,6 +1,7 @@
 import { IDENTITY_TRANSFORM } from '../types';
 import type { Node, WhiteboardSketch } from '../types';
-import { translatePathData } from './pathData';
+import { parsePathDataStrict, serializePathData, translatePathData } from './pathData';
+import type { PathCommand } from './pathData';
 
 export const WHITEBOARD_NODE_ID_PREFIX = 'whiteboard-';
 export const WHITEBOARD_NODE_MIGRATION_VERSION = 1 as const;
@@ -54,6 +55,28 @@ export type WhiteboardSketchGeometryUpdateFailureReason =
   | WhiteboardMigrationFailureReason
   | 'unsupported-node-type'
   | 'unprojectable-node';
+
+export type WhiteboardSketchLineGeometry =
+  | { kind: 'straight'; x1: number; y1: number; x2: number; y2: number }
+  | { kind: 'curved'; x1: number; y1: number; curveX: number; curveY: number; x2: number; y2: number }
+  | { kind: 'elbow'; x1: number; y1: number; x2: number; y2: number };
+
+export type WhiteboardSketchLineHandleId = 'start' | 'end' | 'curve';
+
+export type WhiteboardSketchLineGeometryFailureReason =
+  | WhiteboardMigrationFailureReason
+  | 'unsupported-node-type'
+  | 'unprojectable-node'
+  | 'invalid-path-data'
+  | 'unsupported-line-geometry';
+
+export type WhiteboardSketchLineGeometryResult =
+  | { ok: true; geometry: WhiteboardSketchLineGeometry }
+  | { ok: false; reason: WhiteboardSketchLineGeometryFailureReason };
+
+export type WhiteboardSketchLineHandleUpdateResult =
+  | { ok: true; sketch: WhiteboardSketch; geometry: WhiteboardSketchLineGeometry }
+  | { ok: false; reason: WhiteboardSketchLineGeometryFailureReason };
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -682,6 +705,173 @@ export function updateWhiteboardSketchGeometry(
     const sketch = whiteboardNodeToSketch(updatedNode);
     if (!sketch) return { ok: false, reason: 'unprojectable-node' };
     return { ok: true, sketch };
+  } catch {
+    return { ok: false, reason: 'invalid-record' };
+  }
+}
+
+/** Read only the supported shared-Node line geometry used by Whiteboard's line handles. */
+export function readWhiteboardSketchLineGeometry(input: unknown): WhiteboardSketchLineGeometryResult {
+  try {
+    const converted = whiteboardSketchToNode(input);
+    if (converted.ok === false) return converted;
+    const source = converted.node.legacyWhiteboardSource.sourceSketch;
+    if (source.type !== 'line') return { ok: false, reason: 'unsupported-node-type' };
+
+    const declaredStyle = source.props?.lineStyle;
+    if (declaredStyle !== undefined && declaredStyle !== 'straight' && declaredStyle !== 'curved' && declaredStyle !== 'elbow') {
+      return { ok: false, reason: 'unsupported-line-geometry' };
+    }
+
+    let geometry: WhiteboardSketchLineGeometry | null = null;
+    if (converted.node.type === 'line') {
+      if (declaredStyle !== undefined && declaredStyle !== 'straight') {
+        return { ok: false, reason: 'unsupported-line-geometry' };
+      }
+      const x1 = numberProp(converted.node, 'x1');
+      const y1 = numberProp(converted.node, 'y1');
+      const x2 = numberProp(converted.node, 'x2');
+      const y2 = numberProp(converted.node, 'y2');
+      if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
+        return { ok: false, reason: 'invalid-geometry' };
+      }
+      geometry = { kind: 'straight', x1, y1, x2, y2 };
+    } else if (converted.node.type === 'path') {
+      const pathData = converted.node.props?.d ?? converted.node.props?.pathData;
+      if (typeof pathData !== 'string') return { ok: false, reason: 'invalid-path-data' };
+      const commands = parsePathDataStrict(pathData);
+      if (!commands) return { ok: false, reason: 'invalid-path-data' };
+
+      if (
+        commands.length === 2 && commands[0].command === 'M' && commands[0].args.length === 2
+        && commands[1].command === 'L' && commands[1].args.length === 2
+      ) {
+        geometry = {
+          kind: 'straight',
+          x1: commands[0].args[0], y1: commands[0].args[1],
+          x2: commands[1].args[0], y2: commands[1].args[1],
+        };
+      } else if (
+        commands.length === 2 && commands[0].command === 'M' && commands[0].args.length === 2
+        && commands[1].command === 'Q' && commands[1].args.length === 4
+      ) {
+        geometry = {
+          kind: 'curved',
+          x1: commands[0].args[0], y1: commands[0].args[1],
+          curveX: commands[1].args[0], curveY: commands[1].args[1],
+          x2: commands[1].args[2], y2: commands[1].args[3],
+        };
+      } else if (
+        commands.length === 3 && commands[0].command === 'M' && commands[0].args.length === 2
+        && commands[1].command === 'L' && commands[1].args.length === 2
+        && commands[2].command === 'L' && commands[2].args.length === 2
+        && commands[1].args[0] === commands[2].args[0]
+        && commands[1].args[1] === commands[0].args[1]
+      ) {
+        geometry = {
+          kind: 'elbow',
+          x1: commands[0].args[0], y1: commands[0].args[1],
+          x2: commands[2].args[0], y2: commands[2].args[1],
+        };
+      }
+    } else {
+      return { ok: false, reason: 'unsupported-node-type' };
+    }
+
+    if (!geometry) return { ok: false, reason: 'unsupported-line-geometry' };
+    if (declaredStyle !== undefined && declaredStyle !== geometry.kind) {
+      return { ok: false, reason: 'unsupported-line-geometry' };
+    }
+    return { ok: true, geometry };
+  } catch {
+    return { ok: false, reason: 'invalid-record' };
+  }
+}
+
+/** Update one line handle through its shared Node geometry and losslessly project it back. */
+export function updateWhiteboardSketchLineHandle(
+  input: unknown,
+  update: unknown,
+): WhiteboardSketchLineHandleUpdateResult {
+  try {
+    if (!isRecord(update) || !hasExactOwnDataProperties(update, ['handleId', 'x', 'y'])) {
+      return { ok: false, reason: 'invalid-geometry' };
+    }
+    const { handleId, x, y } = update;
+    if (handleId !== 'start' && handleId !== 'end' && handleId !== 'curve') {
+      return { ok: false, reason: 'invalid-geometry' };
+    }
+    if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) {
+      return { ok: false, reason: 'invalid-geometry' };
+    }
+
+    const current = readWhiteboardSketchLineGeometry(input);
+    if (current.ok === false) return current;
+    let geometry: WhiteboardSketchLineGeometry;
+    if (handleId === 'start') {
+      geometry = { ...current.geometry, x1: x, y1: y };
+    } else if (handleId === 'end') {
+      geometry = { ...current.geometry, x2: x, y2: y };
+    } else if (current.geometry.kind === 'curved') {
+      geometry = { ...current.geometry, curveX: x, curveY: y };
+    } else {
+      return { ok: false, reason: 'unsupported-line-geometry' };
+    }
+
+    const converted = whiteboardSketchToNode(input);
+    if (converted.ok === false) return converted;
+    let updatedNode: Node;
+    if (converted.node.type === 'line' && geometry.kind === 'straight') {
+      updatedNode = {
+        ...converted.node,
+        props: { ...converted.node.props, x1: geometry.x1, y1: geometry.y1, x2: geometry.x2, y2: geometry.y2 },
+      };
+    } else if (converted.node.type === 'path') {
+      let commands: PathCommand[];
+      if (geometry.kind === 'curved') {
+        commands = [
+          { command: 'M', args: [geometry.x1, geometry.y1] },
+          { command: 'Q', args: [geometry.curveX, geometry.curveY, geometry.x2, geometry.y2] },
+        ];
+      } else if (geometry.kind === 'elbow') {
+        commands = [
+          { command: 'M', args: [geometry.x1, geometry.y1] },
+          { command: 'L', args: [geometry.x2, geometry.y1] },
+          { command: 'L', args: [geometry.x2, geometry.y2] },
+        ];
+      } else {
+        commands = [
+          { command: 'M', args: [geometry.x1, geometry.y1] },
+          { command: 'L', args: [geometry.x2, geometry.y2] },
+        ];
+      }
+      updatedNode = {
+        ...converted.node,
+        props: { ...converted.node.props, d: serializePathData(commands) },
+      };
+    } else {
+      return { ok: false, reason: 'unsupported-node-type' };
+    }
+
+    const sketch = whiteboardNodeToSketch(updatedNode);
+    if (!sketch) return { ok: false, reason: 'unprojectable-node' };
+    const source = converted.node.legacyWhiteboardSource.sourceSketch;
+    const sourceProps = isRecord(source.props) ? source.props : {};
+    const projectedProps = isRecord(sketch.props) ? { ...sketch.props } : {};
+    const assignCoordinate = (key: string, value: number) => {
+      projectedProps[key] = typeof sourceProps[key] === 'string' ? String(value) : value;
+    };
+    assignCoordinate('x1', geometry.x1);
+    assignCoordinate('y1', geometry.y1);
+    assignCoordinate('x2', geometry.x2);
+    assignCoordinate('y2', geometry.y2);
+    if (geometry.kind === 'curved') {
+      assignCoordinate('curveX', geometry.curveX);
+      assignCoordinate('curveY', geometry.curveY);
+    }
+    if (sourceProps.lineStyle === undefined && geometry.kind === 'elbow') projectedProps.lineStyle = 'elbow';
+    sketch.props = projectedProps;
+    return { ok: true, sketch, geometry };
   } catch {
     return { ok: false, reason: 'invalid-record' };
   }

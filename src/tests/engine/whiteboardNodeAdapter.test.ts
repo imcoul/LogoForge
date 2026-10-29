@@ -8,6 +8,8 @@ import {
   whiteboardSketchToNode,
   translateWhiteboardSketch,
   updateWhiteboardSketchGeometry,
+  readWhiteboardSketchLineGeometry,
+  updateWhiteboardSketchLineHandle,
 } from '../../engine/whiteboardNodeAdapter';
 
 function sketch(overrides: Record<string, unknown> = {}): WhiteboardSketch {
@@ -499,6 +501,159 @@ describe('updateWhiteboardSketchGeometry', () => {
       { x: { enumerable: true, get: () => { accessorWasRead = true; return 10; } } },
     );
     expect(updateWhiteboardSketchGeometry(source, accessorUpdate))
+      .toEqual({ ok: false, reason: 'invalid-geometry' });
+    expect(accessorWasRead).toBe(false);
+    expect(source).toEqual(original);
+  });
+});
+
+describe('Node-backed Whiteboard line handles', () => {
+  it('reads and updates endpoint-only line Nodes without concatenating numeric strings', () => {
+    const source = sketch({
+      type: 'line',
+      path: undefined,
+      props: { x1: '100', y1: '100', x2: '200', y2: '200', lineStyle: 'straight', customProp: 'keep' },
+      customLegacyField: { source: 'kept' },
+    });
+    const original = structuredClone(source);
+
+    expect(readWhiteboardSketchLineGeometry(source)).toEqual({
+      ok: true,
+      geometry: { kind: 'straight', x1: 100, y1: 100, x2: 200, y2: 200 },
+    });
+    expect(updateWhiteboardSketchLineHandle(source, { handleId: 'end', x: 240, y: 260 })).toEqual({
+      ok: true,
+      sketch: {
+        ...source,
+        props: { x1: '100', y1: '100', x2: '240', y2: '260', lineStyle: 'straight', customProp: 'keep' },
+      },
+      geometry: { kind: 'straight', x1: 100, y1: 100, x2: 240, y2: 260 },
+    });
+    expect(source).toEqual(original);
+  });
+
+  it('updates quadratic Node path geometry and synchronizes legacy string props', () => {
+    const source = sketch({
+      type: 'line',
+      path: 'M 10,20 Q 30,40 50,60',
+      props: { x1: '10', y1: '20', x2: '50', y2: '60', curveX: '30', curveY: '40', lineStyle: 'curved' },
+      customLegacyField: { note: 'preserve' },
+    });
+
+    expect(readWhiteboardSketchLineGeometry(source)).toEqual({
+      ok: true,
+      geometry: { kind: 'curved', x1: 10, y1: 20, curveX: 30, curveY: 40, x2: 50, y2: 60 },
+    });
+    expect(updateWhiteboardSketchLineHandle(source, { handleId: 'curve', x: 35, y: 45 })).toEqual({
+      ok: true,
+      sketch: {
+        ...source,
+        path: 'M10,20 Q35,45,50,60',
+        props: { x1: '10', y1: '20', x2: '50', y2: '60', curveX: '35', curveY: '45', lineStyle: 'curved' },
+      },
+      geometry: { kind: 'curved', x1: 10, y1: 20, curveX: 35, curveY: 45, x2: 50, y2: 60 },
+    });
+  });
+
+  it('reads and reshapes straight and elbow path-backed lines while preserving line semantics', () => {
+    const straight = sketch({ type: 'line', path: 'M 10 20 L 30 40', props: undefined });
+    expect(updateWhiteboardSketchLineHandle(straight, { handleId: 'end', x: 50, y: 60 })).toEqual({
+      ok: true,
+      sketch: {
+        ...straight,
+        path: 'M10,20 L50,60',
+        props: { x1: 10, y1: 20, x2: 50, y2: 60 },
+      },
+      geometry: { kind: 'straight', x1: 10, y1: 20, x2: 50, y2: 60 },
+    });
+
+    const elbow = sketch({ type: 'line', path: 'M 10,20 L 30,20 L 30,40', props: { lineStyle: 'elbow' } });
+    expect(readWhiteboardSketchLineGeometry(elbow)).toEqual({
+      ok: true,
+      geometry: { kind: 'elbow', x1: 10, y1: 20, x2: 30, y2: 40 },
+    });
+    expect(updateWhiteboardSketchLineHandle(elbow, { handleId: 'start', x: 5, y: 15 })).toEqual({
+      ok: true,
+      sketch: {
+        ...elbow,
+        path: 'M5,15 L30,15 L30,40',
+        props: { lineStyle: 'elbow', x1: 5, y1: 15, x2: 30, y2: 40 },
+      },
+      geometry: { kind: 'elbow', x1: 5, y1: 15, x2: 30, y2: 40 },
+    });
+  });
+
+  it('maps native, quadratic, and elbow start/end handles to their exact Node coordinates', () => {
+    const native = sketch({
+      type: 'line',
+      path: undefined,
+      props: { x1: '10', y1: '20', x2: '30', y2: '40' },
+    });
+    expect(updateWhiteboardSketchLineHandle(native, { handleId: 'start', x: 5, y: 6 })).toEqual({
+      ok: true,
+      sketch: { ...native, props: { x1: '5', y1: '6', x2: '30', y2: '40' } },
+      geometry: { kind: 'straight', x1: 5, y1: 6, x2: 30, y2: 40 },
+    });
+
+    const quadratic = sketch({ type: 'line', path: 'M 10,20 Q 30,40 50,60', props: { lineStyle: 'curved' } });
+    expect(updateWhiteboardSketchLineHandle(quadratic, { handleId: 'start', x: 5, y: 6 })).toMatchObject({
+      ok: true,
+      sketch: { path: 'M5,6 Q30,40,50,60' },
+      geometry: { kind: 'curved', x1: 5, y1: 6, curveX: 30, curveY: 40, x2: 50, y2: 60 },
+    });
+    expect(updateWhiteboardSketchLineHandle(quadratic, { handleId: 'end', x: 55, y: 66 })).toMatchObject({
+      ok: true,
+      sketch: { path: 'M10,20 Q30,40,55,66' },
+      geometry: { kind: 'curved', x1: 10, y1: 20, curveX: 30, curveY: 40, x2: 55, y2: 66 },
+    });
+
+    const elbow = sketch({ type: 'line', path: 'M 10,20 L 30,20 L 30,40', props: { lineStyle: 'elbow' } });
+    expect(updateWhiteboardSketchLineHandle(elbow, { handleId: 'end', x: 35, y: 45 })).toMatchObject({
+      ok: true,
+      sketch: { path: 'M10,20 L35,20 L35,45' },
+      geometry: { kind: 'elbow', x1: 10, y1: 20, x2: 35, y2: 45 },
+    });
+  });
+
+  it('materializes an inferred elbow style so the legacy line inspector keeps the selected mode', () => {
+    const inferredElbow = sketch({ type: 'line', path: 'M 10,20 L 30,20 L 30,40', props: undefined });
+    const result = updateWhiteboardSketchLineHandle(inferredElbow, { handleId: 'end', x: 35, y: 45 });
+
+    expect(result).toEqual({
+      ok: true,
+      sketch: {
+        ...inferredElbow,
+        path: 'M10,20 L35,20 L35,45',
+        props: { x1: 10, y1: 20, x2: 35, y2: 45, lineStyle: 'elbow' },
+      },
+      geometry: { kind: 'elbow', x1: 10, y1: 20, x2: 35, y2: 45 },
+    });
+  });
+
+  it('rejects malformed, unsupported, mismatched, and unsafe line-handle updates without mutation', () => {
+    const source = sketch({ type: 'line', path: 'M 10,20 Q 30,40 50,60', props: { lineStyle: 'curved' } });
+    const original = structuredClone(source);
+
+    expect(readWhiteboardSketchLineGeometry(sketch({ type: 'line', path: 'M0 0 L10' })))
+      .toEqual({ ok: false, reason: 'invalid-path-data' });
+    expect(readWhiteboardSketchLineGeometry(sketch({ type: 'line', path: 'M0 0 L10 0 L10 20 L20 20' })))
+      .toEqual({ ok: false, reason: 'unsupported-line-geometry' });
+    expect(readWhiteboardSketchLineGeometry(sketch({ type: 'line', path: 'M0 0 Q5 5 10 10', props: { lineStyle: 'straight' } })))
+      .toEqual({ ok: false, reason: 'unsupported-line-geometry' });
+    expect(updateWhiteboardSketchLineHandle(source, { handleId: 'curve', x: Number.POSITIVE_INFINITY, y: 5 }))
+      .toEqual({ ok: false, reason: 'invalid-geometry' });
+    expect(updateWhiteboardSketchLineHandle(source, { handleId: 'start', x: 5, y: 5, extra: true }))
+      .toEqual({ ok: false, reason: 'invalid-geometry' });
+    expect(updateWhiteboardSketchLineHandle(source, { handleId: 'curve', x: 5, y: 5, extra: true }))
+      .toEqual({ ok: false, reason: 'invalid-geometry' });
+    expect(updateWhiteboardSketchLineHandle(source, { handleId: 'other', x: 5, y: 5 }))
+      .toEqual({ ok: false, reason: 'invalid-geometry' });
+    let accessorWasRead = false;
+    const accessorUpdate = Object.defineProperties(
+      { handleId: 'curve', y: 5 },
+      { x: { enumerable: true, get: () => { accessorWasRead = true; return 5; } } },
+    );
+    expect(updateWhiteboardSketchLineHandle(source, accessorUpdate))
       .toEqual({ ok: false, reason: 'invalid-geometry' });
     expect(accessorWasRead).toBe(false);
     expect(source).toEqual(original);

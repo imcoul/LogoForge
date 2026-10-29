@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SVGPathEditor } from '../../components/SVGPathEditor';
 import { ToastProvider } from '../../components/Toast';
 import { WhiteboardCanvas } from '../../components/WhiteboardCanvas';
@@ -297,6 +297,341 @@ describe('shared vector history editor integration', () => {
     });
     expect((getProject().whiteboardSketches?.[1] as WhiteboardSketch & { customLegacyField?: string }).customLegacyField)
       .toBe('ellipse-kept');
+  });
+
+  it('reshapes Node-backed straight, quadratic, and elbow line handles with numeric-safe geometry', async () => {
+    const project = makeProject();
+    project.whiteboardSketches = [
+      {
+        id: 'native-line-resize',
+        name: 'Native endpoint line',
+        type: 'line',
+        props: { x1: '100', y1: '100', x2: '200', y2: '200', customProp: 'line-kept' },
+        color: '#123456',
+        customLegacyField: 'native-line-kept',
+      } as WhiteboardSketch,
+      {
+        id: 'quadratic-line-resize',
+        name: 'Quadratic path line',
+        type: 'line',
+        path: 'M 220,100 Q 270,80 320,160',
+        props: { x1: '220', y1: '100', x2: '320', y2: '160', lineStyle: 'curved' },
+      },
+      {
+        id: 'elbow-line-resize',
+        name: 'Elbow path line',
+        type: 'line',
+        path: 'M 30,200 L 70,200 L 70,250',
+        props: { lineStyle: 'elbow' },
+      },
+    ];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    expect(whiteboardSvg).not.toBeNull();
+
+    const nativeLine = whiteboardSvg!.querySelector<SVGLineElement>(
+      '[data-logoforge-whiteboard-id="native-line-resize"] line',
+    );
+    expect(nativeLine).not.toBeNull();
+    fireEvent.mouseDown(nativeLine!, { clientX: 150, clientY: 150 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 150, clientY: 150 });
+    const nativeEnd = await waitFor(() => {
+      const handle = whiteboardSvg!.querySelector<SVGCircleElement>(
+        '[data-logoforge-resize-handle="native-line-resize:end"]',
+      );
+      expect(handle).not.toBeNull();
+      return handle!;
+    });
+    fireEvent.mouseDown(nativeEnd, { clientX: 200, clientY: 200 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 210, clientY: 230 });
+    expect(nativeLine!.getAttribute('x2')).toBe('210');
+    expect(nativeLine!.getAttribute('y2')).toBe('230');
+    expect(getProject().whiteboardSketches?.[0].props.x2).toBe('200');
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 210, clientY: 230 });
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].props).toMatchObject({ x1: '100', y1: '100', x2: '210', y2: '230' });
+    });
+    expect((getProject().whiteboardSketches?.[0] as WhiteboardSketch & { customLegacyField?: string }).customLegacyField)
+      .toBe('native-line-kept');
+    const nativeStart = whiteboardSvg!.querySelector<SVGCircleElement>(
+      '[data-logoforge-resize-handle="native-line-resize:start"]',
+    );
+    expect(nativeStart).not.toBeNull();
+    fireEvent.mouseDown(nativeStart!, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 90, clientY: 90 });
+    expect(nativeLine!.getAttribute('x1')).toBe('90');
+    expect(nativeLine!.getAttribute('y1')).toBe('90');
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 90, clientY: 90 });
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].props).toMatchObject({ x1: '90', y1: '90', x2: '210', y2: '230' });
+    });
+
+    const quadraticPath = whiteboardSvg!.querySelector<SVGPathElement>(
+      '[data-logoforge-whiteboard-id="quadratic-line-resize"] path',
+    );
+    expect(quadraticPath).not.toBeNull();
+    fireEvent.mouseDown(quadraticPath!, { clientX: 270, clientY: 100 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 270, clientY: 100 });
+    const curveHandle = await waitFor(() => {
+      const handle = whiteboardSvg!.querySelector<SVGCircleElement>(
+        '[data-logoforge-resize-handle="quadratic-line-resize:curve"]',
+      );
+      expect(handle).not.toBeNull();
+      return handle!;
+    });
+    expect(curveHandle.getAttribute('cx')).toBe('270');
+    expect(curveHandle.getAttribute('cy')).toBe('80');
+    fireEvent.mouseDown(curveHandle, { clientX: 270, clientY: 80 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 280, clientY: 90 });
+    expect(quadraticPath!.getAttribute('d')).toBe('M220,100 Q280,90,320,160');
+    expect(getProject().whiteboardSketches?.[1].path).toBe('M 220,100 Q 270,80 320,160');
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 280, clientY: 90 });
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[1].path).toBe('M220,100 Q280,90,320,160');
+      expect(getProject().whiteboardSketches?.[1].props).toMatchObject({ curveX: 280, curveY: 90 });
+    });
+    const quadraticEnd = whiteboardSvg!.querySelector<SVGCircleElement>(
+      '[data-logoforge-resize-handle="quadratic-line-resize:end"]',
+    );
+    expect(quadraticEnd).not.toBeNull();
+    fireEvent.mouseDown(quadraticEnd!, { clientX: 320, clientY: 160 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 330, clientY: 170 });
+    expect(quadraticPath!.getAttribute('d')).toBe('M220,100 Q280,90,330,170');
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 330, clientY: 170 });
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[1].path).toBe('M220,100 Q280,90,330,170');
+      expect(getProject().whiteboardSketches?.[1].props).toMatchObject({ x2: '330', y2: '170' });
+    });
+
+    const elbowPath = whiteboardSvg!.querySelector<SVGPathElement>(
+      '[data-logoforge-whiteboard-id="elbow-line-resize"] path',
+    );
+    expect(elbowPath).not.toBeNull();
+    fireEvent.mouseDown(elbowPath!, { clientX: 50, clientY: 200 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 50, clientY: 200 });
+    const elbowStart = await waitFor(() => {
+      const handle = whiteboardSvg!.querySelector<SVGCircleElement>(
+        '[data-logoforge-resize-handle="elbow-line-resize:start"]',
+      );
+      expect(handle).not.toBeNull();
+      return handle!;
+    });
+    fireEvent.mouseDown(elbowStart, { clientX: 30, clientY: 200 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 20, clientY: 190 });
+    expect(elbowPath!.getAttribute('d')).toBe('M20,190 L70,190 L70,250');
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 20, clientY: 190 });
+    await waitFor(() => expect(getProject().whiteboardSketches?.[2].path).toBe('M20,190 L70,190 L70,250'));
+    const elbowEnd = whiteboardSvg!.querySelector<SVGCircleElement>(
+      '[data-logoforge-resize-handle="elbow-line-resize:end"]',
+    );
+    expect(elbowEnd).not.toBeNull();
+    fireEvent.mouseDown(elbowEnd!, { clientX: 70, clientY: 250 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 80, clientY: 260 });
+    expect(elbowPath!.getAttribute('d')).toBe('M20,190 L80,190 L80,260');
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 80, clientY: 260 });
+    await waitFor(() => expect(getProject().whiteboardSketches?.[2].path).toBe('M20,190 L80,190 L80,260'));
+  });
+
+  it('preserves an in-flight quadratic line preview through a shared edit and release without another move', async () => {
+    const project = makeProject();
+    const curveLine: WhiteboardSketch = {
+      id: 'quadratic-line-sync',
+      name: 'Quadratic line with concurrent update',
+      type: 'line',
+      path: 'M 100,100 Q 150,60 200,200',
+      props: { x1: '100', y1: '100', x2: '200', y2: '200', lineStyle: 'curved' },
+    };
+    const sharedPath: WhiteboardSketch = {
+      id: 'shared-wb-concurrent-line',
+      name: 'Shared line-sync path',
+      type: 'path',
+      path: 'M 10 10 L 30 30',
+      locked: true,
+    };
+    project.whiteboardSketches = [curveLine, sharedPath];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    const curvePath = whiteboardSvg?.querySelector<SVGPathElement>(
+      '[data-logoforge-whiteboard-id="quadratic-line-sync"] path',
+    );
+    expect(curvePath).not.toBeNull();
+    fireEvent.mouseDown(curvePath!, { clientX: 150, clientY: 100 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 150, clientY: 100 });
+    const curveHandle = await waitFor(() => {
+      const handle = whiteboardSvg!.querySelector<SVGCircleElement>(
+        '[data-logoforge-resize-handle="quadratic-line-sync:curve"]',
+      );
+      expect(handle).not.toBeNull();
+      return handle!;
+    });
+    fireEvent.mouseDown(curveHandle, { clientX: 150, clientY: 60 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 180, clientY: 80 });
+    expect(curvePath!.getAttribute('d')).toBe('M100,100 Q180,80,200,200');
+    expect(getProject().whiteboardSketches?.[0].path).toBe('M 100,100 Q 150,60 200,200');
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        projects: state.projects.map((item) => item.id === project.id
+          ? {
+            ...item,
+            whiteboardSketches: item.whiteboardSketches?.map((sketch) =>
+              sketch.id === sharedPath.id ? { ...sketch, path: 'M 12 12 L 34 34' } : sketch,
+            ),
+          }
+          : item),
+      }));
+    });
+    await waitFor(() => {
+      expect(curvePath!.getAttribute('d')).toBe('M100,100 Q180,80,200,200');
+      expect(whiteboardSvg!.querySelector(
+        '[data-logoforge-whiteboard-id="shared-wb-concurrent-line"] path',
+      )?.getAttribute('d')).toBe('M 12 12 L 34 34');
+    });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 180, clientY: 80 });
+
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].path).toBe('M100,100 Q180,80,200,200');
+      expect(getProject().whiteboardSketches?.[0].props).toMatchObject({ curveX: 180, curveY: 80 });
+      expect(getProject().whiteboardSketches?.[1].path).toBe('M 12 12 L 34 34');
+    });
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].path).toBe('M 100,100 Q 150,60 200,200');
+      expect(getProject().whiteboardSketches?.[1].path).toBe('M 12 12 L 34 34');
+    });
+    fireEvent.click(screen.getByTitle('Redo'));
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].path).toBe('M100,100 Q180,80,200,200');
+      expect(getProject().whiteboardSketches?.[1].path).toBe('M 12 12 L 34 34');
+    });
+  });
+
+  it('cancels a line handle drag when its sketch is removed, without saving or undo-resurrecting it', async () => {
+    const project = makeProject();
+    const line: WhiteboardSketch = {
+      id: 'quadratic-line-removed-during-drag',
+      name: 'Line removed during active handle drag',
+      type: 'line',
+      path: 'M 100,100 Q 150,60 200,200',
+      props: { x1: '100', y1: '100', x2: '200', y2: '200', lineStyle: 'curved' },
+    };
+    project.whiteboardSketches = [line];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const updateAndSync = vi.fn(async (updates: Partial<Project>) => commitToStore(updates));
+    const { container } = render(
+      <ToastProvider>
+        <WhiteboardCanvas fullscreen={false} setFullscreen={() => undefined} onUpdateAndSync={updateAndSync} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    const path = whiteboardSvg?.querySelector<SVGPathElement>(
+      '[data-logoforge-whiteboard-id="quadratic-line-removed-during-drag"] path',
+    );
+    expect(path).not.toBeNull();
+    fireEvent.mouseDown(path!, { clientX: 150, clientY: 100 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 150, clientY: 100 });
+    const curveHandle = await waitFor(() => {
+      const handle = whiteboardSvg!.querySelector<SVGCircleElement>(
+        '[data-logoforge-resize-handle="quadratic-line-removed-during-drag:curve"]',
+      );
+      expect(handle).not.toBeNull();
+      return handle!;
+    });
+    fireEvent.mouseDown(curveHandle, { clientX: 150, clientY: 60 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 180, clientY: 80 });
+    expect(path!.getAttribute('d')).toBe('M100,100 Q180,80,200,200');
+    expect(updateAndSync).not.toHaveBeenCalled();
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        projects: state.projects.map((item) => item.id === project.id
+          ? { ...item, whiteboardSketches: item.whiteboardSketches?.filter((sketch) => sketch.id !== line.id) }
+          : item),
+      }));
+    });
+    await waitFor(() => expect(whiteboardSvg!.querySelector(
+      '[data-logoforge-whiteboard-id="quadratic-line-removed-during-drag"]',
+    )).toBeNull());
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 180, clientY: 80 });
+    await waitFor(() => expect(getProject().whiteboardSketches).toEqual([]));
+    expect(updateAndSync).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => expect(getProject().whiteboardSketches).toEqual([]));
+    expect(updateAndSync).not.toHaveBeenCalled();
+  });
+
+  it('cancels a line handle drag on project switch even when the next project reuses the sketch ID', async () => {
+    const firstProject = makeProject();
+    firstProject.id = 'handle-switch-project-a';
+    const firstLine: WhiteboardSketch = {
+      id: 'reused-line-id',
+      name: 'First project line',
+      type: 'line',
+      path: 'M 100,100 Q 150,60 200,200',
+      props: { x1: '100', y1: '100', x2: '200', y2: '200', lineStyle: 'curved' },
+    };
+    firstProject.whiteboardSketches = [firstLine];
+    const secondProject = makeProject();
+    secondProject.id = 'handle-switch-project-b';
+    const secondLine: WhiteboardSketch = {
+      ...firstLine,
+      name: 'Second project line',
+      path: 'M 300,300 Q 350,250 400,400',
+      props: { x1: '300', y1: '300', x2: '400', y2: '400', lineStyle: 'curved' },
+    };
+    secondProject.whiteboardSketches = [secondLine];
+    useAppStore.setState({ projects: [firstProject, secondProject], activeProjectId: firstProject.id });
+    const updateAndSync = vi.fn(async (updates: Partial<Project>) => commitToStore(updates));
+    const { container } = render(
+      <ToastProvider>
+        <WhiteboardCanvas fullscreen={false} setFullscreen={() => undefined} onUpdateAndSync={updateAndSync} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    const firstPath = whiteboardSvg?.querySelector<SVGPathElement>(
+      '[data-logoforge-whiteboard-id="reused-line-id"] path',
+    );
+    expect(firstPath).not.toBeNull();
+    fireEvent.mouseDown(firstPath!, { clientX: 150, clientY: 100 });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 150, clientY: 100 });
+    const curveHandle = await waitFor(() => {
+      const handle = whiteboardSvg!.querySelector<SVGCircleElement>(
+        '[data-logoforge-resize-handle="reused-line-id:curve"]',
+      );
+      expect(handle).not.toBeNull();
+      return handle!;
+    });
+    fireEvent.mouseDown(curveHandle, { clientX: 150, clientY: 60 });
+    fireEvent.mouseMove(whiteboardSvg!, { clientX: 180, clientY: 80 });
+    expect(firstPath!.getAttribute('d')).toBe('M100,100 Q180,80,200,200');
+
+    act(() => useAppStore.setState({ activeProjectId: secondProject.id }));
+    await waitFor(() => {
+      expect(getProject().id).toBe(secondProject.id);
+      expect(whiteboardSvg!.querySelector(
+        '[data-logoforge-whiteboard-id="reused-line-id"] path',
+      )?.getAttribute('d')).toBe('M 300,300 Q 350,250 400,400');
+    });
+    fireEvent.mouseUp(whiteboardSvg!, { clientX: 180, clientY: 80 });
+    await waitFor(() => {
+      expect(getProject().whiteboardSketches?.[0].path).toBe('M 300,300 Q 350,250 400,400');
+      expect(useAppStore.getState().projects.find((project) => project.id === firstProject.id)
+        ?.whiteboardSketches?.[0].path).toBe('M 100,100 Q 150,60 200,200');
+    });
+    expect(updateAndSync).not.toHaveBeenCalled();
   });
 
   it('rebases an in-flight resize onto concurrent shared mirror edits and removals', async () => {
