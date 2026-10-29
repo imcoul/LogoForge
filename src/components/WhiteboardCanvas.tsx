@@ -1372,6 +1372,40 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
     updateSketchesWithHistory(sketches.map((sketch) => sketch.id === target.id ? result.sketch : sketch));
   };
 
+  const handleUpdateSelectedLineEndpoint = (
+    field: 'x1' | 'y1' | 'x2' | 'y2',
+    rawValue: string,
+  ) => {
+    if (!selectedSketchId) return;
+    const target = sketches.find((sketch) => sketch.id === selectedSketchId);
+    if (!target || target.locked || target.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX)) return;
+    const value = rawValue.trim() === '' ? Number.NaN : Number(rawValue);
+    if (!Number.isFinite(value)) {
+      notifyLineReshapeFailure();
+      return;
+    }
+
+    const current = readWhiteboardSketchLineGeometry(target);
+    if (!current.ok) {
+      notifyLineReshapeFailure();
+      return;
+    }
+    const handleId = field === 'x1' || field === 'y1' ? 'start' : 'end';
+    const x = field === 'x1' || field === 'x2'
+      ? value
+      : handleId === 'start' ? current.geometry.x1 : current.geometry.x2;
+    const y = field === 'y1' || field === 'y2'
+      ? value
+      : handleId === 'start' ? current.geometry.y1 : current.geometry.y2;
+    const result = updateWhiteboardSketchLineHandle(target, { handleId, x, y });
+    if (!result.ok) {
+      notifyLineReshapeFailure();
+      return;
+    }
+    resizeFailureNotifiedRef.current = false;
+    updateSketchesWithHistory(sketches.map((sketch) => sketch.id === target.id ? result.sketch : sketch));
+  };
+
   // Helper: Offset/translate all coordinates in a path string by dx and dy
   // Geometry helpers live in ../engine/legacyWhiteboardGeometry so they can be characterized.
 
@@ -1656,6 +1690,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
 
   const selectedSketch = sketches.find(s => s.id === selectedSketchId);
   const selectedSketchIsShared = selectedSketch?.id.startsWith(SHARED_WHITEBOARD_SKETCH_PREFIX) ?? false;
+  const selectedLineGeometryResult = selectedSketch?.type === 'line'
+    ? readWhiteboardSketchLineGeometry(selectedSketch)
+    : null;
+  const selectedLineGeometry = selectedLineGeometryResult?.ok ? selectedLineGeometryResult.geometry : null;
 
   // Concentric circle centers
   const centerX = canvasRef.current ? canvasRef.current.clientWidth / 2 : 380;
@@ -2935,13 +2973,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <span className="text-[9px] font-mono text-neutral-400">X1</span>
                       <input
                         type="number"
-                        value={selectedSketch.props.x1 ?? 0}
-                        onChange={(e) => {
-                          const newX1 = Number(e.target.value);
-                          const path = `M ${newX1},${selectedSketch.props.y1 ?? 0} L ${selectedSketch.props.x2 ?? 100},${selectedSketch.props.y2 ?? 100}`;
-                          handleUpdateSelectedProps({ x1: newX1 });
-                          handleUpdateSelectedSketch({ path });
-                        }}
+                        step="any"
+                        value={selectedLineGeometry?.x1 ?? selectedSketch.props?.x1 ?? 0}
+                        aria-label="Line X1"
+                        onChange={(e) => handleUpdateSelectedLineEndpoint('x1', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2949,13 +2984,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <span className="text-[9px] font-mono text-neutral-400">Y1</span>
                       <input
                         type="number"
-                        value={selectedSketch.props.y1 ?? 0}
-                        onChange={(e) => {
-                          const newY1 = Number(e.target.value);
-                          const path = `M ${selectedSketch.props.x1 ?? 0},${newY1} L ${selectedSketch.props.x2 ?? 100},${selectedSketch.props.y2 ?? 100}`;
-                          handleUpdateSelectedProps({ y1: newY1 });
-                          handleUpdateSelectedSketch({ path });
-                        }}
+                        step="any"
+                        value={selectedLineGeometry?.y1 ?? selectedSketch.props?.y1 ?? 0}
+                        aria-label="Line Y1"
+                        onChange={(e) => handleUpdateSelectedLineEndpoint('y1', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2963,13 +2995,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <span className="text-[9px] font-mono text-neutral-400">X2</span>
                       <input
                         type="number"
-                        value={selectedSketch.props.x2 ?? 100}
-                        onChange={(e) => {
-                          const newX2 = Number(e.target.value);
-                          const path = `M ${selectedSketch.props.x1 ?? 0},${selectedSketch.props.y1 ?? 0} L ${newX2},${selectedSketch.props.y2 ?? 100}`;
-                          handleUpdateSelectedProps({ x2: newX2 });
-                          handleUpdateSelectedSketch({ path });
-                        }}
+                        step="any"
+                        value={selectedLineGeometry?.x2 ?? selectedSketch.props?.x2 ?? 100}
+                        aria-label="Line X2"
+                        onChange={(e) => handleUpdateSelectedLineEndpoint('x2', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>
@@ -2977,13 +3006,10 @@ Always return ONLY the JSON block. Do NOT wrap it in markdown block code fences,
                       <span className="text-[9px] font-mono text-neutral-400">Y2</span>
                       <input
                         type="number"
-                        value={selectedSketch.props.y2 ?? 100}
-                        onChange={(e) => {
-                          const newY2 = Number(e.target.value);
-                          const path = `M ${selectedSketch.props.x1 ?? 0},${selectedSketch.props.y1 ?? 0} L ${selectedSketch.props.x2 ?? 100},${newY2}`;
-                          handleUpdateSelectedProps({ y2: newY2 });
-                          handleUpdateSelectedSketch({ path });
-                        }}
+                        step="any"
+                        value={selectedLineGeometry?.y2 ?? selectedSketch.props?.y2 ?? 100}
+                        aria-label="Line Y2"
+                        onChange={(e) => handleUpdateSelectedLineEndpoint('y2', e.target.value)}
                         className="w-full text-xs font-mono px-2 py-1 bg-zinc-50 dark:bg-zinc-900 border rounded border-neutral-200 dark:border-zinc-800 text-center"
                       />
                     </div>

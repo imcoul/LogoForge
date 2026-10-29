@@ -436,6 +436,182 @@ describe('shared vector history editor integration', () => {
     await waitFor(() => expect(lockedSketch().props.width).toBe('50'));
   });
 
+  it('edits native line inspector endpoints as single Node-backed history steps', async () => {
+    const project = makeProject();
+    project.whiteboardSketches = [{
+      id: 'line-inspector-native',
+      name: 'Native inspector line',
+      type: 'line',
+      props: { x1: '10', y1: '20', x2: '80', y2: '90', lineStyle: 'straight', customProp: 'line-kept' },
+      color: '#123456',
+      strokeWidth: 3,
+      customLegacyField: 'native-kept',
+    } as WhiteboardSketch];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    const line = whiteboardSvg?.querySelector<SVGLineElement>(
+      '[data-logoforge-whiteboard-id="line-inspector-native"] line',
+    );
+    const getLine = () => {
+      const sketch = getProject().whiteboardSketches?.find((item) => item.id === 'line-inspector-native');
+      if (!sketch) throw new Error('Native inspector line should remain in the project');
+      return sketch;
+    };
+    const editNumber = async (label: string, value: string, readValue: () => unknown) => {
+      fireEvent.change(screen.getByRole('spinbutton', { name: label }), { target: { value } });
+      await waitFor(() => expect(readValue()).toBe(value));
+    };
+    expect(line).not.toBeNull();
+    fireEvent.doubleClick(line!, { clientX: 40, clientY: 50 });
+    const x1Input = await screen.findByRole('spinbutton', { name: 'Line X1' });
+    expect((x1Input as HTMLInputElement).value).toBe('10');
+    expect((screen.getByRole('spinbutton', { name: 'Line Y1' }) as HTMLInputElement).value).toBe('20');
+    expect((screen.getByRole('spinbutton', { name: 'Line X2' }) as HTMLInputElement).value).toBe('80');
+    expect((screen.getByRole('spinbutton', { name: 'Line Y2' }) as HTMLInputElement).value).toBe('90');
+
+    await editNumber('Line X1', '15', () => getLine().props?.x1);
+    await editNumber('Line Y1', '25', () => getLine().props?.y1);
+    await editNumber('Line X2', '85', () => getLine().props?.x2);
+    await editNumber('Line Y2', '95', () => getLine().props?.y2);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Line X1' }), { target: { value: '' } });
+    await waitFor(() => expect(getLine().props?.x1).toBe('15'));
+    expect(line?.getAttribute('x1')).toBe('15');
+    expect(line?.getAttribute('y1')).toBe('25');
+    expect(line?.getAttribute('x2')).toBe('85');
+    expect(line?.getAttribute('y2')).toBe('95');
+    expect(getLine().props?.lineStyle).toBe('straight');
+    expect(getLine().props?.customProp).toBe('line-kept');
+    expect((getLine() as WhiteboardSketch & { customLegacyField?: string }).customLegacyField).toBe('native-kept');
+
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => expect(getLine().props?.y2).toBe('90'));
+    expect(getLine().props?.x2).toBe('85');
+    fireEvent.click(screen.getByTitle('Redo'));
+    await waitFor(() => expect(getLine().props?.y2).toBe('95'));
+  });
+
+  it('preserves path-backed line inspector geometry and rejects unsupported or locked endpoints', async () => {
+    const project = makeProject();
+    project.whiteboardSketches = [
+      {
+        id: 'line-inspector-straight-path',
+        name: 'Straight path line',
+        type: 'line',
+        path: 'M 30,40 L 60,70',
+        props: { lineStyle: 'straight', customProp: 'straight-kept' },
+      },
+      {
+        id: 'line-inspector-quadratic',
+        name: 'Quadratic inspector line',
+        type: 'line',
+        path: 'M 100,120 Q 140,150 180,200',
+        props: {
+          x1: '100', y1: '120', x2: '180', y2: '200', curveX: '140', curveY: '150',
+          lineStyle: 'curved', customProp: 'quadratic-kept',
+        },
+      },
+      {
+        id: 'line-inspector-elbow',
+        name: 'Elbow inspector line',
+        type: 'line',
+        path: 'M 200,220 L 260,220 L 260,280',
+        props: { x1: '200', y1: '220', x2: '260', y2: '280', lineStyle: 'elbow', customProp: 'elbow-kept' },
+      },
+      {
+        id: 'line-inspector-unsupported',
+        name: 'Unsupported cubic line',
+        type: 'line',
+        path: 'M 1,2 C 3,4 5,6 8,9',
+        props: { x1: '1', y1: '2', x2: '8', y2: '9', lineStyle: 'curved' },
+      },
+      {
+        id: 'line-inspector-locked',
+        name: 'Locked inspector line',
+        type: 'line',
+        props: { x1: '10', y1: '10', x2: '20', y2: '20', lineStyle: 'straight' },
+        locked: true,
+      },
+      {
+        id: 'shared-wb-line-inspector-readonly',
+        name: 'Unlocked shared inspector line',
+        type: 'line',
+        props: { x1: '30', y1: '40', x2: '50', y2: '60', lineStyle: 'straight' },
+        locked: false,
+      },
+    ];
+    useAppStore.setState({ projects: [project], activeProjectId: project.id });
+    const history = createSharedVectorHistoryController(commitToStore);
+    const { container } = render(
+      <ToastProvider>
+        <EditorPair history={history} />
+      </ToastProvider>,
+    );
+    const whiteboardSvg = container.querySelector<SVGSVGElement>('svg.touch-none');
+    const getLine = (id: string) => {
+      const sketch = getProject().whiteboardSketches?.find((item) => item.id === id);
+      if (!sketch) throw new Error(`Line ${id} should remain in the project`);
+      return sketch;
+    };
+    const selectLine = async (id: string) => {
+      const target = whiteboardSvg?.querySelector<SVGGraphicsElement>(
+        `[data-logoforge-whiteboard-id="${id}"] path, [data-logoforge-whiteboard-id="${id}"] line`,
+      );
+      expect(target).not.toBeNull();
+      fireEvent.doubleClick(target!, { clientX: 50, clientY: 60 });
+      await screen.findByRole('spinbutton', { name: 'Line X1' });
+    };
+    const editNumber = async (label: string, value: string, readValue: () => unknown) => {
+      fireEvent.change(screen.getByRole('spinbutton', { name: label }), { target: { value } });
+      await waitFor(() => expect(readValue()).toBe(value));
+    };
+
+    await selectLine('line-inspector-straight-path');
+    expect((screen.getByRole('spinbutton', { name: 'Line X1' }) as HTMLInputElement).value).toBe('30');
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Line X2' }), { target: { value: '75' } });
+    await waitFor(() => expect(getLine('line-inspector-straight-path').props?.x2).toBe(75));
+    expect(getLine('line-inspector-straight-path').path).toBe('M30,40 L75,70');
+    expect(getLine('line-inspector-straight-path').props?.lineStyle).toBe('straight');
+    expect(getLine('line-inspector-straight-path').props?.customProp).toBe('straight-kept');
+
+    await selectLine('line-inspector-quadratic');
+    await editNumber('Line X2', '190', () => getLine('line-inspector-quadratic').props?.x2);
+    expect(getLine('line-inspector-quadratic').path).toBe('M100,120 Q140,150,190,200');
+    expect(getLine('line-inspector-quadratic').props).toMatchObject({
+      x1: '100', y1: '120', x2: '190', y2: '200', curveX: '140', curveY: '150',
+      lineStyle: 'curved', customProp: 'quadratic-kept',
+    });
+
+    await selectLine('line-inspector-elbow');
+    await editNumber('Line Y1', '230', () => getLine('line-inspector-elbow').props?.y1);
+    expect(getLine('line-inspector-elbow').path).toBe('M200,230 L260,230 L260,280');
+    expect(getLine('line-inspector-elbow').props?.lineStyle).toBe('elbow');
+    expect(getLine('line-inspector-elbow').props?.customProp).toBe('elbow-kept');
+
+    await selectLine('line-inspector-unsupported');
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Line X1' }), { target: { value: '5' } });
+    await waitFor(() => expect(getLine('line-inspector-unsupported').props?.x1).toBe('1'));
+    expect(getLine('line-inspector-unsupported').path).toBe('M 1,2 C 3,4 5,6 8,9');
+    await selectLine('line-inspector-locked');
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Line X1' }), { target: { value: '30' } });
+    await waitFor(() => expect(getLine('line-inspector-locked').props?.x1).toBe('10'));
+    await selectLine('shared-wb-line-inspector-readonly');
+    expect(getLine('shared-wb-line-inspector-readonly').locked).toBe(false);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Line X1' }), { target: { value: '40' } });
+    await waitFor(() => expect(getLine('shared-wb-line-inspector-readonly').props?.x1).toBe('30'));
+
+    fireEvent.click(screen.getByTitle('Undo'));
+    await waitFor(() => expect(getLine('line-inspector-elbow').path).toBe('M 200,220 L 260,220 L 260,280'));
+    expect(getLine('line-inspector-quadratic').path).toBe('M100,120 Q140,150,190,200');
+    fireEvent.click(screen.getByTitle('Redo'));
+    await waitFor(() => expect(getLine('line-inspector-elbow').path).toBe('M200,230 L260,230 L260,280'));
+  });
+
   it('reshapes Node-backed straight, quadratic, and elbow line handles with numeric-safe geometry', async () => {
     const project = makeProject();
     project.whiteboardSketches = [
